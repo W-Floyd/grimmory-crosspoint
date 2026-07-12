@@ -68,13 +68,12 @@ jobs:
 
       - name: Commit and push
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN_GIT_URL: "https://actions:${{ github.token }}@github.com/${{ github.repository }}"
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          GIT_URL="$(git remote get-url origin)"
-          GH_TOKEN_GIT_URL=$(echo $GIT_URL | sed "s~https\?://~https://:$GITHUB_TOKEN@~")
+          ORIGINAL_GIT_URL="$(git remote get-url origin)"
 
           git add '**/gradle.lockfile'
           if git diff --cached --quiet; then
@@ -82,7 +81,7 @@ jobs:
           else
             git commit -m "chore(deps): update gradle lockfiles"
 
-            git remote set-url origin "$GH_TOKEN_GIT_URL"
-            git push
-            git remote set-url origin "$GIT_URL"
+            git remote set-url origin "$GITHUB_TOKEN_GIT_URL"
+            git push origin
+            git remote set-url origin "$ORIGINAL_GIT_URL"
           fi
