@@ -40,6 +40,7 @@ class OpdsFeedServiceMimeTypeTest {
     private OpdsBookService opdsBookService;
     private MagicShelfService magicShelfService;
     private MagicShelfBookService magicShelfBookService;
+    private org.booklore.service.opds.optimization.DevicePresetService devicePresetService;
     private OpdsFeedService opdsFeedService;
     private HttpServletRequest request;
 
@@ -52,7 +53,8 @@ class OpdsFeedServiceMimeTypeTest {
         opdsBookService = mock(OpdsBookService.class);
         magicShelfService = mock(MagicShelfService.class);
         magicShelfBookService = mock(MagicShelfBookService.class);
-        opdsFeedService = new OpdsFeedService(authenticationService, opdsBookService, magicShelfService, magicShelfBookService);
+        devicePresetService = mock(org.booklore.service.opds.optimization.DevicePresetService.class);
+        opdsFeedService = new OpdsFeedService(authenticationService, opdsBookService, magicShelfService, magicShelfBookService, devicePresetService);
         request = mock(HttpServletRequest.class);
         
         mockAuthenticatedUser();

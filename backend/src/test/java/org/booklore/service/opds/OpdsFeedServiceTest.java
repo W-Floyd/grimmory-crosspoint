@@ -34,6 +34,7 @@ class OpdsFeedServiceTest {
     private OpdsBookService opdsBookService;
     private MagicShelfService magicShelfService;
     private MagicShelfBookService magicShelfBookService;
+    private org.booklore.service.opds.optimization.DevicePresetService devicePresetService;
     private OpdsFeedService opdsFeedService;
     private HttpServletRequest request;
 
@@ -43,7 +44,8 @@ class OpdsFeedServiceTest {
         opdsBookService = mock(OpdsBookService.class);
         magicShelfService = mock(MagicShelfService.class);
         magicShelfBookService = mock(MagicShelfBookService.class);
-        opdsFeedService = new OpdsFeedService(authenticationService, opdsBookService, magicShelfService, magicShelfBookService);
+        devicePresetService = mock(org.booklore.service.opds.optimization.DevicePresetService.class);
+        opdsFeedService = new OpdsFeedService(authenticationService, opdsBookService, magicShelfService, magicShelfBookService, devicePresetService);
         request = mock(HttpServletRequest.class);
     }
 
@@ -165,6 +167,29 @@ class OpdsFeedServiceTest {
         assertThat(xml).contains("application/epub+zip");
         assertThat(xml).contains("</feed>");
         verify(opdsBookService).getBooksPage(TEST_USER_ID, null, null, null, 0, 50);
+    }
+
+    @Test
+    void generateCatalogFeed_shouldPropagatePresetIntoAcquisitionLinks() {
+        mockAuthenticatedUser();
+
+        when(request.getParameter("preset")).thenReturn("x3");
+        when(request.getRequestURI()).thenReturn("/api/v1/opds/catalog");
+        when(devicePresetService.resolveId("x3")).thenReturn(java.util.Optional.of("X3"));
+
+        Book book = Book.builder()
+                .id(10L)
+                .primaryFile(BookFile.builder().id(1L).bookType(BookFileType.EPUB).build())
+                .addedOn(FIXED_INSTANT)
+                .metadata(BookMetadata.builder().title("Book Title").build())
+                .build();
+
+        Page<Book> page = new PageImpl<>(List.of(book), PageRequest.of(0, 50), 1);
+        when(opdsBookService.getBooksPage(eq(TEST_USER_ID), any(), any(), any(), eq(0), eq(50))).thenReturn(page);
+        when(opdsBookService.applySortOrder(any(), any())).thenReturn(page);
+
+        String xml = opdsFeedService.generateCatalogFeed(request);
+        assertThat(xml).contains("/api/v1/opds/10/download?fileId=1&amp;preset=X3");
     }
 
     @Test

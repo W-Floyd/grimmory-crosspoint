@@ -2,10 +2,14 @@ package org.booklore.controller;
 
 import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.config.security.userdetails.OpdsUserDetails;
+import org.booklore.exception.ApiError;
+import org.booklore.model.dto.opds.DevicePreset;
 import org.booklore.service.book.BookDownloadService;
 import org.booklore.service.book.BookService;
 import org.booklore.service.opds.OpdsBookService;
 import org.booklore.service.opds.OpdsFeedService;
+import org.booklore.service.opds.optimization.DevicePresetService;
+import org.booklore.service.opds.optimization.OptimizedDownloadService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -42,6 +46,8 @@ public class OpdsController {
     private final BookDownloadService bookDownloadService;
     private final OpdsBookService opdsBookService;
     private final AuthenticationService authenticationService;
+    private final DevicePresetService devicePresetService;
+    private final OptimizedDownloadService optimizedDownloadService;
 
     @Operation(summary = "Download book file", description = "Download the book file by its ID. Optionally specify a fileId to download a specific format.")
     @ApiResponses({
@@ -51,8 +57,20 @@ public class OpdsController {
     @GetMapping("/{bookId}/download")
     public ResponseEntity<StreamingResponseBody> downloadBook(
             @Parameter(description = "ID of the book to download") @PathVariable("bookId") Long bookId,
-            @Parameter(description = "Optional ID of a specific file format to download") @RequestParam(required = false) Long fileId) {
+            @Parameter(description = "Optional ID of a specific file format to download") @RequestParam(required = false) Long fileId,
+            @Parameter(description = "Optional device preset id (e.g. X3, X4) for on-the-fly EPUB optimization") @RequestParam(required = false) String preset) {
         opdsBookService.validateBookContentAccess(bookId, getOpdsUserId());
+
+        if (preset != null && !preset.isBlank()) {
+            DevicePreset devicePreset = devicePresetService.resolve(preset)
+                    .orElseThrow(() -> ApiError.GENERIC_BAD_REQUEST.createException("Unknown device preset: " + preset));
+            // Optimization targets a specific EPUB file; without a fileId fall back to the primary file unchanged.
+            if (fileId != null) {
+                String presetId = devicePresetService.resolveId(preset).orElse(preset);
+                return optimizedDownloadService.downloadOptimized(bookId, fileId, devicePreset, presetId);
+            }
+        }
+
         if (fileId != null) {
             return bookDownloadService.downloadBookFile(bookId, fileId);
         }
@@ -140,6 +158,16 @@ public class OpdsController {
     @GetMapping(value = "/series", produces = OPDS_CATALOG_MEDIA_TYPE)
     public ResponseEntity<String> getSeriesNavigation(@Parameter(hidden = true) HttpServletRequest request) {
         String feed = opdsFeedService.generateSeriesNavigation(request);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(OPDS_CATALOG_MEDIA_TYPE))
+                .body(feed);
+    }
+
+    @Operation(summary = "Get OPDS devices navigation", description = "Retrieve the OPDS navigation feed of configured device-optimization presets.")
+    @ApiResponse(responseCode = "200", description = "Devices navigation feed returned successfully")
+    @GetMapping(value = "/devices", produces = OPDS_CATALOG_MEDIA_TYPE)
+    public ResponseEntity<String> getDevicesNavigation(@Parameter(hidden = true) HttpServletRequest request) {
+        String feed = opdsFeedService.generateDevicesNavigation(request);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(OPDS_CATALOG_MEDIA_TYPE))
                 .body(feed);

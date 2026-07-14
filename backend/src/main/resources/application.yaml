@@ -22,6 +22,31 @@ app:
   force-disable-oidc: ${FORCE_DISABLE_OIDC:false}
   disk-type: ${DISK_TYPE:LOCAL}
 
+  # OPDS device-optimization presets. Clients request an optimized file with
+  # ?preset=<id> on catalog/download URLs. Add new devices here without a recompile.
+  # Values below mirror the Crosspoint firmware's DEVICE_PROFILES.
+  opds:
+    max-source-file-size-mb: ${OPDS_OPTIMIZE_MAX_SOURCE_MB:100}
+    device-presets:
+      X4:
+        label: "X4"
+        max-width: 480
+        max-height: 800
+        jpeg-quality: 85
+        grayscale: true
+        auto-crop: false
+        overlap-percent: 5
+        handedness: right
+      X3:
+        label: "X3"
+        max-width: 528
+        max-height: 792
+        jpeg-quality: 85
+        grayscale: true
+        auto-crop: false
+        overlap-percent: 5
+        handedness: right
+
 server:
   forward-headers-strategy: native
   port: ${BOOKLORE_PORT:6060}

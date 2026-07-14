@@ -11,7 +11,9 @@ import org.booklore.model.dto.Book;
 import org.booklore.model.dto.BookFile;
 import org.booklore.model.dto.Library;
 import org.booklore.model.enums.OpdsSortOrder;
+import org.booklore.model.dto.opds.DevicePreset;
 import org.booklore.service.MagicShelfService;
+import org.booklore.service.opds.optimization.DevicePresetService;
 import org.booklore.util.ArchiveUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
@@ -33,17 +35,36 @@ public class OpdsFeedService {
     private static final int DEFAULT_PAGE_SIZE = 50;
     private static final int MAX_PAGE_SIZE = 100;
     private static final List<String> PAGINATION_QUERY_WHITELIST = List.of(
-            "q", "libraryId", "shelfId", "shelfIds", "magicShelfId", "author", "series"
+            "q", "libraryId", "shelfId", "shelfIds", "magicShelfId", "author", "series", "preset"
     );
 
     private final AuthenticationService authenticationService;
     private final OpdsBookService opdsBookService;
     private final MagicShelfService magicShelfService;
     private final MagicShelfBookService magicShelfBookService;
+    private final DevicePresetService devicePresetService;
+
+    /**
+     * Resolve the requested device preset to its canonical (configured) id, or {@code null}
+     * if absent/unknown. Only known presets are propagated into feed links.
+     */
+    private String resolvePreset(HttpServletRequest request) {
+        return devicePresetService.resolveId(request.getParameter("preset")).orElse(null);
+    }
+
+    /** Append {@code preset=<id>} to a URL using the correct separator, when a preset is set. */
+    private String withPreset(String url, String preset) {
+        if (preset == null || preset.isBlank()) {
+            return url;
+        }
+        String separator = url.contains("?") ? "&" : "?";
+        return url + separator + "preset=" + URLEncoder.encode(preset, StandardCharsets.UTF_8);
+    }
 
     public String generateRootNavigation(HttpServletRequest request) {
+        String preset = resolvePreset(request);
 
-        String feed = """
+        var feed = new StringBuilder("""
                 <?xml version="1.0" encoding="UTF-8"?>
                 <feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
                   <id>urn:booklore:root</id>
@@ -52,84 +73,95 @@ public class OpdsFeedService {
                   <link rel="self" href="/api/v1/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
                   <link rel="start" href="/api/v1/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
                   <link rel="search" type="application/opensearchdescription+xml" title="Search" href="/api/v1/opds/search.opds"/>
-                """.formatted(now()) + """
+                """.formatted(now()));
+
+        appendRootEntry(feed, "All Books", "urn:booklore:catalog:all",
+                withPreset("/api/v1/opds/catalog?page=1&size=" + DEFAULT_PAGE_SIZE, preset),
+                "acquisition", "Browse all available books");
+        appendRootEntry(feed, "Recently Added", "urn:booklore:catalog:recent",
+                withPreset("/api/v1/opds/recent?page=1&size=" + DEFAULT_PAGE_SIZE, preset),
+                "acquisition", "Recently added books");
+        appendRootEntry(feed, "Libraries", "urn:booklore:navigation:libraries",
+                withPreset("/api/v1/opds/libraries", preset), "navigation", "Browse books by library");
+        appendRootEntry(feed, "Shelves", "urn:booklore:navigation:shelves",
+                withPreset("/api/v1/opds/shelves", preset), "navigation", "Browse your personal shelves");
+        appendRootEntry(feed, "Magic Shelves", "urn:booklore:navigation:magic-shelves",
+                withPreset("/api/v1/opds/magic-shelves", preset), "navigation", "Browse your smart, dynamic shelves");
+        appendRootEntry(feed, "Authors", "urn:booklore:navigation:authors",
+                withPreset("/api/v1/opds/authors", preset), "navigation", "Browse books by author");
+        appendRootEntry(feed, "Series", "urn:booklore:navigation:series",
+                withPreset("/api/v1/opds/series", preset), "navigation", "Browse books by series");
+        appendRootEntry(feed, "Surprise Me", "urn:booklore:catalog:surprise",
+                withPreset("/api/v1/opds/surprise", preset), "acquisition", "25 random books from the catalog");
+
+        // Device discovery: when presets are configured, offer a device chooser so any OPDS
+        // reader can enter a preset-scoped browse. New config presets appear automatically.
+        if (devicePresetService.hasPresets()) {
+            appendRootEntry(feed, "Devices", "urn:booklore:navigation:devices",
+                    "/api/v1/opds/devices", "navigation",
+                    "Browse with device-optimized files (e.g. Crosspoint X3/X4)");
+        }
+
+        feed.append("</feed>");
+        return feed.toString();
+    }
+
+    private void appendRootEntry(StringBuilder feed, String title, String id, String href, String kind, String content) {
+        feed.append("""
                   <entry>
-                    <title>All Books</title>
-                    <id>urn:booklore:catalog:all</id>
+                    <title>%s</title>
+                    <id>%s</id>
                     <updated>%s</updated>
-                    <link rel="subsection" href="%s" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
-                    <content type="text">Browse all available books</content>
+                    <link rel="subsection" href="%s" type="application/atom+xml;profile=opds-catalog;kind=%s"/>
+                    <content type="text">%s</content>
                   </entry>
-                """.formatted(now(), escapeXml("/api/v1/opds/catalog?page=1&size=" + DEFAULT_PAGE_SIZE)) +
-                """
-                          <entry>
-                            <title>Recently Added</title>
-                            <id>urn:booklore:catalog:recent</id>
-                            <updated>%s</updated>
-                            <link rel="subsection" href="%s" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
-                            <content type="text">Recently added books</content>
-                          </entry>
-                        """.formatted(now(), escapeXml("/api/v1/opds/recent?page=1&size=" + DEFAULT_PAGE_SIZE)) +
-                """
-                          <entry>
-                            <title>Libraries</title>
-                            <id>urn:booklore:navigation:libraries</id>
-                            <updated>%s</updated>
-                            <link rel="subsection" href="/api/v1/opds/libraries" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
-                            <content type="text">Browse books by library</content>
-                          </entry>
-                        """.formatted(now()) +
-                """
-                          <entry>
-                            <title>Shelves</title>
-                            <id>urn:booklore:navigation:shelves</id>
-                            <updated>%s</updated>
-                            <link rel="subsection" href="/api/v1/opds/shelves" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
-                            <content type="text">Browse your personal shelves</content>
-                          </entry>
-                        """.formatted(now()) +
-                """
-                          <entry>
-                            <title>Magic Shelves</title>
-                            <id>urn:booklore:navigation:magic-shelves</id>
-                            <updated>%s</updated>
-                            <link rel="subsection" href="/api/v1/opds/magic-shelves" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
-                            <content type="text">Browse your smart, dynamic shelves</content>
-                          </entry>
-                        """.formatted(now()) +
-                """
-                          <entry>
-                            <title>Authors</title>
-                            <id>urn:booklore:navigation:authors</id>
-                            <updated>%s</updated>
-                            <link rel="subsection" href="/api/v1/opds/authors" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
-                            <content type="text">Browse books by author</content>
-                          </entry>
-                        """.formatted(now()) +
-                """
-                          <entry>
-                            <title>Series</title>
-                            <id>urn:booklore:navigation:series</id>
-                            <updated>%s</updated>
-                            <link rel="subsection" href="/api/v1/opds/series" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
-                            <content type="text">Browse books by series</content>
-                          </entry>
-                        """.formatted(now()) +
-                """
-                          <entry>
-                            <title>Surprise Me</title>
-                            <id>urn:booklore:catalog:surprise</id>
-                            <updated>%s</updated>
-                            <link rel="subsection" href="/api/v1/opds/surprise" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
-                            <content type="text">25 random books from the catalog</content>
-                          </entry>
-                        """.formatted(now()) +
-                "</feed>";
-        return feed;
+                """.formatted(escapeXml(title), id, now(), escapeXml(href), kind, escapeXml(content)));
+    }
+
+    /** Navigation feed listing configured device presets, each linking to a preset-scoped catalog. */
+    public String generateDevicesNavigation(HttpServletRequest request) {
+        var feed = new StringBuilder("""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+                  <id>urn:booklore:navigation:devices</id>
+                  <title>Devices</title>
+                  <updated>%s</updated>
+                  <link rel="self" href="/api/v1/opds/devices" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+                  <link rel="start" href="/api/v1/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+                  <link rel="search" type="application/opensearchdescription+xml" title="Search" href="/api/v1/opds/search.opds"/>
+                """.formatted(now()));
+
+        for (var entry : devicePresetService.all().entrySet()) {
+            String id = entry.getKey();
+            DevicePreset preset = entry.getValue();
+            String label = (preset.getLabel() != null && !preset.getLabel().isBlank()) ? preset.getLabel() : id;
+            String href = withPreset("/api/v1/opds/catalog?page=1&size=" + DEFAULT_PAGE_SIZE, id);
+            feed.append("""
+                      <entry>
+                        <title>%s</title>
+                        <id>urn:booklore:device:%s</id>
+                        <updated>%s</updated>
+                        <link rel="subsection" href="%s" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+                        <content type="text">Files optimized for %s (%dx%d)</content>
+                      </entry>
+                    """.formatted(
+                    escapeXml(label),
+                    escapeXml(id),
+                    now(),
+                    escapeXml(href),
+                    escapeXml(label),
+                    preset.getMaxWidth(),
+                    preset.getMaxHeight()
+            ));
+        }
+
+        feed.append("</feed>");
+        return feed.toString();
     }
 
     public String generateLibrariesNavigation(HttpServletRequest request) {
         Long userId = getUserId();
+        String preset = resolvePreset(request);
         List<Library> libraries = opdsBookService.getAccessibleLibraries(userId);
 
         var feed = new StringBuilder("""
@@ -156,7 +188,7 @@ public class OpdsFeedService {
                     escapeXml(library.getName()),
                     library.getId(),
                     now(),
-                    escapeXml("/api/v1/opds/catalog?libraryId=" + library.getId()),
+                    escapeXml(withPreset("/api/v1/opds/catalog?libraryId=" + library.getId(), preset)),
                     escapeXml(library.getName() != null ? library.getName() : "Library collection")
             ));
         }
@@ -167,6 +199,7 @@ public class OpdsFeedService {
 
     public String generateShelvesNavigation(HttpServletRequest request) {
         Long userId = getUserId();
+        String preset = resolvePreset(request);
 
         var feed = new StringBuilder("""
                 <?xml version="1.0" encoding="UTF-8"?>
@@ -196,7 +229,7 @@ public class OpdsFeedService {
                             escapeXml(shelf.getName()),
                             shelf.getId(),
                             now(),
-                            escapeXml("/api/v1/opds/catalog?shelfId=" + shelf.getId())
+                            escapeXml(withPreset("/api/v1/opds/catalog?shelfId=" + shelf.getId(), preset))
                     ));
                 }
             }
@@ -208,6 +241,7 @@ public class OpdsFeedService {
 
     public String generateMagicShelvesNavigation(HttpServletRequest request) {
         Long userId = getUserId();
+        String preset = resolvePreset(request);
 
         var feed = new StringBuilder("""
                 <?xml version="1.0" encoding="UTF-8"?>
@@ -237,7 +271,7 @@ public class OpdsFeedService {
                             escapeXml(shelf.getName()),
                             shelf.getId(),
                             now(),
-                            escapeXml("/api/v1/opds/catalog?magicShelfId=" + shelf.getId())
+                            escapeXml(withPreset("/api/v1/opds/catalog?magicShelfId=" + shelf.getId(), preset))
                     ));
                 }
             }
@@ -249,6 +283,7 @@ public class OpdsFeedService {
 
     public String generateAuthorsNavigation(HttpServletRequest request) {
         Long userId = getUserId();
+        String preset = resolvePreset(request);
         List<String> authors = opdsBookService.getDistinctAuthors(userId);
 
         var feed = new StringBuilder("""
@@ -275,7 +310,7 @@ public class OpdsFeedService {
                     escapeXml(author),
                     escapeXml(author),
                     now(),
-                    escapeXml("/api/v1/opds/catalog?author=" + URLEncoder.encode(author, StandardCharsets.UTF_8)),
+                    escapeXml(withPreset("/api/v1/opds/catalog?author=" + URLEncoder.encode(author, StandardCharsets.UTF_8), preset)),
                     escapeXml(author)
             ));
         }
@@ -286,6 +321,7 @@ public class OpdsFeedService {
 
     public String generateSeriesNavigation(HttpServletRequest request) {
         Long userId = getUserId();
+        String preset = resolvePreset(request);
         List<String> seriesList = opdsBookService.getDistinctSeries(userId);
 
         var feed = new StringBuilder("""
@@ -312,7 +348,7 @@ public class OpdsFeedService {
                     escapeXml(series),
                     escapeXml(series),
                     now(),
-                    escapeXml("/api/v1/opds/catalog?series=" + URLEncoder.encode(series, StandardCharsets.UTF_8)),
+                    escapeXml(withPreset("/api/v1/opds/catalog?series=" + URLEncoder.encode(series, StandardCharsets.UTF_8), preset)),
                     escapeXml(series)
             ));
         }
@@ -375,7 +411,8 @@ public class OpdsFeedService {
 
         appendPaginationLinks(feed, request, page, booksPage.getTotalPages(), size);
 
-        booksPage.getContent().forEach(book -> appendBookEntry(feed, book));
+        String preset = resolvePreset(request);
+        booksPage.getContent().forEach(book -> appendBookEntry(feed, book, preset));
 
         feed.append("</feed>");
         return feed.toString();
@@ -408,7 +445,8 @@ public class OpdsFeedService {
 
         appendPaginationLinks(feed, request, page, booksPage.getTotalPages(), size);
 
-        booksPage.getContent().forEach(book -> appendBookEntry(feed, book));
+        String preset = resolvePreset(request);
+        booksPage.getContent().forEach(book -> appendBookEntry(feed, book, preset));
 
         feed.append("</feed>");
         return feed.toString();
@@ -433,7 +471,8 @@ public class OpdsFeedService {
                   <link rel="search" type="application/opensearchdescription+xml" title="Search" href="/api/v1/opds/search.opds"/>
                 """.formatted(now(), books.size(), count));
 
-        books.forEach(book -> appendBookEntry(feed, book));
+        String preset = resolvePreset(request);
+        books.forEach(book -> appendBookEntry(feed, book, preset));
 
         feed.append("</feed>");
         return feed.toString();
@@ -499,7 +538,7 @@ public class OpdsFeedService {
         return buildPaginationUrl(request, page, size);
     }
 
-    private void appendBookEntry(StringBuilder feed, Book book) {
+    private void appendBookEntry(StringBuilder feed, Book book, String preset) {
         feed.append("""
                   <entry>
                     <title>%s</title>
@@ -518,7 +557,7 @@ public class OpdsFeedService {
         }
 
         appendMetadata(feed, book);
-        appendLinks(feed, book);
+        appendLinks(feed, book, preset);
 
         feed.append("  </entry>\n");
     }
@@ -569,16 +608,16 @@ public class OpdsFeedService {
         return null;
     }
 
-    private void appendLinks(StringBuilder feed, Book book) {
+    private void appendLinks(StringBuilder feed, Book book, String preset) {
         // Add acquisition link for primary file
         if (book.getPrimaryFile() != null) {
-            appendAcquisitionLink(feed, book.getId(), book.getPrimaryFile());
+            appendAcquisitionLink(feed, book.getId(), book.getPrimaryFile(), preset);
         }
 
         // Add acquisition links for alternative formats
         if (book.getAlternativeFormats() != null) {
             for (BookFile altFormat : book.getAlternativeFormats()) {
-                appendAcquisitionLink(feed, book.getId(), altFormat);
+                appendAcquisitionLink(feed, book.getId(), altFormat, preset);
             }
         }
 
@@ -592,14 +631,13 @@ public class OpdsFeedService {
         }
     }
 
-    private void appendAcquisitionLink(StringBuilder feed, Long bookId, BookFile bookFile) {
+    private void appendAcquisitionLink(StringBuilder feed, Long bookId, BookFile bookFile, String preset) {
         if (bookFile == null || bookFile.getId() == null) return;
 
         String mimeType = fileMimeType(bookFile);
-        feed.append("    <link href=\"/api/v1/opds/")
-                .append(bookId)
-                .append("/download?fileId=")
-                .append(bookFile.getId())
+        String href = withPreset("/api/v1/opds/" + bookId + "/download?fileId=" + bookFile.getId(), preset);
+        feed.append("    <link href=\"")
+                .append(escapeXml(href))
                 .append("\" rel=\"http://opds-spec.org/acquisition\" type=\"")
                 .append(mimeType)
                 .append("\"");
