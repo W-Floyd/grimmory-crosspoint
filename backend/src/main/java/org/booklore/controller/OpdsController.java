@@ -9,6 +9,7 @@ import org.booklore.service.book.BookService;
 import org.booklore.service.opds.OpdsBookService;
 import org.booklore.service.opds.OpdsFeedService;
 import org.booklore.service.opds.optimization.DevicePresetService;
+import org.booklore.service.opds.optimization.OpdsCoverService;
 import org.booklore.service.opds.optimization.OptimizedDownloadService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -48,6 +49,7 @@ public class OpdsController {
     private final AuthenticationService authenticationService;
     private final DevicePresetService devicePresetService;
     private final OptimizedDownloadService optimizedDownloadService;
+    private final OpdsCoverService opdsCoverService;
 
     @Operation(summary = "Download book file", description = "Download the book file by its ID. Optionally specify a fileId to download a specific format.")
     @ApiResponses({
@@ -83,7 +85,9 @@ public class OpdsController {
         @ApiResponse(responseCode = "404", description = "Book or cover not found")
     })
     @GetMapping("/{bookId}/cover")
-    public ResponseEntity<Resource> getBookCover(@Parameter(description = "ID of the book") @PathVariable long bookId) {
+    public ResponseEntity<Resource> getBookCover(
+            @Parameter(description = "ID of the book") @PathVariable long bookId,
+            @Parameter(description = "Optional device preset id (e.g. X3, X4) to serve a constrained-device-friendly baseline JPEG cover") @RequestParam(required = false) String preset) {
         opdsBookService.validateBookContentAccess(bookId, getOpdsUserId());
         Resource coverImage = bookService.getBookThumbnail(bookId);
 
@@ -94,6 +98,16 @@ public class OpdsController {
 
         if (coverImage == null) {
             return ResponseEntity.notFound().build();
+        }
+
+        // For a known preset, re-encode into a baseline JPEG that constrained e-ink decoders
+        // (e.g. picojpeg) can display. Unknown presets are ignored here (serve original) so a
+        // stray value never breaks cover rendering while browsing.
+        if (preset != null && !preset.isBlank()) {
+            Resource original = coverImage;
+            coverImage = devicePresetService.resolve(preset)
+                    .flatMap(p -> opdsCoverService.reencode(original, p))
+                    .orElse(original);
         }
 
         String contentType = "image/jpeg";

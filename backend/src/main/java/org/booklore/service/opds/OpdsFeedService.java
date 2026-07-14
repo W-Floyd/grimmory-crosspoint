@@ -623,7 +623,7 @@ public class OpdsFeedService {
 
         Instant coverUpdatedOn = getCoverUpdatedOn(book);
         if (coverUpdatedOn != null) {
-            String coverUrl = "/api/v1/opds/" + book.getId() + "/cover?" + coverUpdatedOn;
+            String coverUrl = withPreset("/api/v1/opds/" + book.getId() + "/cover?" + coverUpdatedOn, preset);
             feed.append("    <link rel=\"http://opds-spec.org/image\" href=\"")
                     .append(escapeXml(coverUrl)).append("\" type=\"image/jpeg\"/>\n");
             feed.append("    <link rel=\"http://opds-spec.org/image/thumbnail\" href=\"")
