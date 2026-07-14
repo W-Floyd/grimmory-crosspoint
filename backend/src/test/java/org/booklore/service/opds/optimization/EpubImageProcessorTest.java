@@ -63,13 +63,25 @@ class EpubImageProcessorTest {
         EpubImageProcessor.ProcessedImage result = processor.process(source, "OEBPS/images/p1.png", preset(true));
 
         BufferedImage out = ImageIO.read(new ByteArrayInputStream(result.data()));
+        // Grayscale preset must emit a true single-component (grayscale) JPEG.
+        assertThat(out.getRaster().getNumBands()).isEqualTo(1);
         int rgb = out.getRGB(out.getWidth() / 2, out.getHeight() / 2);
         int r = (rgb >> 16) & 0xFF;
         int g = (rgb >> 8) & 0xFF;
         int b = rgb & 0xFF;
-        // JPEG is lossy; channels should be within a tight tolerance of each other.
-        assertThat(Math.abs(r - g)).isLessThanOrEqualTo(4);
-        assertThat(Math.abs(g - b)).isLessThanOrEqualTo(4);
+        // Single-component JPEG decodes back to equal channels.
+        assertThat(r).isEqualTo(g);
+        assertThat(g).isEqualTo(b);
+    }
+
+    @Test
+    void nonGrayscalePresetKeepsThreeComponents() throws Exception {
+        byte[] source = png(600, 900, new Color(200, 40, 40));
+
+        EpubImageProcessor.ProcessedImage result = processor.process(source, "OEBPS/images/p1.png", preset(false));
+
+        BufferedImage out = ImageIO.read(new ByteArrayInputStream(result.data()));
+        assertThat(out.getRaster().getNumBands()).isEqualTo(3);
     }
 
     @Test

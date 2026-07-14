@@ -27,8 +27,11 @@ public final class JpegImageWriter {
      * @return the encoded JPEG bytes
      */
     public static byte[] encode(BufferedImage image, float quality) throws IOException {
+        // JPEG-writable as-is: RGB (3-component) and byte-gray (1-component). Anything else
+        // (alpha, indexed, etc.) is flattened onto RGB, which also drops the alpha JPEG can't hold.
         BufferedImage rgbImage = image;
-        if (image.getType() != BufferedImage.TYPE_INT_RGB) {
+        int type = image.getType();
+        if (type != BufferedImage.TYPE_INT_RGB && type != BufferedImage.TYPE_BYTE_GRAY) {
             rgbImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
             rgbImage.getGraphics().drawImage(image, 0, 0, null);
             rgbImage.getGraphics().dispose();

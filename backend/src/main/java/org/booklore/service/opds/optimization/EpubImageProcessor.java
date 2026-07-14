@@ -10,6 +10,7 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.awt.image.WritableRaster;
 import java.io.IOException;
 import java.util.regex.Pattern;
 
@@ -71,13 +72,14 @@ public class EpubImageProcessor {
             drawScaled(canvas, source.image, newW, newH);
         }
 
-        if (preset.isGrayscale()) {
-            applyGrayscale(canvas);
-        }
+        // Grayscale presets emit a true single-component (TYPE_BYTE_GRAY) JPEG — smaller and
+        // the most decoder-friendly form for e-ink (JPEGDEC decodes 1-component natively).
+        // Non-grayscale presets keep the 3-component colour image.
+        BufferedImage encodeTarget = preset.isGrayscale() ? toGrayscale(canvas) : canvas;
 
         float quality = clampQuality(preset.getJpegQuality()) / 100f;
-        byte[] jpeg = JpegImageWriter.encode(canvas, quality);
-        return new ProcessedImage(jpeg, canvas.getWidth(), canvas.getHeight());
+        byte[] jpeg = JpegImageWriter.encode(encodeTarget, quality);
+        return new ProcessedImage(jpeg, encodeTarget.getWidth(), encodeTarget.getHeight());
     }
 
     private static int clampQuality(int quality) {
@@ -102,10 +104,16 @@ public class EpubImageProcessor {
         g.dispose();
     }
 
-    /** True grayscale in-place (BT.601 luminance). Canvas is already white-composited. */
-    private static void applyGrayscale(BufferedImage canvas) {
+    /**
+     * Convert a white-composited RGB canvas to a single-component {@code TYPE_BYTE_GRAY} image
+     * using BT.601 luminance (matching the firmware's converter). Writing raw samples preserves
+     * the exact BT.601 values rather than deferring to Java's colorimetric gray conversion.
+     */
+    private static BufferedImage toGrayscale(BufferedImage canvas) {
         int w = canvas.getWidth();
         int h = canvas.getHeight();
+        BufferedImage gray = new BufferedImage(w, h, BufferedImage.TYPE_BYTE_GRAY);
+        WritableRaster raster = gray.getRaster();
         int[] row = new int[w];
         for (int y = 0; y < h; y++) {
             canvas.getRGB(0, y, w, 1, row, 0, w);
@@ -114,11 +122,11 @@ public class EpubImageProcessor {
                 int r = (rgb >> 16) & 0xFF;
                 int gr = (rgb >> 8) & 0xFF;
                 int b = rgb & 0xFF;
-                int gray = (int) Math.round(r * 0.299 + gr * 0.587 + b * 0.114);
-                row[x] = (gray << 16) | (gray << 8) | gray;
+                int value = (int) Math.round(r * 0.299 + gr * 0.587 + b * 0.114);
+                raster.setSample(x, y, 0, value);
             }
-            canvas.setRGB(0, y, w, 1, row, 0, w);
         }
+        return gray;
     }
 
     // ---- Auto-crop (mirrors createAutoCroppedCanvas / findNonWhiteBounds) ----

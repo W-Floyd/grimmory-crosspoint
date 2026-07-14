@@ -61,11 +61,8 @@ class OpdsCoverServiceTest {
         // Small cover is not upscaled.
         assertThat(decoded.getWidth()).isEqualTo(250);
         assertThat(decoded.getHeight()).isEqualTo(350);
-        // Grayscale: channels approximately equal (JPEG is lossy).
-        int rgb = decoded.getRGB(125, 175);
-        int r = (rgb >> 16) & 0xFF, gr = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
-        assertThat(Math.abs(r - gr)).isLessThanOrEqualTo(4);
-        assertThat(Math.abs(gr - b)).isLessThanOrEqualTo(4);
+        // Grayscale preset -> true single-component JPEG (components 1).
+        assertThat(decoded.getRaster().getNumBands()).isEqualTo(1);
         assertThat(out.get().getFilename()).isEqualTo("cover.jpg");
     }
 
