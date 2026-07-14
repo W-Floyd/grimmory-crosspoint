@@ -18,16 +18,30 @@ export interface OpdsUserV2 {
   sortOrder?: OpdsSortOrder;
 }
 
+export interface OpdsDevicePreset {
+  id: string;
+  label: string;
+  maxWidth: number;
+  maxHeight: number;
+  jpegQuality: number;
+  grayscale: boolean;
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class OpdsService {
 
   private readonly baseUrl = `${API_CONFIG.BASE_URL}/api/v2/opds-users`;
+  private readonly devicePresetsUrl = `${API_CONFIG.BASE_URL}/api/v1/opds-device-presets`;
   private http = inject(HttpClient);
 
   getUser(): Observable<OpdsUserV2[]> {
     return this.http.get<OpdsUserV2[]>(this.baseUrl);
+  }
+
+  getDevicePresets(): Observable<OpdsDevicePreset[]> {
+    return this.http.get<OpdsDevicePreset[]>(this.devicePresetsUrl);
   }
 
   createUser(user: OpdsUserV2CreateRequest): Observable<OpdsUserV2> {

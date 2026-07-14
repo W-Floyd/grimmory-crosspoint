@@ -10,7 +10,7 @@ import {Dialog} from 'primeng/dialog';
 import {FormsModule} from '@angular/forms';
 import {ConfirmDialog} from 'primeng/confirmdialog';
 import {ConfirmationService, MessageService} from 'primeng/api';
-import {OpdsService, OpdsSortOrder, OpdsUserV2, OpdsUserV2CreateRequest} from './opds.service';
+import {OpdsDevicePreset, OpdsService, OpdsSortOrder, OpdsUserV2, OpdsUserV2CreateRequest} from './opds.service';
 import {catchError} from 'rxjs/operators';
 import {UserService} from '../user-management/user.service';
 import {of} from 'rxjs';
@@ -57,6 +57,7 @@ export class OpdsSettings implements OnInit {
   private t = inject(TranslocoService);
 
   users: WritableSignal<OpdsUserV2[]> = signal([]);
+  devicePresets: WritableSignal<OpdsDevicePreset[]> = signal([]);
   loading = signal(false);
   showCreateUserDialog = false;
   newUser: OpdsUserV2CreateRequest = {username: '', password: '', sortOrder: 'RECENT'};
@@ -82,6 +83,7 @@ export class OpdsSettings implements OnInit {
   ];
 
   private hasLoadedUsers = false;
+  private hasLoadedPresets = false;
 
   private readonly syncPermissionEffect = effect(() => {
     const user = this.userService.currentUser();
@@ -119,6 +121,10 @@ export class OpdsSettings implements OnInit {
     this.komgaApiEnabled = settings.komgaApiEnabled ?? false;
     this.komgaGroupUnknown = settings.komgaGroupUnknown ?? true;
 
+    if (this.opdsEnabled && !this.hasLoadedPresets) {
+      this.loadDevicePresets();
+    }
+
     if (this.opdsEnabled || this.komgaApiEnabled) {
       if (!this.hasLoadedUsers) {
         this.loadUsers();
@@ -145,6 +151,17 @@ export class OpdsSettings implements OnInit {
       this.passwordVisibility = new Array(users.length).fill(false);
       this.loading.set(false);
     });
+  }
+
+  private loadDevicePresets(): void {
+    this.hasLoadedPresets = true;
+    this.opdsService.getDevicePresets().pipe(
+      takeUntilDestroyed(this.destroyRef),
+      catchError(err => {
+        console.error('Error loading device presets:', err);
+        return of([]);
+      })
+    ).subscribe(presets => this.devicePresets.set([...presets]));
   }
 
   createUser(): void {

@@ -22,7 +22,8 @@
     "opdsHint": "For OPDS-compatible apps",
     "komgaBase": "Komga Base URL",
     "komgaHint": "For Tachiyomi, Komelia, etc.",
-    "copyUrl": "Copy URL"
+    "copyUrl": "Copy URL",
+    "devicePresetsHint": "Append one of these to the catalog or download URL to receive EPUBs optimized for a low-resource e-reader:"
   },
   "users": {
     "sectionTitle": "OPDS Users",

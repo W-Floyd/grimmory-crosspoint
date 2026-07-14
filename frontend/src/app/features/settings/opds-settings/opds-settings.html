@@ -144,6 +144,20 @@
                     [pTooltip]="t('endpoints.copyUrl')">
                   </p-button>
                 </div>
+
+                @if (devicePresets().length > 0) {
+                  <div class="device-presets">
+                    <span class="endpoint-hint">{{ t('endpoints.devicePresetsHint') }}</span>
+                    <ul class="device-presets-list">
+                      @for (preset of devicePresets(); track preset.id) {
+                        <li>
+                          <code>?preset={{ preset.id }}</code>
+                          <span class="device-presets-detail">{{ preset.label }} · {{ preset.maxWidth }}×{{ preset.maxHeight }}</span>
+                        </li>
+                      }
+                    </ul>
+                  </div>
+                }
               </div>
             }
 
