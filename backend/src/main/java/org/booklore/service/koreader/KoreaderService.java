@@ -10,6 +10,7 @@ import org.booklore.model.enums.BookFileType;
 import org.booklore.model.enums.ReadStatus;
 import org.booklore.repository.*;
 import org.booklore.service.hardcover.HardcoverSyncService;
+import org.booklore.service.opds.optimization.OpdsVariantHashService;
 import org.booklore.util.koreader.EpubCfiService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -33,6 +34,7 @@ public class KoreaderService {
     private final KoreaderUserRepository koreaderUserRepository;
     private final HardcoverSyncService hardcoverSyncService;
     private final EpubCfiService epubCfiService;
+    private final OpdsVariantHashService opdsVariantHashService;
 
     public ResponseEntity<Map<String, String>> authorizeUser() {
         KoreaderUserDetails authDetails = getAuthDetails();
@@ -257,6 +259,10 @@ public class KoreaderService {
 
     private BookEntity findBookByHash(String bookHash) {
         return bookRepository.findByCurrentHash(bookHash)
+                // Fall back to device-optimized OPDS variants: a reader syncing an EPUB served
+                // via ?preset= hashes the optimized copy, whose partial-MD5 differs from the
+                // library original but is registered against the book.
+                .or(() -> opdsVariantHashService.findBookByVariantHash(bookHash))
                 .orElseThrow(() -> ApiError.GENERIC_NOT_FOUND.createException("Book not found for hash " + bookHash));
     }
 

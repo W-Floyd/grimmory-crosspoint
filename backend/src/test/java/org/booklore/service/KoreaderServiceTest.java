@@ -58,6 +58,8 @@ class KoreaderServiceTest {
     HardcoverSyncService hardcoverSyncService;
     @Mock
     EpubCfiService epubCfiService;
+    @Mock
+    org.booklore.service.opds.optimization.OpdsVariantHashService opdsVariantHashService;
 
     @InjectMocks
     KoreaderService service;

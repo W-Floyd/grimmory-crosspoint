@@ -42,6 +42,7 @@ public class OptimizedDownloadService {
     private final EpubDeviceOptimizer epubDeviceOptimizer;
     private final DevicePresetService devicePresetService;
     private final FileService fileService;
+    private final OpdsVariantHashService variantHashService;
 
     /**
      * Download {@code fileId} optimized for {@code preset}. Non-EPUB files, oversized files,
@@ -92,6 +93,9 @@ public class OptimizedDownloadService {
         Path cached = cacheDir.resolve(bookId + "_" + fileId + "_" + sanitize(hash) + ".epub");
 
         if (Files.exists(cached) && Files.size(cached) > 0) {
+            // Registration is idempotent and skips work when already up to date, so it is safe
+            // to (re)assert the mapping on a cache hit too (e.g. after a DB reset).
+            variantHashService.register(bookFile, presetId, hash, cached);
             return cached;
         }
 
@@ -103,6 +107,9 @@ public class OptimizedDownloadService {
             } catch (Exception atomicFailed) {
                 Files.move(temp, cached, StandardCopyOption.REPLACE_EXISTING);
             }
+            // Map this variant's partial-MD5 to the book so KOReader sync can match the
+            // optimized copy the reader downloaded (its bytes differ from the original).
+            variantHashService.register(bookFile, presetId, hash, cached);
             return cached;
         } finally {
             Files.deleteIfExists(temp);
