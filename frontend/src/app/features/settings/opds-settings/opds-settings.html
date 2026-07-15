@@ -259,7 +259,7 @@
                           <span class="sort-order-badge">{{ getSortOrderLabel(user.sortOrder) }}</span>
                         }
                         @if (devicePresets().length) {
-                          <i class="pi pi-tablet"></i>
+                          <i class="pi pi-tablet" [pTooltip]="t('createDialog.presetHint')" tooltipPosition="top"></i>
                           @if (editingUserId === user.id) {
                             <p-select
                               [options]="presetOptions"

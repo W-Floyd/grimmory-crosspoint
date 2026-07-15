@@ -23,7 +23,7 @@
     "komgaBase": "Komga Base URL",
     "komgaHint": "For Tachiyomi, Komelia, etc.",
     "copyUrl": "Copy URL",
-    "devicePresetsHint": "Append one of these to the catalog or download URL to receive EPUBs optimized for a low-resource e-reader:"
+    "devicePresetsHint": "Append one of these to any catalog, download, or cover URL to receive EPUBs optimized for a low-resource e-reader. A preset in the URL always takes precedence over the user's default preset:"
   },
   "users": {
     "sectionTitle": "OPDS Users",
@@ -46,7 +46,7 @@
     "sortHint": "This will determine how books appear in the OPDS feed for this user",
     "defaultPreset": "Default Device Preset",
     "selectPreset": "Select device preset",
-    "presetHint": "Optionally optimize this user's feeds and downloads for a device (e.g. a Crosspoint e-reader)",
+    "presetHint": "Applied automatically to this user's feeds, downloads, and covers — no ?preset needed. Adding ?preset= to a request URL overrides it for that request. Choose None to serve original, unoptimized files.",
     "create": "Create"
   },
   "presetNone": "None (original files)",
