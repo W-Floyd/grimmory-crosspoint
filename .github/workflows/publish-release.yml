@@ -21,6 +21,11 @@ jobs:
           fetch-depth: 1
           ref: ${{ github.sha }}
 
+      - name: Resolve Lowercase Image Base
+        run: |
+          # GHCR requires a lowercase path, but owner/repo names may contain uppercase.
+          echo "image_base=ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
       - name: Set Up QEMU for Multi-Arch Builds
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
         with:
@@ -68,10 +73,10 @@ jobs:
             APP_REVISION=${{ github.sha }}
           cache-from: |
             type=gha,scope=image-shared
-            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
+            type=registry,ref=${{ env.image_base }}:buildcache
           cache-to: |
             type=gha,scope=image-shared,mode=max
-            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache,mode=max
+            type=registry,ref=${{ env.image_base }}:buildcache,mode=max
 
   publish-helm-chart:
     name: Publish Helm Chart to GHCR
