@@ -62,13 +62,14 @@ public class OpdsController {
             @Parameter(description = "Optional ID of a specific file format to download") @RequestParam(required = false) Long fileId,
             @Parameter(description = "Optional device preset id (e.g. X3, X4) for on-the-fly EPUB optimization") @RequestParam(required = false) String preset) {
         opdsBookService.validateBookContentAccess(bookId, getOpdsUserId());
+        String resolvedPreset = effectivePreset(preset);
 
-        if (preset != null && !preset.isBlank()) {
-            DevicePreset devicePreset = devicePresetService.resolve(preset)
-                    .orElseThrow(() -> ApiError.GENERIC_BAD_REQUEST.createException("Unknown device preset: " + preset));
+        if (resolvedPreset != null && !resolvedPreset.isBlank()) {
+            DevicePreset devicePreset = devicePresetService.resolve(resolvedPreset)
+                    .orElseThrow(() -> ApiError.GENERIC_BAD_REQUEST.createException("Unknown device preset: " + resolvedPreset));
             // Optimization targets a specific EPUB file; without a fileId fall back to the primary file unchanged.
             if (fileId != null) {
-                String presetId = devicePresetService.resolveId(preset).orElse(preset);
+                String presetId = devicePresetService.resolveId(resolvedPreset).orElse(resolvedPreset);
                 return optimizedDownloadService.downloadOptimized(bookId, fileId, devicePreset, presetId);
             }
         }
@@ -89,6 +90,7 @@ public class OpdsController {
             @Parameter(description = "ID of the book") @PathVariable long bookId,
             @Parameter(description = "Optional device preset id (e.g. X3, X4) to serve a constrained-device-friendly baseline JPEG cover") @RequestParam(required = false) String preset) {
         opdsBookService.validateBookContentAccess(bookId, getOpdsUserId());
+        preset = effectivePreset(preset);
         Resource coverImage = bookService.getBookThumbnail(bookId);
 
         if (coverImage == null) {
@@ -209,6 +211,17 @@ public class OpdsController {
                 .body(payload);
     }
 
+    @Operation(summary = "Get continue reading feed", description = "Retrieve the OPDS feed for in-progress books, most recently read first.")
+    @ApiResponse(responseCode = "200", description = "Continue reading feed returned successfully")
+    @GetMapping(value = "/continue-reading", produces = OPDS_ACQUISITION_MEDIA_TYPE)
+    public ResponseEntity<byte[]> getContinueReadingFeed(@Parameter(hidden = true) HttpServletRequest request) {
+        String feed = opdsFeedService.generateContinueReadingFeed(request);
+        byte[] payload = feed.getBytes(StandardCharsets.UTF_8);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(OPDS_ACQUISITION_MEDIA_TYPE))
+                .body(payload);
+    }
+
     @Operation(summary = "Get surprise feed", description = "Retrieve the OPDS feed for surprise/random books.")
     @ApiResponse(responseCode = "200", description = "Surprise feed returned successfully")
     @GetMapping(value = "/surprise", produces = OPDS_ACQUISITION_MEDIA_TYPE)
@@ -238,6 +251,21 @@ public class OpdsController {
         OpdsUserDetails details = authenticationService.getOpdsUser();
         return details != null && details.getOpdsUserV2() != null
                 ? details.getOpdsUserV2().getUserId()
+                : null;
+    }
+
+    /**
+     * Resolve the preset to apply to a direct download/cover request: an explicit {@code preset}
+     * param wins, otherwise fall back to the authenticated OPDS user's default preset. Feed links
+     * already carry an explicit param, so this only affects clients hitting these endpoints directly.
+     */
+    private String effectivePreset(String preset) {
+        if (preset != null && !preset.isBlank()) {
+            return preset;
+        }
+        OpdsUserDetails details = authenticationService.getOpdsUser();
+        return details != null && details.getOpdsUserV2() != null
+                ? details.getOpdsUserV2().getDefaultPreset()
                 : null;
     }
 }

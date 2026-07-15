@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 
 public record OpdsUserV2UpdateRequest(
         @NotNull(message = "Sort order is required")
-        OpdsSortOrder sortOrder
+        OpdsSortOrder sortOrder,
+        String defaultPreset
 ) {
 }

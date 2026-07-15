@@ -2,6 +2,7 @@ package org.booklore.service.opds;
 
 import lombok.RequiredArgsConstructor;
 import org.booklore.config.security.service.AuthenticationService;
+import org.booklore.exception.ApiError;
 import org.booklore.mapper.OpdsUserV2Mapper;
 import org.booklore.model.dto.BookLoreUser;
 import org.booklore.model.dto.OpdsUserV2;
@@ -14,6 +15,7 @@ import org.booklore.repository.OpdsUserV2Repository;
 import org.booklore.repository.UserRepository;
 import org.booklore.model.enums.AuditAction;
 import org.booklore.service.audit.AuditService;
+import org.booklore.service.opds.optimization.DevicePresetService;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -34,6 +36,7 @@ public class OpdsUserV2Service {
     private final OpdsUserV2Mapper mapper;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final DevicePresetService devicePresetService;
 
 
     public List<OpdsUserV2> getOpdsUsers() {
@@ -53,6 +56,7 @@ public class OpdsUserV2Service {
                     .username(request.getUsername())
                     .passwordHash(passwordEncoder.encode(request.getPassword()))
                     .sortOrder(request.getSortOrder() != null ? request.getSortOrder() : OpdsSortOrder.RECENT)
+                    .defaultPreset(normalizePreset(request.getDefaultPreset()))
                     .build();
 
             OpdsUserV2 result = mapper.toDto(opdsUserV2Repository.save(opdsUserV2));
@@ -87,6 +91,7 @@ public class OpdsUserV2Service {
         }
         
         user.setSortOrder(request.sortOrder());
+        user.setDefaultPreset(normalizePreset(request.defaultPreset()));
         OpdsUserV2 result = mapper.toDto(opdsUserV2Repository.save(user));
         auditService.log(AuditAction.OPDS_USER_UPDATED, "OpdsUser", userId, "Updated OPDS user: " + user.getUsername());
         return result;
@@ -94,5 +99,18 @@ public class OpdsUserV2Service {
 
     public OpdsUserV2Entity findByUsername(String username) {
         return opdsUserV2Repository.findByUsername(username).orElse(null);
+    }
+
+    /**
+     * Validate and canonicalize a requested default device-preset id. Blank/absent means "no
+     * default" (null); an unknown id is rejected so a user can't be pinned to a preset that will
+     * never optimize.
+     */
+    private String normalizePreset(String presetId) {
+        if (presetId == null || presetId.isBlank()) {
+            return null;
+        }
+        return devicePresetService.resolveId(presetId)
+                .orElseThrow(() -> ApiError.GENERIC_BAD_REQUEST.createException("Unknown device preset: " + presetId));
     }
 }

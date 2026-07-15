@@ -12,6 +12,7 @@ import org.booklore.model.dto.BookFile;
 import org.booklore.model.dto.Library;
 import org.booklore.model.enums.BookFileType;
 import org.booklore.model.enums.OpdsSortOrder;
+import org.booklore.model.enums.ReadStatus;
 import org.booklore.model.dto.opds.DevicePreset;
 import org.booklore.service.MagicShelfService;
 import org.booklore.service.opds.optimization.DevicePresetService;
@@ -38,7 +39,8 @@ public class OpdsFeedService {
     private static final int DEFAULT_PAGE_SIZE = 50;
     private static final int MAX_PAGE_SIZE = 100;
     private static final List<String> PAGINATION_QUERY_WHITELIST = List.of(
-            "q", "libraryId", "shelfId", "shelfIds", "magicShelfId", "author", "series", "preset"
+            "q", "libraryId", "shelfId", "shelfIds", "magicShelfId", "author", "series", "preset",
+            "format", "readStatus"
     );
 
     private final AuthenticationService authenticationService;
@@ -49,11 +51,29 @@ public class OpdsFeedService {
     private final OptimizedDownloadService optimizedDownloadService;
 
     /**
-     * Resolve the requested device preset to its canonical (configured) id, or {@code null}
-     * if absent/unknown. Only known presets are propagated into feed links.
+     * Resolve the device preset for this request: an explicit {@code ?preset=} wins, otherwise
+     * fall back to the authenticated OPDS user's configured default preset. Returns the canonical
+     * (configured) id, or {@code null} when none is set/known. Only known presets are propagated
+     * into feed links.
      */
     private String resolvePreset(HttpServletRequest request) {
-        return devicePresetService.resolveId(request.getParameter("preset")).orElse(null);
+        String requested = request.getParameter("preset");
+        if (requested != null && !requested.isBlank()) {
+            return devicePresetService.resolveId(requested).orElse(null);
+        }
+        return defaultUserPreset();
+    }
+
+    /** The authenticated OPDS user's default device preset (canonical id), or {@code null}. */
+    private String defaultUserPreset() {
+        OpdsUserDetails details = authenticationService.getOpdsUser();
+        if (details == null || details.getOpdsUserV2() == null) {
+            return null;
+        }
+        String preset = details.getOpdsUserV2().getDefaultPreset();
+        return (preset == null || preset.isBlank())
+                ? null
+                : devicePresetService.resolveId(preset).orElse(null);
     }
 
     /** Append {@code preset=<id>} to a URL using the correct separator, when a preset is set. */
@@ -85,6 +105,9 @@ public class OpdsFeedService {
         appendRootEntry(feed, "Recently Added", "urn:booklore:catalog:recent",
                 withPreset("/api/v1/opds/recent?page=1&size=" + DEFAULT_PAGE_SIZE, preset),
                 "acquisition", "Recently added books");
+        appendRootEntry(feed, "Continue Reading", "urn:booklore:catalog:continue-reading",
+                withPreset("/api/v1/opds/continue-reading?page=1&size=" + DEFAULT_PAGE_SIZE, preset),
+                "acquisition", "Books you have started but not finished");
         appendRootEntry(feed, "Libraries", "urn:booklore:navigation:libraries",
                 withPreset("/api/v1/opds/libraries", preset), "navigation", "Browse books by library");
         appendRootEntry(feed, "Shelves", "urn:booklore:navigation:shelves",
@@ -375,21 +398,46 @@ public class OpdsFeedService {
         OpdsSortOrder sortOrder = getSortOrder();
         Page<Book> booksPage;
 
-        if (magicShelfId != null) {
+        // Facets apply only to the plain "all books" browse — combining them with a
+        // library/shelf/author/series/search scope is intentionally not supported.
+        boolean plainCatalog = libraryId == null && (shelfIds == null || shelfIds.isEmpty())
+                && magicShelfId == null && (author == null || author.isBlank())
+                && (series == null || series.isBlank()) && (query == null || query.isBlank());
+        BookFileType formatFacet = plainCatalog ? parseFormat(request.getParameter("format")) : null;
+        String readStatusFacet = plainCatalog ? normalizeReadStatusFacet(request.getParameter("readStatus")) : null;
+
+        String feedTitle;
+        String feedId;
+        if (formatFacet != null) {
+            booksPage = opdsBookService.getBooksByFormatPage(userId, formatFacet, page - 1, size);
+            feedTitle = formatFacet.name() + " Books";
+            feedId = "urn:booklore:catalog:format:" + formatFacet.name();
+        } else if (readStatusFacet != null) {
+            booksPage = opdsBookService.getBooksByReadStatusPage(userId, readStatusStatuses(readStatusFacet), page - 1, size);
+            feedTitle = readStatusFacet.equals("READING") ? "Currently Reading" : "Finished Books";
+            feedId = "urn:booklore:catalog:read-status:" + readStatusFacet;
+        } else if (magicShelfId != null) {
             booksPage = magicShelfBookService.getBooksByMagicShelfId(userId, magicShelfId, page - 1, size);
+            feedTitle = determineFeedTitle(libraryId, shelfIds, magicShelfId, author, series);
+            feedId = determineFeedId(libraryId, shelfIds, magicShelfId, author, series);
         } else if (author != null && !author.isBlank()) {
             booksPage = opdsBookService.getBooksByAuthorName(userId, author, page - 1, size);
+            feedTitle = determineFeedTitle(libraryId, shelfIds, magicShelfId, author, series);
+            feedId = determineFeedId(libraryId, shelfIds, magicShelfId, author, series);
         } else if (series != null && !series.isBlank()) {
             booksPage = opdsBookService.getBooksBySeriesName(userId, series, page - 1, size);
+            feedTitle = determineFeedTitle(libraryId, shelfIds, magicShelfId, author, series);
+            feedId = determineFeedId(libraryId, shelfIds, magicShelfId, author, series);
         } else {
             booksPage = opdsBookService.getBooksPage(userId, query, libraryId, shelfIds, page - 1, size);
+            feedTitle = determineFeedTitle(libraryId, shelfIds, magicShelfId, author, series);
+            feedId = determineFeedId(libraryId, shelfIds, magicShelfId, author, series);
         }
 
-        // Apply user's preferred sort order
-        booksPage = opdsBookService.applySortOrder(booksPage, sortOrder);
-
-        String feedTitle = determineFeedTitle(libraryId, shelfIds, magicShelfId, author, series);
-        String feedId = determineFeedId(libraryId, shelfIds, magicShelfId, author, series);
+        // Apply user's preferred sort order (read-status facet keeps its recency order)
+        if (readStatusFacet == null) {
+            booksPage = opdsBookService.applySortOrder(booksPage, sortOrder);
+        }
 
         var feed = new StringBuilder("""
                 <?xml version="1.0" encoding="UTF-8"?>
@@ -416,10 +464,69 @@ public class OpdsFeedService {
         appendPaginationLinks(feed, request, page, booksPage.getTotalPages(), size);
 
         String preset = resolvePreset(request);
+        if (plainCatalog) {
+            appendCatalogFacets(feed, userId, preset, formatFacet, readStatusFacet);
+        }
         booksPage.getContent().forEach(book -> appendBookEntry(feed, book, preset));
 
         feed.append("</feed>");
         return feed.toString();
+    }
+
+    /**
+     * Emit OPDS facet links so readers can filter the catalog by format and reading status. Only
+     * formats actually present in the user's libraries are offered; the currently applied facet is
+     * marked {@code opds:activeFacet}.
+     */
+    private void appendCatalogFacets(StringBuilder feed, Long userId, String preset,
+                                     BookFileType activeFormat, String activeReadStatus) {
+        for (BookFileType format : opdsBookService.getAvailableFormats(userId)) {
+            String href = withPreset("/api/v1/opds/catalog?format=" + format.name(), preset);
+            appendFacet(feed, href, format.name(), "Format", format.equals(activeFormat));
+        }
+        appendFacet(feed, withPreset("/api/v1/opds/catalog?readStatus=READING", preset),
+                "Currently Reading", "Reading Status", "READING".equals(activeReadStatus));
+        appendFacet(feed, withPreset("/api/v1/opds/catalog?readStatus=READ", preset),
+                "Finished", "Reading Status", "READ".equals(activeReadStatus));
+    }
+
+    private void appendFacet(StringBuilder feed, String href, String title, String group, boolean active) {
+        feed.append("  <link rel=\"http://opds-spec.org/facet\" href=\"")
+                .append(escapeXml(href))
+                .append("\" type=\"application/atom+xml;profile=opds-catalog;kind=acquisition\" title=\"")
+                .append(escapeXml(title))
+                .append("\" opds:facetGroup=\"").append(escapeXml(group)).append("\"");
+        if (active) {
+            feed.append(" opds:activeFacet=\"true\"");
+        }
+        feed.append("/>\n");
+    }
+
+    /** Parse a format facet value into a {@link BookFileType}, or {@code null} if blank/unknown. */
+    private BookFileType parseFormat(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return BookFileType.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** Normalize a read-status facet value to {@code READING} or {@code READ}, or {@code null}. */
+    private String normalizeReadStatusFacet(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String upper = value.trim().toUpperCase();
+        return (upper.equals("READING") || upper.equals("READ")) ? upper : null;
+    }
+
+    private Set<ReadStatus> readStatusStatuses(String facet) {
+        return "READING".equals(facet)
+                ? Set.of(ReadStatus.READING, ReadStatus.RE_READING)
+                : Set.of(ReadStatus.READ);
     }
 
     public String generateRecentFeed(HttpServletRequest request) {
@@ -438,6 +545,38 @@ public class OpdsFeedService {
                 <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
                   <id>urn:booklore:catalog:recent</id>
                   <title>Recently Added Books</title>
+                  <updated>%s</updated>
+                  <opensearch:totalResults>%d</opensearch:totalResults>
+                  <opensearch:startIndex>%d</opensearch:startIndex>
+                  <opensearch:itemsPerPage>%d</opensearch:itemsPerPage>
+                  <link rel="self" href="%s" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+                  <link rel="start" href="/api/v1/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+                  <link rel="search" type="application/opensearchdescription+xml" title="Search" href="/api/v1/opds/search.opds"/>
+                """.formatted(now(), booksPage.getTotalElements(), ((page - 1) * size) + 1, size, escapeXml(buildCurrentUrl(request, page, size))));
+
+        appendPaginationLinks(feed, request, page, booksPage.getTotalPages(), size);
+
+        String preset = resolvePreset(request);
+        booksPage.getContent().forEach(book -> appendBookEntry(feed, book, preset));
+
+        feed.append("</feed>");
+        return feed.toString();
+    }
+
+    public String generateContinueReadingFeed(HttpServletRequest request) {
+        Long userId = getUserId();
+        int page = Math.max(1, parseLongParam(request, "page", 1L).intValue());
+        int size = Math.min(parseLongParam(request, "size", (long) DEFAULT_PAGE_SIZE).intValue(), MAX_PAGE_SIZE);
+
+        // Ordered by lastReadTime DESC in the query; the user's sort order is deliberately not
+        // applied so "most recently read" stays the meaningful ordering.
+        Page<Book> booksPage = opdsBookService.getContinueReadingPage(userId, page - 1, size);
+
+        var feed = new StringBuilder("""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+                  <id>urn:booklore:catalog:continue-reading</id>
+                  <title>Continue Reading</title>
                   <updated>%s</updated>
                   <opensearch:totalResults>%d</opensearch:totalResults>
                   <opensearch:startIndex>%d</opensearch:startIndex>

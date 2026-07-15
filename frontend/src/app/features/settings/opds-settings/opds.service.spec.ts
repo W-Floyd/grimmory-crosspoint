@@ -51,15 +51,24 @@ describe('OpdsService', () => {
     request.flush({id: 1, userId: 10, username: 'reader', sortOrder: 'TITLE_ASC'});
   });
 
-  it('updates an OPDS user sort order', () => {
+  it('updates an OPDS user sort order (preset defaults to null)', () => {
     service.updateUser(5, 'AUTHOR_DESC').subscribe(user => {
       expect(user).toEqual({id: 5, userId: 10, username: 'reader', sortOrder: 'AUTHOR_DESC'});
     });
 
     const request = httpTestingController.expectOne(`${API_CONFIG.BASE_URL}/api/v2/opds-users/5`);
     expect(request.request.method).toBe('PATCH');
-    expect(request.request.body).toEqual({sortOrder: 'AUTHOR_DESC'});
+    expect(request.request.body).toEqual({sortOrder: 'AUTHOR_DESC', defaultPreset: null});
     request.flush({id: 5, userId: 10, username: 'reader', sortOrder: 'AUTHOR_DESC'});
+  });
+
+  it('updates an OPDS user with a default device preset', () => {
+    service.updateUser(5, 'RECENT', 'X4').subscribe();
+
+    const request = httpTestingController.expectOne(`${API_CONFIG.BASE_URL}/api/v2/opds-users/5`);
+    expect(request.request.method).toBe('PATCH');
+    expect(request.request.body).toEqual({sortOrder: 'RECENT', defaultPreset: 'X4'});
+    request.flush({id: 5, userId: 10, username: 'reader', sortOrder: 'RECENT', defaultPreset: 'X4'});
   });
 
   it('deletes an OPDS credential', () => {

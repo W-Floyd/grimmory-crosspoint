@@ -34,6 +34,10 @@ public class OpdsUserV2Entity {
     @Builder.Default
     private OpdsSortOrder sortOrder = OpdsSortOrder.RECENT;
 
+    /** Canonical device-preset id auto-applied to this user's feeds/downloads; null = no optimization. */
+    @Column(name = "default_preset", length = 50)
+    private String defaultPreset;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

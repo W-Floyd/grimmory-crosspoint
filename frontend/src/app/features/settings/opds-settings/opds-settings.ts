@@ -60,12 +60,13 @@ export class OpdsSettings implements OnInit {
   devicePresets: WritableSignal<OpdsDevicePreset[]> = signal([]);
   loading = signal(false);
   showCreateUserDialog = false;
-  newUser: OpdsUserV2CreateRequest = {username: '', password: '', sortOrder: 'RECENT'};
+  newUser: OpdsUserV2CreateRequest = {username: '', password: '', sortOrder: 'RECENT', defaultPreset: null};
   passwordVisibility: boolean[] = [];
   hasPermission = false;
 
   editingUserId: number | null = null;
   editingSortOrder: OpdsSortOrder | null = null;
+  editingDefaultPreset: string | null = null;
 
   private readonly destroyRef = inject(DestroyRef);
   dummyPassword: string = "***********************";
@@ -293,7 +294,21 @@ export class OpdsSettings implements OnInit {
 
   private resetCreateUserDialog(): void {
     this.showCreateUserDialog = false;
-    this.newUser = {username: '', password: '', sortOrder: 'RECENT'};
+    this.newUser = {username: '', password: '', sortOrder: 'RECENT', defaultPreset: null};
+  }
+
+  /** Device-preset dropdown options, prefixed with a "None" (no optimization) choice. */
+  get presetOptions(): {label: string; value: string | null}[] {
+    return [
+      {label: this.t.translate('settingsOpds.presetNone'), value: null},
+      ...this.devicePresets().map(p => ({label: p.label || p.id, value: p.id}))
+    ];
+  }
+
+  getPresetLabel(presetId?: string | null): string {
+    if (!presetId) return this.t.translate('settingsOpds.presetNone');
+    const preset = this.devicePresets().find(p => p.id.toLowerCase() === presetId.toLowerCase());
+    return preset ? (preset.label || preset.id) : presetId;
   }
 
   private showMessage(severity: string, summary: string, detail: string): void {
@@ -309,17 +324,19 @@ export class OpdsSettings implements OnInit {
   startEdit(user: OpdsUserV2): void {
     this.editingUserId = user.id;
     this.editingSortOrder = user.sortOrder || 'RECENT';
+    this.editingDefaultPreset = user.defaultPreset ?? null;
   }
 
   cancelEdit(): void {
     this.editingUserId = null;
     this.editingSortOrder = null;
+    this.editingDefaultPreset = null;
   }
 
   saveSortOrder(user: OpdsUserV2): void {
     if (!this.editingSortOrder || !user.id) return;
 
-    this.opdsService.updateUser(user.id, this.editingSortOrder).pipe(
+    this.opdsService.updateUser(user.id, this.editingSortOrder, this.editingDefaultPreset).pipe(
       takeUntilDestroyed(this.destroyRef),
       catchError(err => {
         console.error('Error updating sort order:', err);

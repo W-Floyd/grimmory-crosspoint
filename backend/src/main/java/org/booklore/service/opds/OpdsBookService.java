@@ -15,6 +15,7 @@ import org.booklore.model.entity.ShelfEntity;
 import org.booklore.model.enums.OpdsSortOrder;
 import org.booklore.repository.BookOpdsRepository;
 import org.booklore.repository.ShelfRepository;
+import org.booklore.repository.UserBookProgressRepository;
 import org.booklore.repository.UserRepository;
 import org.booklore.repository.BookRepository;
 import org.booklore.service.library.LibraryService;
@@ -45,6 +46,7 @@ public class OpdsBookService {
     private final ShelfRepository shelfRepository;
     private final LibraryService libraryService;
     private final ContentRestrictionService contentRestrictionService;
+    private final UserBookProgressRepository userBookProgressRepository;
 
     public List<Library> getAccessibleLibraries(Long userId) {
         if (userId == null) {
@@ -131,6 +133,80 @@ public class OpdsBookService {
 
         Page<Book> books = getRecentBooksByLibraryIdsPageInternal(libraryIds, page, size, userId);
         return applyBookFilters(books, userId);
+    }
+
+    /**
+     * In-progress (non-audiobook) books for the user, ordered by most recently read, scoped to the
+     * user's accessible libraries. Backs the OPDS "Continue Reading" feed.
+     */
+    public Page<Book> getContinueReadingPage(Long userId, int page, int size) {
+        if (userId == null) {
+            throw ApiError.FORBIDDEN.createException("Authentication required");
+        }
+
+        Set<Long> libraryIds = getAccessibleLibraries(userId).stream()
+                .map(Library::getId)
+                .collect(Collectors.toSet());
+        Pageable pageable = PageRequest.of(Math.max(page, 0), size);
+        if (libraryIds.isEmpty()) {
+            return new PageImpl<>(List.of(), pageable, 0);
+        }
+
+        Page<Long> idPage = userBookProgressRepository.findContinueReadingBookIds(userId, libraryIds, pageable);
+        if (idPage.isEmpty()) {
+            return new PageImpl<>(List.of(), pageable, idPage.getTotalElements());
+        }
+
+        List<BookEntity> books = bookOpdsRepository.findAllWithMetadataByIds(idPage.getContent());
+        Page<Book> result = createPageFromEntities(books, idPage, pageable, userId);
+        return applyBookFilters(result, userId);
+    }
+
+    /** Distinct book formats available to the user, for building OPDS format facets. */
+    public List<org.booklore.model.enums.BookFileType> getAvailableFormats(Long userId) {
+        Set<Long> libraryIds = accessibleLibraryIds(userId);
+        if (libraryIds.isEmpty()) {
+            return List.of();
+        }
+        return bookOpdsRepository.findDistinctBookTypesByLibraryIds(libraryIds);
+    }
+
+    /** Books of a single format across the user's accessible libraries (format facet feed). */
+    public Page<Book> getBooksByFormatPage(Long userId, org.booklore.model.enums.BookFileType format, int page, int size) {
+        Set<Long> libraryIds = accessibleLibraryIds(userId);
+        Pageable pageable = PageRequest.of(Math.max(page, 0), size);
+        if (libraryIds.isEmpty() || format == null) {
+            return new PageImpl<>(List.of(), pageable, 0);
+        }
+
+        Page<Long> idPage = bookOpdsRepository.findBookIdsByLibraryIdsAndBookType(libraryIds, format, pageable);
+        if (idPage.isEmpty()) {
+            return new PageImpl<>(List.of(), pageable, idPage.getTotalElements());
+        }
+
+        List<BookEntity> books = bookOpdsRepository.findAllWithMetadataByIdsAndLibraryIds(idPage.getContent(), libraryIds);
+        return applyBookFilters(createPageFromEntities(books, idPage, pageable, userId), userId);
+    }
+
+    /** Books in the given read statuses across the user's accessible libraries (read-status facet feed). */
+    public Page<Book> getBooksByReadStatusPage(Long userId, Set<org.booklore.model.enums.ReadStatus> statuses, int page, int size) {
+        Set<Long> libraryIds = accessibleLibraryIds(userId);
+        Pageable pageable = PageRequest.of(Math.max(page, 0), size);
+        if (libraryIds.isEmpty() || statuses == null || statuses.isEmpty()) {
+            return new PageImpl<>(List.of(), pageable, 0);
+        }
+
+        Page<Long> idPage = userBookProgressRepository.findBookIdsByReadStatus(userId, libraryIds, statuses, pageable);
+        if (idPage.isEmpty()) {
+            return new PageImpl<>(List.of(), pageable, idPage.getTotalElements());
+        }
+
+        List<BookEntity> books = bookOpdsRepository.findAllWithMetadataByIds(idPage.getContent());
+        return applyBookFilters(createPageFromEntities(books, idPage, pageable, userId), userId);
+    }
+
+    private Set<Long> accessibleLibraryIds(Long userId) {
+        return getAccessibleLibraries(userId).stream().map(Library::getId).collect(Collectors.toSet());
     }
 
     public String getLibraryName(Long libraryId) {

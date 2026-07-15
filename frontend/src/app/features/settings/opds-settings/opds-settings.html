@@ -258,6 +258,23 @@
                         } @else {
                           <span class="sort-order-badge">{{ getSortOrderLabel(user.sortOrder) }}</span>
                         }
+                        @if (devicePresets().length) {
+                          <i class="pi pi-tablet"></i>
+                          @if (editingUserId === user.id) {
+                            <p-select
+                              [options]="presetOptions"
+                              [(ngModel)]="editingDefaultPreset"
+                              optionLabel="label"
+                              optionValue="value"
+                              [style]="{width: '180px'}"
+                              size="small"
+                              [appendTo]="'body'"
+                              [placeholder]="t('createDialog.selectPreset')">
+                            </p-select>
+                          } @else {
+                            <span class="sort-order-badge">{{ getPresetLabel(user.defaultPreset) }}</span>
+                          }
+                        }
                       </div>
                     </div>
                   </div>
@@ -358,6 +375,25 @@
             {{ t('createDialog.sortHint') }}
           </small>
         </div>
+        @if (devicePresets().length) {
+          <div class="form-field">
+            <label for="defaultPreset">{{ t('createDialog.defaultPreset') }}</label>
+            <p-select
+              id="defaultPreset"
+              [options]="presetOptions"
+              [(ngModel)]="newUser.defaultPreset"
+              optionLabel="label"
+              optionValue="value"
+              [style]="{width: '100%'}"
+              [placeholder]="t('createDialog.selectPreset')"
+              [appendTo]="'body'">
+            </p-select>
+            <small class="form-hint">
+              <i class="pi pi-info-circle"></i>
+              {{ t('createDialog.presetHint') }}
+            </small>
+          </div>
+        }
       </div>
       <ng-template pTemplate="footer">
         <div class="dialog-actions">

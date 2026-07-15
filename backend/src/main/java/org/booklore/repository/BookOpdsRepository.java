@@ -2,6 +2,7 @@ package org.booklore.repository;
 
 import org.booklore.model.entity.AuthorEntity;
 import org.booklore.model.entity.BookEntity;
+import org.booklore.model.enums.BookFileType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -162,6 +163,32 @@ public interface BookOpdsRepository extends JpaRepository<BookEntity, Long>, Jpa
                 AND (b.deleted IS NULL OR b.deleted = false)
     """)
     List<BookEntity> findAllWithMetadataByIdsAndShelfIds(@Param("ids") Collection<Long> ids, @Param("libraryIds") Collection<Long> libraryIds, @Param("shelfIds") Collection<Long> shelfIds);
+
+    // ============================================
+    // BOOKS BY FORMAT - Facet Filter (Two Query Pattern)
+    // ============================================
+
+    /** Distinct book formats present in the given libraries, for building format facets. */
+    @Query("""
+            SELECT DISTINCT bf.bookType FROM BookEntity b
+            JOIN b.bookFiles bf
+            WHERE b.library.id IN :libraryIds
+              AND (b.deleted IS NULL OR b.deleted = false)
+              AND bf.isBookFormat = true
+            ORDER BY bf.bookType
+            """)
+    List<BookFileType> findDistinctBookTypesByLibraryIds(@Param("libraryIds") Collection<Long> libraryIds);
+
+    @Query("""
+            SELECT DISTINCT b.id FROM BookEntity b
+            JOIN b.bookFiles bf
+            WHERE b.library.id IN :libraryIds
+              AND (b.deleted IS NULL OR b.deleted = false)
+              AND bf.isBookFormat = true
+              AND bf.bookType = :bookType
+            ORDER BY b.addedOn DESC
+            """)
+    Page<Long> findBookIdsByLibraryIdsAndBookType(@Param("libraryIds") Collection<Long> libraryIds, @Param("bookType") BookFileType bookType, Pageable pageable);
 
     // ============================================
     // RANDOM BOOKS - "Surprise Me" Feed

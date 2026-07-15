@@ -8,6 +8,7 @@ import org.booklore.model.dto.*;
 import org.booklore.model.entity.ShelfEntity;
 import org.booklore.model.enums.BookFileType;
 import org.booklore.model.enums.OpdsSortOrder;
+import org.booklore.model.enums.ReadStatus;
 import org.booklore.service.MagicShelfService;
 import org.booklore.util.ArchiveUtils;
 import org.junit.jupiter.api.BeforeEach;
@@ -467,6 +468,128 @@ class OpdsFeedServiceTest {
         assertThat(xml).contains("preset=X4");
         assertThat(xml).doesNotContain("length=");
         verify(optimizedDownloadService).prewarm(23L, 10L, preset, "X4");
+    }
+
+    @Test
+    void generateRootNavigation_includesContinueReading() {
+        String xml = opdsFeedService.generateRootNavigation(request);
+        assertThat(xml).contains("Continue Reading");
+        assertThat(xml).contains("/api/v1/opds/continue-reading");
+    }
+
+    @Test
+    void generateContinueReadingFeed_returnsInProgressBooks() {
+        mockAuthenticatedUser();
+        when(request.getParameter("page")).thenReturn(null);
+        when(request.getParameter("size")).thenReturn(null);
+        when(request.getRequestURI()).thenReturn("/api/v1/opds/continue-reading");
+        when(request.getQueryString()).thenReturn(null);
+
+        Book book = Book.builder()
+                .id(30L)
+                .primaryFile(BookFile.builder().id(1L).bookType(BookFileType.EPUB).build())
+                .addedOn(FIXED_INSTANT)
+                .metadata(BookMetadata.builder().title("In Progress Book").build())
+                .build();
+        Page<Book> booksPage = new PageImpl<>(List.of(book), PageRequest.of(0, 50), 1);
+        when(opdsBookService.getContinueReadingPage(TEST_USER_ID, 0, 50)).thenReturn(booksPage);
+
+        String xml = opdsFeedService.generateContinueReadingFeed(request);
+
+        assertThat(xml).contains("Continue Reading");
+        assertThat(xml).contains("In Progress Book");
+        assertThat(xml).contains("</feed>");
+        verify(opdsBookService).getContinueReadingPage(TEST_USER_ID, 0, 50);
+    }
+
+    @Test
+    void generateCatalogFeed_plainBrowse_emitsFormatAndReadStatusFacets() {
+        mockAuthenticatedUser();
+        when(request.getParameter("page")).thenReturn(null);
+        when(request.getParameter("size")).thenReturn(null);
+        when(request.getRequestURI()).thenReturn("/api/v1/opds/catalog");
+        when(request.getQueryString()).thenReturn(null);
+        when(opdsBookService.getBooksPage(eq(TEST_USER_ID), any(), any(), any(), eq(0), eq(50)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 50), 0));
+        when(opdsBookService.applySortOrder(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(opdsBookService.getAvailableFormats(TEST_USER_ID))
+                .thenReturn(List.of(BookFileType.EPUB, BookFileType.PDF));
+
+        String xml = opdsFeedService.generateCatalogFeed(request);
+
+        assertThat(xml).contains("rel=\"http://opds-spec.org/facet\"");
+        assertThat(xml).contains("opds:facetGroup=\"Format\"");
+        assertThat(xml).contains("format=EPUB");
+        assertThat(xml).contains("format=PDF");
+        assertThat(xml).contains("opds:facetGroup=\"Reading Status\"");
+        assertThat(xml).contains("readStatus=READING");
+        assertThat(xml).contains("readStatus=READ");
+    }
+
+    @Test
+    void generateCatalogFeed_formatFacet_routesToFormatQueryAndMarksActive() {
+        mockAuthenticatedUser();
+        when(request.getParameter("format")).thenReturn("EPUB");
+        when(request.getRequestURI()).thenReturn("/api/v1/opds/catalog");
+        when(request.getQueryString()).thenReturn("format=EPUB");
+        when(opdsBookService.applySortOrder(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(opdsBookService.getAvailableFormats(TEST_USER_ID)).thenReturn(List.of(BookFileType.EPUB));
+
+        Book book = Book.builder()
+                .id(31L)
+                .primaryFile(BookFile.builder().id(1L).bookType(BookFileType.EPUB).build())
+                .addedOn(FIXED_INSTANT)
+                .metadata(BookMetadata.builder().title("An Epub").build())
+                .build();
+        when(opdsBookService.getBooksByFormatPage(TEST_USER_ID, BookFileType.EPUB, 0, 50))
+                .thenReturn(new PageImpl<>(List.of(book), PageRequest.of(0, 50), 1));
+
+        String xml = opdsFeedService.generateCatalogFeed(request);
+
+        assertThat(xml).contains("EPUB Books");
+        assertThat(xml).contains("opds:activeFacet=\"true\"");
+        verify(opdsBookService).getBooksByFormatPage(TEST_USER_ID, BookFileType.EPUB, 0, 50);
+        verify(opdsBookService, never()).getBooksPage(any(), any(), any(), any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void generateCatalogFeed_readStatusFacet_routesToReadStatusQuery() {
+        mockAuthenticatedUser();
+        when(request.getParameter("readStatus")).thenReturn("READING");
+        when(request.getRequestURI()).thenReturn("/api/v1/opds/catalog");
+        when(request.getQueryString()).thenReturn("readStatus=READING");
+        when(opdsBookService.getAvailableFormats(TEST_USER_ID)).thenReturn(List.of());
+        when(opdsBookService.getBooksByReadStatusPage(eq(TEST_USER_ID),
+                eq(Set.of(ReadStatus.READING, ReadStatus.RE_READING)), eq(0), eq(50)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 50), 0));
+
+        String xml = opdsFeedService.generateCatalogFeed(request);
+
+        assertThat(xml).contains("Currently Reading");
+        verify(opdsBookService).getBooksByReadStatusPage(TEST_USER_ID,
+                Set.of(ReadStatus.READING, ReadStatus.RE_READING), 0, 50);
+        // read-status facet keeps its recency order; the user sort order is not applied
+        verify(opdsBookService, never()).applySortOrder(any(), any());
+    }
+
+    @Test
+    void feed_appliesUserDefaultPresetWhenNoExplicitPresetParam() {
+        OpdsUserDetails details = mockAuthenticatedUser();
+        when(details.getOpdsUserV2().getDefaultPreset()).thenReturn("X4");
+        when(devicePresetService.resolveId("X4")).thenReturn(java.util.Optional.of("X4"));
+        when(request.getParameter("preset")).thenReturn(null);
+
+        Book book = Book.builder()
+                .id(40L)
+                .primaryFile(BookFile.builder().id(1L).bookType(BookFileType.EPUB).build())
+                .addedOn(FIXED_INSTANT)
+                .metadata(BookMetadata.builder().title("Default Preset Book").build())
+                .build();
+        when(opdsBookService.getRandomBooks(TEST_USER_ID, 25)).thenReturn(List.of(book));
+
+        String xml = opdsFeedService.generateSurpriseFeed(request);
+
+        assertThat(xml).contains("preset=X4");
     }
 
     @Test

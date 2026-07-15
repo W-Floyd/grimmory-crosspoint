@@ -32,6 +32,7 @@
     "emptyTitle": "No users found",
     "emptySubtitle": "Create your first OPDS user to get started",
     "editSortOrder": "Edit sort order",
+    "editPreset": "Edit device preset",
     "deleteUser": "Delete user"
   },
   "createDialog": {
@@ -43,8 +44,12 @@
     "enterPassword": "Enter password",
     "selectSortOrder": "Select sort order",
     "sortHint": "This will determine how books appear in the OPDS feed for this user",
+    "defaultPreset": "Default Device Preset",
+    "selectPreset": "Select device preset",
+    "presetHint": "Optionally optimize this user's feeds and downloads for a device (e.g. a Crosspoint e-reader)",
     "create": "Create"
   },
+  "presetNone": "None (original files)",
   "sortOrders": {
     "recent": "Recently Added",
     "titleAsc": "Title (A-Z)",

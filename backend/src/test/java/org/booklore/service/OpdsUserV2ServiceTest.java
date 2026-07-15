@@ -8,9 +8,11 @@ import org.booklore.model.dto.OpdsUserV2;
 import org.booklore.model.dto.request.OpdsUserV2CreateRequest;
 import org.booklore.model.entity.BookLoreUserEntity;
 import org.booklore.model.entity.OpdsUserV2Entity;
+import org.booklore.exception.APIException;
 import org.booklore.repository.OpdsUserV2Repository;
 import org.booklore.repository.UserRepository;
 import org.booklore.service.opds.OpdsUserV2Service;
+import org.booklore.service.opds.optimization.DevicePresetService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -43,6 +45,8 @@ class OpdsUserV2ServiceTest {
     private PasswordEncoder passwordEncoder;
     @Mock
     private AuditService auditService;
+    @Mock
+    private DevicePresetService devicePresetService;
 
     @InjectMocks
     private OpdsUserV2Service service;
@@ -102,6 +106,51 @@ class OpdsUserV2ServiceTest {
         assertEquals("encoded-pass", captured.getPasswordHash());
         assertSame(userEntity, captured.getUser());
         verify(mapper).toDto(savedEntity);
+    }
+
+    @Test
+    void createOpdsUser_withValidPreset_storesCanonicalPresetId() {
+        BookLoreUser authUser = mock(BookLoreUser.class);
+        when(authUser.getId()).thenReturn(1L);
+        when(authenticationService.getAuthenticatedUser()).thenReturn(authUser);
+
+        BookLoreUserEntity userEntity = mock(BookLoreUserEntity.class);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(userEntity));
+
+        OpdsUserV2CreateRequest request = mock(OpdsUserV2CreateRequest.class);
+        when(request.getUsername()).thenReturn("alice");
+        when(request.getPassword()).thenReturn("plaintext");
+        when(request.getDefaultPreset()).thenReturn("x4"); // lowercase → canonicalized
+        when(passwordEncoder.encode("plaintext")).thenReturn("encoded-pass");
+        when(devicePresetService.resolveId("x4")).thenReturn(Optional.of("X4"));
+
+        when(opdsUserV2Repository.save(any())).thenReturn(mock(OpdsUserV2Entity.class));
+        when(mapper.toDto(any(OpdsUserV2Entity.class))).thenReturn(mock(OpdsUserV2.class));
+
+        service.createOpdsUser(request);
+
+        verify(opdsUserV2Repository).save(entityCaptor.capture());
+        assertEquals("X4", entityCaptor.getValue().getDefaultPreset());
+    }
+
+    @Test
+    void createOpdsUser_withUnknownPreset_throwsBadRequest() {
+        BookLoreUser authUser = mock(BookLoreUser.class);
+        when(authUser.getId()).thenReturn(1L);
+        when(authenticationService.getAuthenticatedUser()).thenReturn(authUser);
+
+        BookLoreUserEntity userEntity = mock(BookLoreUserEntity.class);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(userEntity));
+
+        OpdsUserV2CreateRequest request = mock(OpdsUserV2CreateRequest.class);
+        when(request.getUsername()).thenReturn("alice");
+        when(request.getPassword()).thenReturn("plaintext");
+        when(request.getDefaultPreset()).thenReturn("ZZ");
+        when(passwordEncoder.encode("plaintext")).thenReturn("encoded-pass");
+        when(devicePresetService.resolveId("ZZ")).thenReturn(Optional.empty());
+
+        assertThrows(APIException.class, () -> service.createOpdsUser(request));
+        verify(opdsUserV2Repository, never()).save(any());
     }
 
     @Test

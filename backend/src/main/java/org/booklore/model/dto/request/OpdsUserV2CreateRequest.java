@@ -8,4 +8,5 @@ public class OpdsUserV2CreateRequest {
     private String username;
     private String password;
     private OpdsSortOrder sortOrder;
+    private String defaultPreset;
 }

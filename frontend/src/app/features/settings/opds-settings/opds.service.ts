@@ -9,6 +9,7 @@ export interface OpdsUserV2CreateRequest {
   username: string;
   password: string;
   sortOrder?: OpdsSortOrder;
+  defaultPreset?: string | null;
 }
 
 export interface OpdsUserV2 {
@@ -16,6 +17,7 @@ export interface OpdsUserV2 {
   userId: number;
   username: string;
   sortOrder?: OpdsSortOrder;
+  defaultPreset?: string | null;
 }
 
 export interface OpdsDevicePreset {
@@ -48,8 +50,8 @@ export class OpdsService {
     return this.http.post<OpdsUserV2>(this.baseUrl, user);
   }
 
-  updateUser(id: number, sortOrder: OpdsSortOrder): Observable<OpdsUserV2> {
-    return this.http.patch<OpdsUserV2>(`${this.baseUrl}/${id}`, {sortOrder});
+  updateUser(id: number, sortOrder: OpdsSortOrder, defaultPreset?: string | null): Observable<OpdsUserV2> {
+    return this.http.patch<OpdsUserV2>(`${this.baseUrl}/${id}`, {sortOrder, defaultPreset: defaultPreset ?? null});
   }
 
   deleteCredential(id: number): Observable<void> {

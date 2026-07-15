@@ -16,4 +16,5 @@ public class OpdsUserV2 {
     @JsonIgnore
     private String passwordHash;
     private OpdsSortOrder sortOrder;
+    private String defaultPreset;
 }
