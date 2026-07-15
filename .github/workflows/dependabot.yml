@@ -1,5 +1,11 @@
 # For some reason, Dependabot refuses to refresh the lockfiles for
 # gradle, so this bumps the lockfile explicitly.
+#
+# The work is split into two jobs on purpose: the job that executes Gradle
+# (which evaluates build.gradle.kts and resolves dependencies from the PR)
+# runs with a read-only token, and only the tiny commit job that pushes the
+# result is granted contents: write. That keeps the write-scoped token out of
+# the process that runs untrusted build logic from a dependency-bump PR.
 name: Dependabot
 
 on:
@@ -11,7 +17,7 @@ on:
       - "backend/build.gradle.kts"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: dependabot-${{ github.event.pull_request.number }}
@@ -23,18 +29,18 @@ jobs:
     runs-on: ubuntu-latest
     if: github.actor == 'dependabot[bot]'
 
+    permissions:
+      contents: read
+
+    outputs:
+      changed: ${{ steps.pack.outputs.changed }}
+
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           ref: ${{ github.head_ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install just
-        uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2.82.7
-        with:
-          tool: just
 
       - name: Set Up JDK 25
         uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5
@@ -66,10 +72,62 @@ jobs:
             ~/.gradle/wrapper
           key: ${{ steps.restore_gradle_cache.outputs.cache-primary-key }}
 
+      - name: Package changed lockfiles
+        id: pack
+        run: |
+          set -eu
+
+          git add '**/gradle.lockfile'
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No lockfile changes."
+            exit 0
+          fi
+
+          # Preserve full repo-relative paths so the commit job restores them verbatim.
+          git diff --cached --name-only > "${RUNNER_TEMP}/lockfiles.list"
+          tar -czf "${RUNNER_TEMP}/lockfiles.tar.gz" -T "${RUNNER_TEMP}/lockfiles.list"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload refreshed lockfiles
+        if: steps.pack.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gradle-lockfiles
+          path: ${{ runner.temp }}/lockfiles.tar.gz
+          retention-days: 1
+
+  commit-lockfiles:
+    name: Commit Refreshed Lockfiles
+    needs: [refresh-lockfiles]
+    if: ${{ needs.refresh-lockfiles.outputs.changed == 'true' }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download refreshed lockfiles
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: gradle-lockfiles
+          path: ${{ runner.temp }}/lockfiles
+
       - name: Commit and push
         env:
           GITHUB_TOKEN_GIT_URL: "https://actions:${{ github.token }}@github.com/${{ github.repository }}"
         run: |
+          set -eu
+
+          tar -xzf "${RUNNER_TEMP}/lockfiles/lockfiles.tar.gz" -C "${GITHUB_WORKSPACE}"
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 

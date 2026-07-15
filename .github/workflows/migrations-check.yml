@@ -24,6 +24,8 @@ jobs:
   check-for-migrations:
     name: Check for DB Migrations
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       base_ref: ${{ steps.normalize_refs.outputs.base_ref }}
       head_ref: ${{ steps.normalize_refs.outputs.head_ref }}
@@ -69,6 +71,8 @@ jobs:
     needs: [check-for-migrations]
     if: needs.check-for-migrations.outputs.has_migrations == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     services:
       mariadb:
         image: mariadb:10.6
