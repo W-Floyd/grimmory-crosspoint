@@ -18,12 +18,14 @@ jobs:
     permissions:
       actions: read
       contents: read
+      packages: read
 
     outputs:
       base_tag: ${{ steps.resolve.outputs.base_tag }}
       commit_sha: ${{ steps.resolve.outputs.commit_sha }}
       from_ref: ${{ steps.resolve.outputs.from_ref }}
       nightly_tag: ${{ steps.resolve.outputs.nightly_tag }}
+      should_build: ${{ steps.gate.outputs.should_build }}
 
     steps:
       - name: Checkout Repository
@@ -50,9 +52,53 @@ jobs:
           echo "from_ref=${from_ref}" >> "$GITHUB_OUTPUT"
           echo "nightly_tag=${nightly_tag}" >> "$GITHUB_OUTPUT"
 
+      - name: Authenticate to GitHub Container Registry
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Determine Whether A New Build Is Needed
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ steps.resolve.outputs.commit_sha }}
+        run: |
+          set -eu
+
+          # Manual runs always build, regardless of commit history.
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch: building unconditionally."
+            exit 0
+          fi
+
+          # GHCR requires a lowercase path, but owner/repo names may contain uppercase.
+          image_base="ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+
+          # The published image labels org.opencontainers.image.revision with the
+          # commit it was built from (see Dockerfile APP_REVISION). Compare it to
+          # the current tip so we only rebuild when develop has actually advanced.
+          last_rev="$(docker buildx imagetools inspect "${image_base}:nightly" \
+            --format '{{ range $k, $v := .Image }}{{ index $v.Config.Labels "org.opencontainers.image.revision" }}{{ "\n" }}{{ end }}' \
+            2>/dev/null | grep -m1 . || true)"
+
+          if [ -z "${last_rev}" ]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "No existing nightly image (or revision label) found: building."
+          elif [ "${last_rev}" = "${HEAD_SHA}" ]; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "Tip ${HEAD_SHA} already published as nightly: skipping build."
+          else
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "New commits since last nightly (${last_rev} -> ${HEAD_SHA}): building."
+          fi
+
   build-and-push:
     name: Build and Push Nightly Image
     needs: [resolve_ref, test-suite]
+    if: ${{ needs.resolve_ref.outputs.should_build == 'true' }}
     runs-on: ubuntu-latest
 
     permissions:
@@ -137,6 +183,7 @@ jobs:
   export-openapi:
     name: Export Nightly OpenAPI Artifact
     needs: [resolve_ref]
+    if: ${{ needs.resolve_ref.outputs.should_build == 'true' }}
     runs-on: ubuntu-latest
 
     permissions:
@@ -228,6 +275,7 @@ jobs:
   test-suite:
     name: Test Suite
     needs: [resolve_ref]
+    if: ${{ needs.resolve_ref.outputs.should_build == 'true' }}
     uses: ./.github/workflows/test-suite.yml
     permissions:
       contents: read
