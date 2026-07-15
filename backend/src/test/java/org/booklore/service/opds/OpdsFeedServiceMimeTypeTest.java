@@ -54,7 +54,8 @@ class OpdsFeedServiceMimeTypeTest {
         magicShelfService = mock(MagicShelfService.class);
         magicShelfBookService = mock(MagicShelfBookService.class);
         devicePresetService = mock(org.booklore.service.opds.optimization.DevicePresetService.class);
-        opdsFeedService = new OpdsFeedService(authenticationService, opdsBookService, magicShelfService, magicShelfBookService, devicePresetService);
+        opdsFeedService = new OpdsFeedService(authenticationService, opdsBookService, magicShelfService, magicShelfBookService, devicePresetService,
+                mock(org.booklore.service.opds.optimization.OptimizedDownloadService.class));
         request = mock(HttpServletRequest.class);
         
         mockAuthenticatedUser();

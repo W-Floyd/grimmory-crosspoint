@@ -14,14 +14,21 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
+import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
@@ -43,6 +50,9 @@ public class OptimizedDownloadService {
     private final DevicePresetService devicePresetService;
     private final FileService fileService;
     private final OpdsVariantHashService variantHashService;
+
+    /** Variant keys currently being warmed, so concurrent feed loads don't optimize the same file twice. */
+    private final Set<String> inFlightPrewarms = ConcurrentHashMap.newKeySet();
 
     /**
      * Download {@code fileId} optimized for {@code preset}. Non-EPUB files, oversized files,
@@ -80,6 +90,107 @@ public class OptimizedDownloadService {
         } catch (Exception e) {
             log.warn("Failed to optimize EPUB {} for preset {}; serving original: {}", fileId, presetId, e.getMessage());
             return bookDownloadService.downloadBookFile(bookId, fileId);
+        }
+    }
+
+    /**
+     * Real byte size of the already-cached optimized variant for {@code (bookId, fileId, presetId)},
+     * or empty when none has been generated yet. A fast, non-generating disk lookup safe to call
+     * during feed rendering; use {@link #prewarm} to populate the cache off the request thread.
+     *
+     * <p>{@code presetId} must be the canonical (configured) preset id so the cache key matches
+     * the one used by {@link #downloadOptimized}.
+     */
+    public OptionalLong cachedVariantSize(Long bookId, Long fileId, String presetId) {
+        if (bookId == null || fileId == null || presetId == null || presetId.isBlank()) {
+            return OptionalLong.empty();
+        }
+        Path cacheDir = Path.of(fileService.getOpdsCachePath(), sanitize(presetId));
+        if (!Files.isDirectory(cacheDir)) {
+            return OptionalLong.empty();
+        }
+        String prefix = bookId + "_" + fileId + "_";
+        try (var stream = Files.list(cacheDir)) {
+            Optional<Path> newest = stream
+                    .filter(p -> {
+                        String name = p.getFileName().toString();
+                        return name.startsWith(prefix) && name.endsWith(".epub");
+                    })
+                    .filter(Files::isRegularFile)
+                    .max(Comparator.comparingLong(OptimizedDownloadService::lastModifiedMillis));
+            if (newest.isPresent()) {
+                long size = Files.size(newest.get());
+                if (size > 0) {
+                    return OptionalLong.of(size);
+                }
+            }
+        } catch (IOException e) {
+            log.debug("Failed to inspect OPDS cache for book {} file {} preset {}: {}",
+                    bookId, fileId, presetId, e.getMessage());
+        }
+        return OptionalLong.empty();
+    }
+
+    /**
+     * Generate and cache the optimized EPUB variant for {@code (bookId, fileId, presetId)} off the
+     * request thread so its real size can be advertised on a later feed load. Fire-and-forget:
+     * de-duplicates concurrent requests for the same variant and swallows all failures (they are
+     * already handled by the download fallback).
+     *
+     * <p>{@code presetId} must be the canonical (configured) preset id.
+     */
+    @Async("taskExecutor")
+    public void prewarm(Long bookId, Long fileId, DevicePreset preset, String presetId) {
+        if (bookId == null || fileId == null || preset == null || presetId == null) {
+            return;
+        }
+        String key = presetId + "/" + bookId + "_" + fileId;
+        if (!inFlightPrewarms.add(key)) {
+            return; // an identical variant is already being warmed
+        }
+        try {
+            servedSize(bookId, fileId, preset, presetId);
+        } finally {
+            inFlightPrewarms.remove(key);
+        }
+    }
+
+    /**
+     * Size in bytes of the file the optimized-download endpoint would serve for
+     * {@code (bookId, fileId, presetId)}, generating the optimized EPUB variant when it does not
+     * exist yet. Returns the original file size when the target is not an optimizable EPUB or
+     * exceeds the configured size cap (both are served unchanged), and empty when the size cannot
+     * be determined.
+     *
+     * <p>Runs the optimization synchronously; call it from {@link #prewarm} rather than the
+     * request thread. {@code presetId} must be the canonical (configured) preset id.
+     */
+    public OptionalLong servedSize(Long bookId, Long fileId, DevicePreset preset, String presetId) {
+        if (bookId == null || fileId == null || preset == null) {
+            return OptionalLong.empty();
+        }
+        BookFileEntity bookFile = bookFileRepository.findByIdWithBookAndLibraryPath(fileId).orElse(null);
+        if (bookFile == null || bookFile.getBook() == null || !bookFile.getBook().getId().equals(bookId)) {
+            return OptionalLong.empty();
+        }
+        try {
+            Path libraryRoot = Path.of(bookFile.getBook().getLibraryPath().getPath());
+            Path source = FileUtils.requirePathWithinBase(bookFile.getFullFilePath(), libraryRoot);
+            if (!Files.exists(source)) {
+                return OptionalLong.empty();
+            }
+            long sourceSize = Files.size(source);
+            // Non-EPUBs and oversized files are streamed unchanged, so the served size is the original.
+            if (bookFile.getBookType() != BookFileType.EPUB
+                    || sourceSize > devicePresetService.maxSourceFileSizeBytes()) {
+                return OptionalLong.of(sourceSize);
+            }
+            Path cached = ensureCached(source, bookId, fileId, preset, presetId, bookFile);
+            return OptionalLong.of(Files.size(cached));
+        } catch (Exception e) {
+            log.debug("Could not determine optimized size for book {} file {} preset {}: {}",
+                    bookId, fileId, presetId, e.getMessage());
+            return OptionalLong.empty();
         }
     }
 
@@ -140,5 +251,13 @@ public class OptimizedDownloadService {
 
     private static String sanitize(String value) {
         return UNSAFE_FILENAME.matcher(value).replaceAll("_");
+    }
+
+    private static long lastModifiedMillis(Path path) {
+        try {
+            return Files.getLastModifiedTime(path).toMillis();
+        } catch (IOException e) {
+            return 0L;
+        }
     }
 }

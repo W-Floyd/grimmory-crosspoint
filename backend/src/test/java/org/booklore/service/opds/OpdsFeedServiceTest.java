@@ -35,6 +35,7 @@ class OpdsFeedServiceTest {
     private MagicShelfService magicShelfService;
     private MagicShelfBookService magicShelfBookService;
     private org.booklore.service.opds.optimization.DevicePresetService devicePresetService;
+    private org.booklore.service.opds.optimization.OptimizedDownloadService optimizedDownloadService;
     private OpdsFeedService opdsFeedService;
     private HttpServletRequest request;
 
@@ -45,7 +46,8 @@ class OpdsFeedServiceTest {
         magicShelfService = mock(MagicShelfService.class);
         magicShelfBookService = mock(MagicShelfBookService.class);
         devicePresetService = mock(org.booklore.service.opds.optimization.DevicePresetService.class);
-        opdsFeedService = new OpdsFeedService(authenticationService, opdsBookService, magicShelfService, magicShelfBookService, devicePresetService);
+        optimizedDownloadService = mock(org.booklore.service.opds.optimization.OptimizedDownloadService.class);
+        opdsFeedService = new OpdsFeedService(authenticationService, opdsBookService, magicShelfService, magicShelfBookService, devicePresetService, optimizedDownloadService);
         request = mock(HttpServletRequest.class);
     }
 
@@ -370,6 +372,101 @@ class OpdsFeedServiceTest {
 
         String xml = opdsFeedService.generateSurpriseFeed(request);
         assertThat(xml).contains("</feed>");
+    }
+
+    @Test
+    void acquisitionLink_shouldReportStoredFileSizeAsLengthInBytes() {
+        mockAuthenticatedUser();
+
+        Book book = Book.builder()
+                .id(20L)
+                .primaryFile(BookFile.builder().id(7L).bookType(BookFileType.EPUB).fileSizeKb(150L).build())
+                .addedOn(FIXED_INSTANT)
+                .metadata(BookMetadata.builder().title("Sized Book").build())
+                .build();
+
+        when(opdsBookService.getRandomBooks(TEST_USER_ID, 25)).thenReturn(List.of(book));
+
+        String xml = opdsFeedService.generateSurpriseFeed(request);
+
+        assertThat(xml).contains("rel=\"http://opds-spec.org/acquisition\"");
+        assertThat(xml).contains("length=\"" + (150L * 1024L) + "\"");
+    }
+
+    @Test
+    void acquisitionLink_shouldOmitLengthWhenFileSizeUnknown() {
+        mockAuthenticatedUser();
+
+        Book book = Book.builder()
+                .id(21L)
+                .primaryFile(BookFile.builder().id(8L).bookType(BookFileType.EPUB).build())
+                .addedOn(FIXED_INSTANT)
+                .metadata(BookMetadata.builder().title("Unsized Book").build())
+                .build();
+
+        when(opdsBookService.getRandomBooks(TEST_USER_ID, 25)).thenReturn(List.of(book));
+
+        String xml = opdsFeedService.generateSurpriseFeed(request);
+
+        assertThat(xml).contains("rel=\"http://opds-spec.org/acquisition\"");
+        assertThat(xml).doesNotContain("length=");
+    }
+
+    @Test
+    void acquisitionLink_shouldReportCachedOptimizedVariantSizeForPreset() {
+        mockAuthenticatedUser();
+        when(request.getParameter("preset")).thenReturn("X4");
+        when(devicePresetService.resolveId("X4")).thenReturn(java.util.Optional.of("X4"));
+
+        org.booklore.model.dto.opds.DevicePreset preset = new org.booklore.model.dto.opds.DevicePreset();
+        when(devicePresetService.resolve("X4")).thenReturn(java.util.Optional.of(preset));
+        // Optimized variant already cached → report its real bytes, not the stored original size.
+        when(optimizedDownloadService.cachedVariantSize(22L, 9L, "X4"))
+                .thenReturn(java.util.OptionalLong.of(4242L));
+
+        Book book = Book.builder()
+                .id(22L)
+                .primaryFile(BookFile.builder().id(9L).bookType(BookFileType.EPUB).fileSizeKb(999L).build())
+                .addedOn(FIXED_INSTANT)
+                .metadata(BookMetadata.builder().title("Preset Book").build())
+                .build();
+
+        when(opdsBookService.getRandomBooks(TEST_USER_ID, 25)).thenReturn(List.of(book));
+
+        String xml = opdsFeedService.generateSurpriseFeed(request);
+
+        assertThat(xml).contains("preset=X4");
+        assertThat(xml).contains("length=\"4242\"");
+        assertThat(xml).doesNotContain("length=\"" + (999L * 1024L) + "\"");
+        verify(optimizedDownloadService, never()).prewarm(anyLong(), anyLong(), any(), anyString());
+    }
+
+    @Test
+    void acquisitionLink_shouldPrewarmAndOmitLengthWhenVariantNotYetCached() {
+        mockAuthenticatedUser();
+        when(request.getParameter("preset")).thenReturn("X4");
+        when(devicePresetService.resolveId("X4")).thenReturn(java.util.Optional.of("X4"));
+
+        org.booklore.model.dto.opds.DevicePreset preset = new org.booklore.model.dto.opds.DevicePreset();
+        when(devicePresetService.resolve("X4")).thenReturn(java.util.Optional.of(preset));
+        // Not cached yet → no length is advertised, and the variant is warmed in the background.
+        when(optimizedDownloadService.cachedVariantSize(23L, 10L, "X4"))
+                .thenReturn(java.util.OptionalLong.empty());
+
+        Book book = Book.builder()
+                .id(23L)
+                .primaryFile(BookFile.builder().id(10L).bookType(BookFileType.EPUB).fileSizeKb(999L).build())
+                .addedOn(FIXED_INSTANT)
+                .metadata(BookMetadata.builder().title("Uncached Preset Book").build())
+                .build();
+
+        when(opdsBookService.getRandomBooks(TEST_USER_ID, 25)).thenReturn(List.of(book));
+
+        String xml = opdsFeedService.generateSurpriseFeed(request);
+
+        assertThat(xml).contains("preset=X4");
+        assertThat(xml).doesNotContain("length=");
+        verify(optimizedDownloadService).prewarm(23L, 10L, preset, "X4");
     }
 
     @Test

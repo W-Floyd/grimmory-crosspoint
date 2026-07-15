@@ -10,10 +10,12 @@ import org.booklore.config.security.userdetails.OpdsUserDetails;
 import org.booklore.model.dto.Book;
 import org.booklore.model.dto.BookFile;
 import org.booklore.model.dto.Library;
+import org.booklore.model.enums.BookFileType;
 import org.booklore.model.enums.OpdsSortOrder;
 import org.booklore.model.dto.opds.DevicePreset;
 import org.booklore.service.MagicShelfService;
 import org.booklore.service.opds.optimization.DevicePresetService;
+import org.booklore.service.opds.optimization.OptimizedDownloadService;
 import org.booklore.util.ArchiveUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.time.Instant;
 
@@ -43,6 +46,7 @@ public class OpdsFeedService {
     private final MagicShelfService magicShelfService;
     private final MagicShelfBookService magicShelfBookService;
     private final DevicePresetService devicePresetService;
+    private final OptimizedDownloadService optimizedDownloadService;
 
     /**
      * Resolve the requested device preset to its canonical (configured) id, or {@code null}
@@ -642,12 +646,45 @@ public class OpdsFeedService {
                 .append(mimeType)
                 .append("\"");
 
+        // OPDS spec `length` (octets) so readers can show size and pre-allocate downloads.
+        acquisitionLength(bookId, bookFile, preset).ifPresent(length ->
+                feed.append(" length=\"").append(length).append("\""));
+
         // Add title attribute to help readers distinguish formats
         if (bookFile.getBookType() != null) {
             feed.append(" title=\"").append(bookFile.getBookType().name()).append("\"");
         }
 
         feed.append("/>\n");
+    }
+
+    /**
+     * Byte size to advertise for an acquisition link. For a device preset that optimizes this
+     * file (EPUB), the real size is only known once the optimized variant has been cached: if it
+     * has, that size is reported; otherwise the variant is warmed in the background and no length
+     * is advertised until a later feed load can report the real bytes. Unoptimized links use the
+     * stored file size (KB → bytes).
+     */
+    private OptionalLong acquisitionLength(Long bookId, BookFile bookFile, String preset) {
+        if (preset != null && !preset.isBlank() && bookFile.getBookType() == BookFileType.EPUB) {
+            DevicePreset devicePreset = devicePresetService.resolve(preset).orElse(null);
+            if (devicePreset != null) {
+                OptionalLong cached = optimizedDownloadService.cachedVariantSize(bookId, bookFile.getId(), preset);
+                if (cached.isPresent()) {
+                    return cached;
+                }
+                // Warm the cache off the request thread; a subsequent feed load advertises the real size.
+                try {
+                    optimizedDownloadService.prewarm(bookId, bookFile.getId(), devicePreset, preset);
+                } catch (RuntimeException e) {
+                    log.debug("Could not schedule OPDS prewarm for book {} file {} preset {}: {}",
+                            bookId, bookFile.getId(), preset, e.getMessage());
+                }
+                return OptionalLong.empty();
+            }
+        }
+        Long kb = bookFile.getFileSizeKb();
+        return (kb == null || kb <= 0) ? OptionalLong.empty() : OptionalLong.of(kb * 1024L);
     }
 
     private String determineFeedTitle(Long libraryId, Set<Long> shelfIds, Long magicShelfId, String author, String series) {
