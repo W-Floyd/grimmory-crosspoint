@@ -54,7 +54,7 @@ function setupOpdsTest(env: OpdsTestEnv): void {
           saveSettings: () => of(void 0),
         },
       },
-      {provide: OpdsService, useValue: {getUser: env.getUser}},
+      {provide: OpdsService, useValue: {getUser: env.getUser, getDevicePresets: () => of([])}},
       {provide: MessageService, useValue: {add: vi.fn()}},
       {provide: TranslocoService, useValue: {translate: vi.fn((key: string) => key)}},
     ],
