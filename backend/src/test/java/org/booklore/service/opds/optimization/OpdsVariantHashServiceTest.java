@@ -67,28 +67,32 @@ class OpdsVariantHashServiceTest {
     }
 
     @Test
-    void register_skipsWhenSourceHashUnchanged() throws Exception {
+    void register_skipsWhenVariantHashUnchanged() throws Exception {
+        Path variant = variantFile();
         OpdsVariantHashEntity existing = OpdsVariantHashEntity.builder()
-                .preset("X3").sourceHash("same").variantHash("v").build();
+                .preset("X3").sourceHash("same").variantHash(FileFingerprint.generateHash(variant)).build();
         when(repository.findByBookFile_IdAndPreset(1L, "X3")).thenReturn(Optional.of(existing));
 
-        service.register(bookFile(1L, 10L), "X3", "same", variantFile());
+        service.register(bookFile(1L, 10L), "X3", "same", variant);
 
         verify(repository, never()).save(any());
     }
 
     @Test
-    void register_updatesWhenSourceHashChanged() throws Exception {
+    void register_updatesWhenVariantBytesChangeEvenIfSourceHashUnchanged() throws Exception {
+        // Cover replacement changes the served bytes without changing the source file hash;
+        // the row must refresh to the new variant hash or KOReader sync 404s.
         OpdsVariantHashEntity existing = OpdsVariantHashEntity.builder()
-                .preset("X3").sourceHash("old").variantHash("old-variant").build();
-        when(repository.findByBookFile_IdAndPreset(1L, "X3")).thenReturn(Optional.of(existing));
+                .preset("xteink-x4").sourceHash("H").variantHash("stale-non-cover-hash").build();
+        when(repository.findByBookFile_IdAndPreset(1L, "xteink-x4")).thenReturn(Optional.of(existing));
 
-        service.register(bookFile(1L, 10L), "X3", "new", variantFile());
+        Path variant = variantFile();
+        service.register(bookFile(1L, 10L), "xteink-x4", "H", variant);
 
         ArgumentCaptor<OpdsVariantHashEntity> captor = ArgumentCaptor.forClass(OpdsVariantHashEntity.class);
         verify(repository).save(captor.capture());
-        assertThat(captor.getValue().getSourceHash()).isEqualTo("new");
-        assertThat(captor.getValue().getVariantHash()).isNotEqualTo("old-variant");
+        assertThat(captor.getValue().getVariantHash()).isEqualTo(FileFingerprint.generateHash(variant));
+        assertThat(captor.getValue().getSourceHash()).isEqualTo("H");
     }
 
     @Test

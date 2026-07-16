@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -47,13 +46,17 @@ public class OpdsVariantHashService {
     @Transactional
     public void register(BookFileEntity bookFile, String preset, String sourceHash, Path variantFile) {
         try {
+            // Dedup on the actual served-file hash, not the source hash: a variant's bytes can
+            // change without the source file changing (e.g. the metadata cover was replaced or
+            // updated). Keying on sourceHash there would leave a stale variantHash and break
+            // KOReader sync (the reader hashes the bytes it downloaded).
+            String variantHash = FileFingerprint.generateHash(variantFile);
             Optional<OpdsVariantHashEntity> existing =
                     repository.findByBookFile_IdAndPreset(bookFile.getId(), preset);
-            if (existing.isPresent() && Objects.equals(existing.get().getSourceHash(), sourceHash)) {
+            if (existing.isPresent() && variantHash.equals(existing.get().getVariantHash())) {
                 return; // already up to date
             }
 
-            String variantHash = FileFingerprint.generateHash(variantFile);
             OpdsVariantHashEntity entity = existing.orElseGet(OpdsVariantHashEntity::new);
             entity.setBook(bookFile.getBook());
             entity.setBookFile(bookFile);
