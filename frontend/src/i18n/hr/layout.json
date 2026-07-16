@@ -36,6 +36,7 @@
         "profile": "Profil",
         "readingStats": "Statistike čitanja",
         "bookdrop": "Bookdrop",
+        "overdrive": "",
         "createLibrary": "Stvori zbirku",
         "metadataManager": "Upravitelj metapodataka",
         "versionCopied": "Verzija {{ version }} kopirana je u međuspremnik.",

@@ -74,5 +74,19 @@ public class MetadataProviderSettings {
         private boolean enabled;
         /** OverDrive/Libby library key (the "preferredKey" / website id, e.g. "lapl"). */
         private String libraryKey;
+        /** Libby/OverDrive sentry base URL (e.g. https://sentry.libbyapp.com). */
+        private String sentryBaseUrl;
+        /** OverDrive client ID (defaults to "dewey"). */
+        private String clientId;
+        /** Whether to auto-return books after reading. */
+        private boolean autoReturn;
+        /** Whether to auto-borrow when metadata refresh finds a copy. */
+        private boolean autoBorrow;
+        /**
+         * Preferred order of ebook fulfillment formats for borrow &amp; import, most-preferred first.
+         * Values are OverDrive format ids (ebook-epub-open, ebook-epub-adobe, ebook-pdf-open,
+         * ebook-pdf-adobe). Empty/null falls back to the built-in default order.
+         */
+        private java.util.List<String> formatPreference;
     }
 }

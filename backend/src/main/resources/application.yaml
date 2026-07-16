@@ -4,6 +4,29 @@ app:
   api-docs:
     enabled: ${API_DOCS_ENABLED:false}
 
+   # OverDrive/Libby integration settings.
+   # Enable by configuring the properties below. The chip token lifecycle is managed
+   # in-memory; persist the token via the /api/overdrive/setup-code endpoint with a
+   # Libby 8-digit setup code.
+  overdrive:
+    enabled: ${OVERDRIVE_ENABLED:false}
+    sentry-base-url: ${OVERDRIVE_SENTRY_BASE_URL:https://sentry.libbyapp.com}
+    client-id: ${OVERDRIVE_CLIENT_ID:dewey}
+    # Whether to auto-borrow books during metadata refresh.
+    auto-borrow: ${OVERDRIVE_AUTO_BORROW:false}
+    # Whether to auto-return books after reading.
+    auto-return: ${OVERDRIVE_AUTO_RETURN:false}
+
+  # ACSM handler — operator-supplied external tool that takes an OverDrive ACSM and procures the
+  # book file (fulfilling/downloading, and any DRM handling, entirely within the tool). Grimmory
+  # passes only the ACSM and an output path; it holds no keys or accounts of its own.
+  # The tool must write the resulting book file to the {output} path.
+  acsm:
+    enabled: ${ACSM_ENABLED:false}
+    tool-path: ${ACSM_TOOL_PATH:}
+    tool-args: ${ACSM_TOOL_ARGS:--acsm {acsm} --output {output}}
+    timeout-seconds: ${ACSM_TIMEOUT_SECONDS:120}
+
   cors:
     # Comma-separated list of allowed CORS origins.
     # Leave empty (default) to allow same-origin requests only.

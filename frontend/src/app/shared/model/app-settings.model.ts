@@ -110,6 +110,11 @@ export interface Audible {
 export interface Overdrive {
   enabled: boolean;
   libraryKey: string;
+  sentryBaseUrl: string;
+  clientId: string;
+  autoBorrow: boolean;
+  autoReturn: boolean;
+  formatPreference?: string[];
 }
 
 export interface FormatWriteSettings {

@@ -112,6 +112,27 @@ public class OverDriveParser implements BookParser {
     }
 
     private List<BookMetadata> search(String libraryKey, String query) {
+        return fetchItems(libraryKey, query).stream()
+                .map(this::toMetadata)
+                .filter(m -> m.getTitle() != null && !m.getTitle().isBlank())
+                .toList();
+    }
+
+    /**
+     * Raw catalog search returning the underlying Thunder items (which carry the OverDrive title id and
+     * per-format ids needed to borrow), for callers that need more than {@link BookMetadata} exposes.
+     * Returns an empty list when no library key is configured or the request fails.
+     */
+    public List<OverDriveApiResponse.Item> searchCatalog(String query) {
+        String libraryKey = getLibraryKey();
+        if (libraryKey == null || libraryKey.isBlank()) {
+            log.warn("OverDrive: no library key configured; skipping catalog search.");
+            return List.of();
+        }
+        return fetchItems(libraryKey, query);
+    }
+
+    private List<OverDriveApiResponse.Item> fetchItems(String libraryKey, String query) {
         try {
             waitForRateLimit();
 
@@ -137,7 +158,7 @@ public class OverDriveParser implements BookParser {
                     .build();
 
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            return handleResponse(response);
+            return parseItems(response);
         } catch (IOException e) {
             log.error("OverDrive: IO error fetching metadata: {}", e.getMessage());
             return List.of();
@@ -148,7 +169,7 @@ public class OverDriveParser implements BookParser {
         }
     }
 
-    private List<BookMetadata> handleResponse(HttpResponse<String> response) {
+    private List<OverDriveApiResponse.Item> parseItems(HttpResponse<String> response) {
         int status = response.statusCode();
         if (status != 200) {
             log.warn("OverDrive Thunder API request failed. Status: {}", status);
@@ -159,10 +180,7 @@ public class OverDriveParser implements BookParser {
             if (parsed == null || parsed.getItems() == null) {
                 return List.of();
             }
-            return parsed.getItems().stream()
-                    .map(this::toMetadata)
-                    .filter(m -> m.getTitle() != null && !m.getTitle().isBlank())
-                    .toList();
+            return parsed.getItems();
         } catch (Exception e) {
             log.error("OverDrive: failed to parse response: {}", e.getMessage());
             return List.of();

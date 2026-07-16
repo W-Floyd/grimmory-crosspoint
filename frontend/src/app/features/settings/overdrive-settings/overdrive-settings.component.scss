@@ -1,0 +1,29 @@
+.overdrive-settings {
+  max-width: 600px;
+
+   h3 {
+    margin-bottom: 0.5rem;
+   }
+
+   .field {
+    margin-bottom: 1rem;
+
+    label {
+      display: block;
+      margin-bottom: 0.25rem;
+      font-weight: 500;
+    }
+
+    small {
+      display: block;
+      margin-top: 0.25rem;
+      color: var(--text-color-secondary);
+    }
+   }
+
+   .setup-section {
+    border-top: 1px solid var(--border-color);
+    padding-top: 1rem;
+    margin-top: 1rem;
+   }
+}

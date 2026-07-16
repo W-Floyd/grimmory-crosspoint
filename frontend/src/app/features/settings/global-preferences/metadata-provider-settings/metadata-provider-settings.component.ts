@@ -8,9 +8,11 @@ import {AppSettingsService} from '../../../../shared/service/app-settings.servic
 import {MessageService} from 'primeng/api';
 import {AppSettingKey} from '../../../../shared/model/app-settings.model';
 import {Select} from 'primeng/select';
+import {OrderListModule} from 'primeng/orderlist';
 import {ExternalDocLinkComponent} from '../../../../shared/components/external-doc-link/external-doc-link.component';
 import { ToggleSwitch } from 'primeng/toggleswitch';
 import {TranslocoDirective, TranslocoService} from '@jsverse/transloco';
+import {OverDriveService} from '../../../../core/services/overdrive.service';
 
 @Component({
   selector: 'app-metadata-provider-settings',
@@ -21,6 +23,7 @@ import {TranslocoDirective, TranslocoService} from '@jsverse/transloco';
     Button,
     FormsModule,
     Select,
+    OrderListModule,
     ExternalDocLinkComponent,
     ToggleSwitch,
     TranslocoDirective
@@ -87,6 +90,19 @@ export class MetadataProviderSettingsComponent {
 
   overdriveEnabled: boolean = false;
   overdriveLibraryKey: string = '';
+  overdriveSentryBaseUrl: string = 'https://sentry.libbyapp.com';
+  overdriveClientId: string = 'dewey';
+  overdriveAutoBorrow: boolean = false;
+  overdriveAutoReturn: boolean = false;
+
+  // Borrow & import format preference (most-preferred first). p-orderList reorders this array in place.
+  readonly overdriveFormatOptions: { id: string; label: string }[] = [
+    { id: 'ebook-epub-open', label: 'EPUB (DRM-free)' },
+    { id: 'ebook-epub-adobe', label: 'EPUB (Adobe DRM)' },
+    { id: 'ebook-pdf-open', label: 'PDF (DRM-free)' },
+    { id: 'ebook-pdf-adobe', label: 'PDF (Adobe DRM)' }
+  ];
+  overdriveFormatPreference: { id: string; label: string }[] = [...this.overdriveFormatOptions];
 
   hardcoverToken: string = '';
   amazonCookie: string = '';
@@ -105,6 +121,10 @@ export class MetadataProviderSettingsComponent {
   private messageService = inject(MessageService);
   private t = inject(TranslocoService);
   private destroyRef = inject(DestroyRef);
+  private overDriveService = inject(OverDriveService);
+
+  /** Whether an external ACSM handler is configured; Adobe-DRM formats are unsupported without it. */
+  overdriveAcsmHandlerConfigured = false;
 
   private readonly syncSettingsEffect = effect(() => {
     const settings = this.appSettingsService.appSettings();
@@ -112,6 +132,20 @@ export class MetadataProviderSettingsComponent {
       this.applySettings(settings);
     }
   });
+
+  constructor() {
+    this.overDriveService.capabilities()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (caps) => (this.overdriveAcsmHandlerConfigured = caps.acsmHandlerConfigured),
+        error: () => (this.overdriveAcsmHandlerConfigured = false)
+      });
+  }
+
+  /** True for Adobe-DRM formats that cannot be imported without a configured ACSM handler. */
+  isFormatUnsupported(formatId: string): boolean {
+    return formatId.endsWith('-adobe') && !this.overdriveAcsmHandlerConfigured;
+  }
 
   private applySettings(settings: NonNullable<ReturnType<typeof this.appSettingsService.appSettings>>): void {
     const metadataProviderSettings = settings.metadataProviderSettings;
@@ -133,6 +167,22 @@ export class MetadataProviderSettingsComponent {
     this.selectedAudibleDomain = metadataProviderSettings?.audible?.domain ?? 'com';
     this.overdriveEnabled = metadataProviderSettings?.overdrive?.enabled ?? false;
     this.overdriveLibraryKey = metadataProviderSettings?.overdrive?.libraryKey ?? '';
+    this.overdriveSentryBaseUrl = metadataProviderSettings?.overdrive?.sentryBaseUrl ?? 'https://sentry.libbyapp.com';
+    this.overdriveClientId = metadataProviderSettings?.overdrive?.clientId ?? 'dewey';
+    this.overdriveAutoBorrow = metadataProviderSettings?.overdrive?.autoBorrow ?? false;
+    this.overdriveAutoReturn = metadataProviderSettings?.overdrive?.autoReturn ?? false;
+    this.overdriveFormatPreference = this.orderFormatPreference(metadataProviderSettings?.overdrive?.formatPreference);
+  }
+
+  /** Order the known format options by the saved preference ids, appending any not listed. */
+  private orderFormatPreference(saved: string[] | null | undefined): { id: string; label: string }[] {
+    if (!saved || saved.length === 0) {
+      return [...this.overdriveFormatOptions];
+    }
+    const byId = new Map(this.overdriveFormatOptions.map(o => [o.id, o]));
+    const ordered = saved.map(id => byId.get(id)).filter((o): o is { id: string; label: string } => !!o);
+    const remaining = this.overdriveFormatOptions.filter(o => !saved.includes(o.id));
+    return [...ordered, ...remaining];
   }
 
   onTokenChange(newToken: string): void {
@@ -183,7 +233,12 @@ export class MetadataProviderSettingsComponent {
           },
           overdrive: {
             enabled: this.overdriveEnabled,
-            libraryKey: this.overdriveLibraryKey
+            libraryKey: this.overdriveLibraryKey,
+            sentryBaseUrl: this.overdriveSentryBaseUrl,
+            clientId: this.overdriveClientId,
+            autoBorrow: this.overdriveAutoBorrow,
+            autoReturn: this.overdriveAutoReturn,
+            formatPreference: this.overdriveFormatPreference.map(o => o.id)
           }
         }
       }

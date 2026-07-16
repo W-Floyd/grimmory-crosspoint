@@ -1,0 +1,62 @@
+.overdrive-container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem;
+
+  h2 {
+    margin-bottom: 0.5rem;
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-color);
+  }
+
+  .subtitle {
+    margin-bottom: 1.5rem;
+    color: var(--text-color-secondary);
+  }
+
+  .mb-4 {
+    margin-bottom: 1.5rem;
+  }
+
+  .loan-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .destination-row,
+  .search-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+
+    p-select {
+      min-width: 200px;
+    }
+
+    input {
+      flex: 1 1 240px;
+    }
+  }
+
+  .result-cover {
+    width: 40px;
+    height: auto;
+    border-radius: 2px;
+  }
+
+  .field {
+    label {
+      display: block;
+      margin-bottom: 0.25rem;
+      font-weight: 500;
+    }
+
+    small {
+      display: block;
+      margin-top: 0.25rem;
+      color: var(--text-color-secondary);
+    }
+  }
+}

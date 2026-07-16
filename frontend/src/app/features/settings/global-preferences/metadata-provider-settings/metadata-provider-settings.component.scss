@@ -159,3 +159,13 @@
   padding-top: 0.4375rem;
   border-top: 1px solid var(--p-content-border-color);
 }
+
+.format-unsupported {
+  color: var(--text-color-secondary);
+  opacity: 0.6;
+}
+
+.format-unsupported-note {
+  font-style: italic;
+  font-size: 0.85em;
+}

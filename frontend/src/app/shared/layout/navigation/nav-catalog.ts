@@ -131,6 +131,14 @@ const SECONDARY_PAGE_DEFINITIONS: readonly PageDefinition[] = [
     routerLink: ['/bookdrop'],
     isVisible: canAccessBookdrop,
   },
+  {
+    id: 'overdrive',
+    labelKey: 'layout.menu.overdrive',
+    icon: 'book-down',
+    routerLink: ['/overdrive'],
+    // Any user who can add books — each connects their own Libby account and borrows independently.
+    isVisible: canUploadBooks,
+  },
 ] as const;
 
 const CREATE_ACTION_DEFINITIONS: readonly ActionDefinition[] = [

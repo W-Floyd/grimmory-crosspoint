@@ -56,7 +56,8 @@
         "versionCopyFailed": "Impossible de copier la version {{ version }}.",
         "toggleNavigation": "",
         "goToDashboard": "",
-        "bookdrop": ""
+        "bookdrop": "",
+        "overdrive": ""
     },
     "closeNavigation": "Fermer la navigation",
     "changelog": {

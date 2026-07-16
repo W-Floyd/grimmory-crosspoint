@@ -1,0 +1,58 @@
+<div class="overdrive-settings">
+   <h3>OverDrive / Libby</h3>
+   <p>Configure your library's OverDrive connection.</p>
+
+    <div class="field">
+     <label for="library-key">Library Key</label>
+     <input
+       id="library-key"
+       pInputText
+       type="text"
+       [ngModel]="libraryKey()"
+       (ngModelChange)="libraryKey.set($event)"
+       [ngModelOptions]="{ standalone: true }"
+       placeholder="e.g. lapl"
+       class="w-full"
+      />
+     <small>The OverDrive library key (preferredKey) for your library</small>
+    </div>
+
+    <p-message *ngIf="setupError()" severity="error">{{ setupError() }}</p-message>
+
+    <div class="field setup-section">
+     <label for="setup-code">Libby Setup Code</label>
+     <input
+       id="setup-code"
+       pInputText
+       type="text"
+       [ngModel]="setupCode()"
+       (ngModelChange)="setupCode.set($event)"
+       [ngModelOptions]="{ standalone: true }"
+       placeholder="Enter your 8-digit Libby setup code"
+       class="w-full"
+      />
+     <small>Get it in Libby → Settings → Copy to another device</small>
+
+      <p-button
+       label="Connect"
+        [loading]="connecting()"
+       (onClick)="onConnect()"
+       severity="help"
+       class="mt-2"
+      />
+
+       <p-card header="Connection Status" *ngIf="setupResult()">
+        <p class="m-0">
+          <strong>Identity:</strong> {{ setupResult()!.identity }}<br/>
+          <strong>Token:</strong> {{ setupResult()!.token | slice:0:20 }}...
+        </p>
+       </p-card>
+     </div>
+
+    <p-button
+     label="Save Settings"
+     (onClick)="onSave()"
+     severity="success"
+     class="mt-4"
+    />
+  </div>

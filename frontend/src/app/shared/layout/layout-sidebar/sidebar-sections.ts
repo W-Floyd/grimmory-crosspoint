@@ -68,6 +68,7 @@ export function buildToolsSection(
     findPageNavItem('libraryStats', translate, permissions),
     findPageNavItem('metadataManager', translate, permissions),
     findPageNavItem('bookdrop', translate, permissions),
+    findPageNavItem('overdrive', translate, permissions),
   ].filter((item): item is SidebarLeaf => !!item);
 
   if (items.length === 0) return [];

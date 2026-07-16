@@ -63,7 +63,10 @@
     "hardcoverPlaceholder": "Enter Hardcover API token",
     "comicvinePlaceholder": "Enter Comic Vine API token",
     "overdriveLibraryKey": "Library Key",
-    "overdriveLibraryKeyPlaceholder": "Enter your OverDrive/Libby library key (e.g. lapl)"
+    "overdriveLibraryKeyPlaceholder": "Enter your OverDrive/Libby library key (e.g. lapl)",
+    "overdriveFormatPreference": "Format Preference",
+    "overdriveFormatPreferenceHelp": "Order of formats to try when borrowing. DRM-free formats import directly; Adobe formats need a configured ACSM handler.",
+    "overdriveFormatUnsupported": "requires an ACSM handler (not configured)"
   },
   "publicReviews": {
     "sectionTitle": "Public Reviews",

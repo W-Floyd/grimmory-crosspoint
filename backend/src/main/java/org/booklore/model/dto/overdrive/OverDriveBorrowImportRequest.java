@@ -1,0 +1,26 @@
+package org.booklore.model.dto.overdrive;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import lombok.Data;
+
+/**
+ * Request body for borrowing an OverDrive title and importing it into a library.
+ */
+@Data
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class OverDriveBorrowImportRequest {
+    /** OverDrive title id to borrow (from catalog search). */
+    private String titleId;
+    /** Target library id. */
+    private Long libraryId;
+    /** Target library path id within that library. */
+    private Long pathId;
+    /** Optional book title (used for the on-disk filename / naming pattern). */
+    private String title;
+    /** Optional primary author (used for the naming pattern). */
+    private String author;
+    /** Optional cover image URL from the catalog result (applied as the book thumbnail). */
+    private String coverUrl;
+    /** Optional ISBN from the catalog result (applied to the book metadata). */
+    private String isbn;
+}
