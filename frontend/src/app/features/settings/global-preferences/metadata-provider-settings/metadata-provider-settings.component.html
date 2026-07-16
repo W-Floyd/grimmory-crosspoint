@@ -148,6 +148,26 @@
                 </div>
               }
             </div>
+
+            <div class="setting-item">
+              <div class="setting-header">
+                <p-toggleswitch [(ngModel)]="overdriveEnabled"></p-toggleswitch>
+                <span class="setting-label">OverDrive</span>
+              </div>
+              @if (overdriveEnabled) {
+                <div class="setting-options">
+                  <div class="config-field">
+                    <span class="config-label">{{ t('overdriveLibraryKey') }}</span>
+                    <input
+                      type="text"
+                      pInputText
+                      [placeholder]="t('overdriveLibraryKeyPlaceholder')"
+                      [(ngModel)]="overdriveLibraryKey"
+                      class="config-input"/>
+                  </div>
+                </div>
+              }
+            </div>
           </div>
         </div>
 

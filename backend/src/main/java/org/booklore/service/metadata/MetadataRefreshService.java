@@ -400,6 +400,7 @@ public class MetadataRefreshService {
             case Douban -> settings.getDouban() != null && settings.getDouban().isEnabled();
             case Lubimyczytac -> settings.getLubimyczytac() != null && settings.getLubimyczytac().isEnabled();
             case Audible -> settings.getAudible() != null && settings.getAudible().isEnabled();
+            case Overdrive -> settings.getOverdrive() != null && settings.getOverdrive().isEnabled();
             default -> true;
         };
     }

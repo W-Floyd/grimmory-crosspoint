@@ -61,7 +61,9 @@
     "googleApiPlaceholder": "Enter Google Books API key",
     "apiToken": "API Token",
     "hardcoverPlaceholder": "Enter Hardcover API token",
-    "comicvinePlaceholder": "Enter Comic Vine API token"
+    "comicvinePlaceholder": "Enter Comic Vine API token",
+    "overdriveLibraryKey": "Library Key",
+    "overdriveLibraryKeyPlaceholder": "Enter your OverDrive/Libby library key (e.g. lapl)"
   },
   "publicReviews": {
     "sectionTitle": "Public Reviews",

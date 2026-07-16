@@ -85,6 +85,9 @@ export class MetadataProviderSettingsComponent {
   selectedAudibleDomain = 'com';
   audibleEnabled: boolean = false;
 
+  overdriveEnabled: boolean = false;
+  overdriveLibraryKey: string = '';
+
   hardcoverToken: string = '';
   amazonCookie: string = '';
   hardcoverEnabled: boolean = false;
@@ -128,6 +131,8 @@ export class MetadataProviderSettingsComponent {
     this.ranobedbEnabled = metadataProviderSettings?.ranobedb?.enabled ?? false;
     this.audibleEnabled = metadataProviderSettings?.audible?.enabled ?? false;
     this.selectedAudibleDomain = metadataProviderSettings?.audible?.domain ?? 'com';
+    this.overdriveEnabled = metadataProviderSettings?.overdrive?.enabled ?? false;
+    this.overdriveLibraryKey = metadataProviderSettings?.overdrive?.libraryKey ?? '';
   }
 
   onTokenChange(newToken: string): void {
@@ -175,6 +180,10 @@ export class MetadataProviderSettingsComponent {
           audible: {
             enabled: this.audibleEnabled,
             domain: this.selectedAudibleDomain
+          },
+          overdrive: {
+            enabled: this.overdriveEnabled,
+            libraryKey: this.overdriveLibraryKey
           }
         }
       }

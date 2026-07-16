@@ -1,0 +1,327 @@
+package org.booklore.service.metadata.parser;
+
+import lombok.extern.slf4j.Slf4j;
+import org.booklore.model.dto.Book;
+import org.booklore.model.dto.BookMetadata;
+import org.booklore.model.dto.request.FetchMetadataRequest;
+import org.booklore.model.dto.response.OverDriveApiResponse;
+import org.booklore.model.dto.settings.MetadataProviderSettings;
+import org.booklore.model.enums.MetadataProvider;
+import org.booklore.service.appsettings.AppSettingService;
+import org.booklore.util.BookUtils;
+import org.booklore.util.LanguageNormalizer;
+import org.jsoup.Jsoup;
+import org.springframework.stereotype.Service;
+import org.springframework.web.util.UriComponentsBuilder;
+import tools.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
+
+/**
+ * Metadata provider backed by the OverDrive "Thunder" catalog API — the unofficial, no-auth API the
+ * Libby web client uses to search a library's collection. Read-only catalog metadata only; this does
+ * not touch lending, checkout, or DRM.
+ *
+ * <p>Thunder is library-scoped, so a library key (the OverDrive "preferredKey" / website id, e.g.
+ * {@code lapl}) must be configured under the provider settings. The API is undocumented; the endpoint
+ * and {@link OverDriveApiResponse} field names reflect the observed contract and may need adjusting
+ * if OverDrive changes it.
+ */
+@Slf4j
+@Service
+public class OverDriveParser implements BookParser {
+
+    private static final String THUNDER_BASE_URL = "https://thunder.api.overdrive.com/v2/libraries";
+    private static final int MAX_RESULTS = 20;
+    private static final long MIN_REQUEST_INTERVAL_MS = 1000;
+    private static final Pattern SPECIAL_CHARACTERS_PATTERN = Pattern.compile("[.,\\-\\[\\]{}()!@#$%^&*_=+|~`<>?/\";:]");
+
+    private final ObjectMapper objectMapper;
+    private final AppSettingService appSettingService;
+    private final HttpClient httpClient;
+    private final AtomicLong lastRequestTime = new AtomicLong(0);
+
+    public OverDriveParser(ObjectMapper objectMapper, AppSettingService appSettingService, HttpClient httpClient) {
+        this.objectMapper = objectMapper;
+        this.appSettingService = appSettingService;
+        this.httpClient = httpClient;
+    }
+
+    @Override
+    public BookMetadata fetchTopMetadata(Book book, FetchMetadataRequest request) {
+        List<BookMetadata> results = fetchMetadata(book, request);
+        return results.isEmpty() ? null : results.getFirst();
+    }
+
+    @Override
+    public List<BookMetadata> fetchMetadata(Book book, FetchMetadataRequest request) {
+        String libraryKey = getLibraryKey();
+        if (libraryKey == null || libraryKey.isBlank()) {
+            log.warn("OverDrive: no library key configured; skipping. Set the library's OverDrive key in metadata provider settings.");
+            return List.of();
+        }
+
+        // 1. ISBN search
+        if (request.getIsbn() != null && !request.getIsbn().isBlank()) {
+            List<BookMetadata> byIsbn = search(libraryKey, ParserUtils.cleanIsbn(request.getIsbn()));
+            if (!byIsbn.isEmpty()) {
+                return byIsbn;
+            }
+            log.info("OverDrive: ISBN search returned nothing, falling back to title/author.");
+        }
+
+        String title = request.getTitle();
+        String author = request.getAuthor();
+
+        // 2. Title + author
+        if (title != null && !title.isBlank()) {
+            String term = buildTerm(title, author);
+            List<BookMetadata> results = search(libraryKey, term);
+            if (!results.isEmpty()) {
+                return results;
+            }
+        }
+
+        // 3. Filename fallback
+        String fileName = book.getPrimaryFile() != null ? book.getPrimaryFile().getFileName() : null;
+        if ((title == null || title.isBlank()) && fileName != null && !fileName.isBlank()) {
+            return search(libraryKey, buildTerm(BookUtils.cleanFileName(fileName), null));
+        }
+
+        return List.of();
+    }
+
+    private String buildTerm(String title, String author) {
+        String term = SPECIAL_CHARACTERS_PATTERN.matcher(title).replaceAll(" ").trim();
+        if (author != null && !author.isBlank()) {
+            term = term + " " + author.trim();
+        }
+        return term;
+    }
+
+    private List<BookMetadata> search(String libraryKey, String query) {
+        try {
+            waitForRateLimit();
+
+            URI uri = UriComponentsBuilder.fromUriString(THUNDER_BASE_URL)
+                    .pathSegment(libraryKey, "media")
+                    .queryParam("query", query)
+                    // Restrict to ebooks so we return book editions, not audiobook/magazine ones.
+                    .queryParam("mediaTypes", "ebook")
+                    .queryParam("perPage", MAX_RESULTS)
+                    .queryParam("page", 1)
+                    .build()
+                    .encode()
+                    .toUri();
+
+            log.info("OverDrive Thunder API URL: {}", uri);
+
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(uri)
+                    // Thunder rejects requests without a browser-like UA.
+                    .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            return handleResponse(response);
+        } catch (IOException e) {
+            log.error("OverDrive: IO error fetching metadata: {}", e.getMessage());
+            return List.of();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("OverDrive: request interrupted");
+            return List.of();
+        }
+    }
+
+    private List<BookMetadata> handleResponse(HttpResponse<String> response) {
+        int status = response.statusCode();
+        if (status != 200) {
+            log.warn("OverDrive Thunder API request failed. Status: {}", status);
+            return List.of();
+        }
+        try {
+            OverDriveApiResponse parsed = objectMapper.readValue(response.body(), OverDriveApiResponse.class);
+            if (parsed == null || parsed.getItems() == null) {
+                return List.of();
+            }
+            return parsed.getItems().stream()
+                    .map(this::toMetadata)
+                    .filter(m -> m.getTitle() != null && !m.getTitle().isBlank())
+                    .toList();
+        } catch (Exception e) {
+            log.error("OverDrive: failed to parse response: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private BookMetadata toMetadata(OverDriveApiResponse.Item item) {
+        String[] isbns = extractIsbns(item);
+        SeriesData series = extractSeries(item);
+
+        return BookMetadata.builder()
+                .provider(MetadataProvider.Overdrive)
+                .title(item.getTitle())
+                .subtitle(item.getSubtitle())
+                .authors(extractAuthors(item))
+                .description(cleanDescription(item.getFullDescription() != null ? item.getFullDescription() : item.getDescription()))
+                .publisher(item.getPublisher() != null ? item.getPublisher().getName() : null)
+                .publishedDate(parseDate(item.getPublishDate()))
+                .categories(extractNames(item.getSubjects()))
+                .language(item.getLanguages() != null && !item.getLanguages().isEmpty()
+                        ? LanguageNormalizer.normalize(item.getLanguages().getFirst().getName()) : null)
+                .isbn13(isbns[0])
+                .isbn10(isbns[1])
+                .thumbnailUrl(extractCover(item.getCovers()))
+                .seriesName(series.name())
+                .seriesNumber(series.number())
+                .rating(item.getStarRating())
+                .build();
+    }
+
+    private List<String> extractAuthors(OverDriveApiResponse.Item item) {
+        if (item.getCreators() == null || item.getCreators().isEmpty()) {
+            return null;
+        }
+        List<String> authors = item.getCreators().stream()
+                .filter(c -> c.getName() != null && c.getRole() != null && c.getRole().toLowerCase().contains("author"))
+                .map(OverDriveApiResponse.Item.Creator::getName)
+                .toList();
+        if (authors.isEmpty()) {
+            // No explicit author role — fall back to all named creators.
+            authors = item.getCreators().stream()
+                    .map(OverDriveApiResponse.Item.Creator::getName)
+                    .filter(n -> n != null && !n.isBlank())
+                    .toList();
+        }
+        return authors.isEmpty() ? null : new ArrayList<>(authors);
+    }
+
+    private Set<String> extractNames(List<OverDriveApiResponse.Item.NamedValue> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        Set<String> names = values.stream()
+                .map(OverDriveApiResponse.Item.NamedValue::getName)
+                .filter(n -> n != null && !n.isBlank())
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return names.isEmpty() ? null : names;
+    }
+
+    /** @return [isbn13, isbn10] (either may be null). */
+    private String[] extractIsbns(OverDriveApiResponse.Item item) {
+        String isbn13 = null;
+        String isbn10 = null;
+        if (item.getFormats() != null) {
+            for (OverDriveApiResponse.Item.Format format : item.getFormats()) {
+                for (String candidate : isbnCandidates(format)) {
+                    String cleaned = ParserUtils.cleanIsbn(candidate);
+                    if (cleaned == null) continue;
+                    if (cleaned.length() == 13 && isbn13 == null) isbn13 = cleaned;
+                    else if (cleaned.length() == 10 && isbn10 == null) isbn10 = cleaned;
+                }
+            }
+        }
+        return new String[]{isbn13, isbn10};
+    }
+
+    private List<String> isbnCandidates(OverDriveApiResponse.Item.Format format) {
+        List<String> candidates = new ArrayList<>();
+        if (format.getIsbn() != null) {
+            candidates.add(format.getIsbn());
+        }
+        if (format.getIdentifiers() != null) {
+            format.getIdentifiers().stream()
+                    .filter(id -> id.getType() != null && id.getType().toUpperCase().contains("ISBN") && id.getValue() != null)
+                    .forEach(id -> candidates.add(id.getValue()));
+        }
+        return candidates;
+    }
+
+    private String extractCover(OverDriveApiResponse.Item.Covers covers) {
+        if (covers == null) return null;
+        for (OverDriveApiResponse.Item.Covers.Cover cover :
+                List.of(nullSafe(covers.getCover510Wide()), nullSafe(covers.getCover300Wide()), nullSafe(covers.getCover150Wide()))) {
+            if (cover.getHref() != null && !cover.getHref().isBlank()) {
+                return cover.getHref();
+            }
+        }
+        return null;
+    }
+
+    private OverDriveApiResponse.Item.Covers.Cover nullSafe(OverDriveApiResponse.Item.Covers.Cover cover) {
+        return cover != null ? cover : new OverDriveApiResponse.Item.Covers.Cover();
+    }
+
+    private record SeriesData(String name, Float number) {}
+
+    private SeriesData extractSeries(OverDriveApiResponse.Item item) {
+        if (item.getDetailedSeries() == null || item.getDetailedSeries().getSeriesName() == null) {
+            return new SeriesData(null, null);
+        }
+        Float number = null;
+        String order = item.getDetailedSeries().getReadingOrder();
+        if (order != null && !order.isBlank()) {
+            try {
+                number = Float.parseFloat(order.trim());
+            } catch (NumberFormatException ignored) {
+                // non-numeric reading order (e.g. a range); leave number null
+            }
+        }
+        return new SeriesData(item.getDetailedSeries().getSeriesName(), number);
+    }
+
+    private String cleanDescription(String description) {
+        if (description == null || description.isBlank()) {
+            return null;
+        }
+        return Jsoup.parse(description).text().trim();
+    }
+
+    private LocalDate parseDate(String value) {
+        if (value == null || value.length() < 10) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value.substring(0, 10));
+        } catch (Exception e) {
+            log.debug("OverDrive: could not parse date '{}'", value);
+            return null;
+        }
+    }
+
+    private String getLibraryKey() {
+        MetadataProviderSettings settings = appSettingService.getAppSettings().getMetadataProviderSettings();
+        if (settings == null || settings.getOverdrive() == null) {
+            return null;
+        }
+        return settings.getOverdrive().getLibraryKey();
+    }
+
+    private void waitForRateLimit() {
+        long now = System.currentTimeMillis();
+        long sinceLast = now - lastRequestTime.get();
+        if (sinceLast < MIN_REQUEST_INTERVAL_MS) {
+            try {
+                Thread.sleep(MIN_REQUEST_INTERVAL_MS - sinceLast);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        lastRequestTime.set(System.currentTimeMillis());
+    }
+}
