@@ -47,7 +47,7 @@ public class OptimizedDownloadService {
 
     private static final Pattern UNSAFE_FILENAME = Pattern.compile("[^a-zA-Z0-9._-]");
     /** Cache dir + variant-hash key used for cover-replaced (but not preset-optimized) EPUBs. */
-    private static final String COVER_VARIANT = "cover";
+    public static final String COVER_VARIANT = "cover";
 
     private final BookFileRepository bookFileRepository;
     private final BookDownloadService bookDownloadService;
@@ -83,7 +83,7 @@ public class OptimizedDownloadService {
         }
 
         boolean optimize = preset != null;
-        boolean replaceCover = shouldReplaceCover(bookId);
+        boolean replaceCover = willReplaceCover(bookId);
         if (!optimize && !replaceCover) {
             return bookDownloadService.downloadBookFile(bookId, fileId);
         }
@@ -110,8 +110,8 @@ public class OptimizedDownloadService {
         }
     }
 
-    /** Whether the metadata cover should be embedded: setting enabled and a real cover file exists. */
-    private boolean shouldReplaceCover(Long bookId) {
+    /** Whether the metadata cover will be embedded for this book: setting enabled and a cover file exists. */
+    public boolean willReplaceCover(Long bookId) {
         if (!appSettingService.getAppSettings().isOpdsReplaceCover()) {
             return false;
         }
@@ -171,10 +171,11 @@ public class OptimizedDownloadService {
      */
     @Async("taskExecutor")
     public void prewarm(Long bookId, Long fileId, DevicePreset preset, String presetId) {
-        if (bookId == null || fileId == null || preset == null || presetId == null) {
+        if (bookId == null || fileId == null) {
             return;
         }
-        String key = presetId + "/" + bookId + "_" + fileId;
+        String variant = presetId != null ? presetId : COVER_VARIANT;
+        String key = variant + "/" + bookId + "_" + fileId;
         if (!inFlightPrewarms.add(key)) {
             return; // an identical variant is already being warmed
         }
@@ -196,7 +197,7 @@ public class OptimizedDownloadService {
      * request thread. {@code presetId} must be the canonical (configured) preset id.
      */
     public OptionalLong servedSize(Long bookId, Long fileId, DevicePreset preset, String presetId) {
-        if (bookId == null || fileId == null || preset == null) {
+        if (bookId == null || fileId == null) {
             return OptionalLong.empty();
         }
         BookFileEntity bookFile = bookFileRepository.findByIdWithBookAndLibraryPath(fileId).orElse(null);
@@ -210,15 +211,19 @@ public class OptimizedDownloadService {
                 return OptionalLong.empty();
             }
             long sourceSize = Files.size(source);
-            // Non-EPUBs and oversized files are streamed unchanged, so the served size is the original.
+            boolean optimize = preset != null;
+            boolean replaceCover = willReplaceCover(bookId);
+            // Anything served unchanged (non-EPUB, oversized, or no transform requested) has the
+            // original size; otherwise build the variant and measure it.
             if (bookFile.getBookType() != BookFileType.EPUB
-                    || sourceSize > devicePresetService.maxSourceFileSizeBytes()) {
+                    || sourceSize > devicePresetService.maxSourceFileSizeBytes()
+                    || (!optimize && !replaceCover)) {
                 return OptionalLong.of(sourceSize);
             }
-            Path cached = ensureVariant(source, bookId, fileId, preset, presetId, shouldReplaceCover(bookId), bookFile);
+            Path cached = ensureVariant(source, bookId, fileId, preset, presetId, replaceCover, bookFile);
             return OptionalLong.of(Files.size(cached));
         } catch (Exception e) {
-            log.debug("Could not determine optimized size for book {} file {} preset {}: {}",
+            log.debug("Could not determine served size for book {} file {} preset {}: {}",
                     bookId, fileId, presetId, e.getMessage());
             return OptionalLong.empty();
         }
@@ -239,6 +244,9 @@ public class OptimizedDownloadService {
 
         Path coverFile = replaceCover ? Path.of(fileService.getCoverFile(bookId)) : null;
         String coverSegment = replaceCover ? "_c" + sanitize(coverToken(coverFile)) : "";
+        // The variant-hash key must distinguish cover / non-cover / cover-version variants of the
+        // same (book, file, preset) so KOReader sync can resolve each. Mirrors the cache filename.
+        String variantKey = variant + coverSegment;
 
         Path cacheDir = Path.of(fileService.getOpdsCachePath(), sanitize(variant));
         Files.createDirectories(cacheDir);
@@ -247,7 +255,7 @@ public class OptimizedDownloadService {
         if (Files.exists(cached) && Files.size(cached) > 0) {
             // Registration is idempotent and skips work when already up to date, so it is safe
             // to (re)assert the mapping on a cache hit too (e.g. after a DB reset).
-            variantHashService.register(bookFile, variant, hash, cached);
+            variantHashService.register(bookFile, variantKey, hash, cached);
             return cached;
         }
 
@@ -287,7 +295,7 @@ public class OptimizedDownloadService {
             }
             // Map this variant's partial-MD5 to the book so KOReader sync can match the copy the
             // reader downloaded (its bytes differ from the library original).
-            variantHashService.register(bookFile, variant, hash, cached);
+            variantHashService.register(bookFile, variantKey, hash, cached);
             return cached;
         } finally {
             if (coverTemp != null) Files.deleteIfExists(coverTemp);

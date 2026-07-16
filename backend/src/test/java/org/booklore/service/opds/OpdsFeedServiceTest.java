@@ -414,6 +414,54 @@ class OpdsFeedServiceTest {
     }
 
     @Test
+    void acquisitionLink_noPresetButCoverReplace_reportsCachedCoverVariantSizeNotStoredSize() {
+        mockAuthenticatedUser();
+        when(request.getParameter("preset")).thenReturn(null);
+        // Cover replacement rebuilds the EPUB even without a preset, so the served size differs
+        // from the stored fileSizeKb: report the real cover-variant size.
+        when(optimizedDownloadService.willReplaceCover(50L)).thenReturn(true);
+        when(optimizedDownloadService.cachedVariantSize(50L, 3L, "cover"))
+                .thenReturn(java.util.OptionalLong.of(7777L));
+
+        Book book = Book.builder()
+                .id(50L)
+                .primaryFile(BookFile.builder().id(3L).bookType(BookFileType.EPUB).fileSizeKb(999L).build())
+                .addedOn(FIXED_INSTANT)
+                .metadata(BookMetadata.builder().title("Cover Book").build())
+                .build();
+
+        when(opdsBookService.getRandomBooks(TEST_USER_ID, 25)).thenReturn(List.of(book));
+
+        String xml = opdsFeedService.generateSurpriseFeed(request);
+
+        assertThat(xml).contains("length=\"7777\"");
+        assertThat(xml).doesNotContain("length=\"" + (999L * 1024L) + "\"");
+    }
+
+    @Test
+    void acquisitionLink_noPresetCoverReplaceNotYetCached_prewarmsAndOmitsLength() {
+        mockAuthenticatedUser();
+        when(request.getParameter("preset")).thenReturn(null);
+        when(optimizedDownloadService.willReplaceCover(51L)).thenReturn(true);
+        when(optimizedDownloadService.cachedVariantSize(51L, 4L, "cover"))
+                .thenReturn(java.util.OptionalLong.empty());
+
+        Book book = Book.builder()
+                .id(51L)
+                .primaryFile(BookFile.builder().id(4L).bookType(BookFileType.EPUB).fileSizeKb(999L).build())
+                .addedOn(FIXED_INSTANT)
+                .metadata(BookMetadata.builder().title("Uncached Cover Book").build())
+                .build();
+
+        when(opdsBookService.getRandomBooks(TEST_USER_ID, 25)).thenReturn(List.of(book));
+
+        String xml = opdsFeedService.generateSurpriseFeed(request);
+
+        assertThat(xml).doesNotContain("length=");
+        verify(optimizedDownloadService).prewarm(51L, 4L, null, null);
+    }
+
+    @Test
     void acquisitionLink_shouldReportCachedOptimizedVariantSizeForPreset() {
         mockAuthenticatedUser();
         when(request.getParameter("preset")).thenReturn("X4");

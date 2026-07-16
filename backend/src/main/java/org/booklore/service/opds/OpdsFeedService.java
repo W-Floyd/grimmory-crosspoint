@@ -798,17 +798,23 @@ public class OpdsFeedService {
     }
 
     /**
-     * Byte size to advertise for an acquisition link. For a device preset that optimizes this
-     * file (EPUB), the real size is only known once the optimized variant has been cached: if it
-     * has, that size is reported; otherwise the variant is warmed in the background and no length
-     * is advertised until a later feed load can report the real bytes. Unoptimized links use the
-     * stored file size (KB → bytes).
+     * Byte size to advertise for an acquisition link. When the EPUB will be served as a built
+     * variant — device-optimized for a preset and/or with its cover replaced — the real size is
+     * only known once that variant is cached: if it is, that size is reported; otherwise the
+     * variant is warmed in the background and no length is advertised until a later feed load can
+     * report the real bytes. Links served as the original file use the stored size (KB → bytes).
      */
     private OptionalLong acquisitionLength(Long bookId, BookFile bookFile, String preset) {
-        if (preset != null && !preset.isBlank() && bookFile.getBookType() == BookFileType.EPUB) {
-            DevicePreset devicePreset = devicePresetService.resolve(preset).orElse(null);
-            if (devicePreset != null) {
-                OptionalLong cached = optimizedDownloadService.cachedVariantSize(bookId, bookFile.getId(), preset);
+        if (bookFile.getBookType() == BookFileType.EPUB) {
+            DevicePreset devicePreset = (preset != null && !preset.isBlank())
+                    ? devicePresetService.resolve(preset).orElse(null) : null;
+            boolean optimize = devicePreset != null;
+            // Even without a preset, cover replacement rebuilds the EPUB, so its size differs from
+            // the stored original — report the real variant size rather than fileSizeKb.
+            boolean coverOnly = !optimize && optimizedDownloadService.willReplaceCover(bookId);
+            if (optimize || coverOnly) {
+                String variant = optimize ? preset : OptimizedDownloadService.COVER_VARIANT;
+                OptionalLong cached = optimizedDownloadService.cachedVariantSize(bookId, bookFile.getId(), variant);
                 if (cached.isPresent()) {
                     return cached;
                 }
