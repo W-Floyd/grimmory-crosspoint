@@ -271,15 +271,60 @@
   }
 }
 
+.device-presets-group {
+  border-bottom: 1px solid var(--p-content-border-color);
+
+  &:last-of-type {
+    border-bottom: none;
+  }
+
+  summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.1rem;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    // Chevron that rotates when the section is open.
+    &::before {
+      content: '';
+      width: 0;
+      height: 0;
+      border-style: solid;
+      border-width: 0.3rem 0 0.3rem 0.4rem;
+      border-color: transparent transparent transparent var(--p-text-muted-color);
+      transition: transform 0.15s ease;
+    }
+  }
+
+  &[open] summary::before {
+    transform: rotate(90deg);
+  }
+
+  .device-presets-list {
+    padding: 0 0 0.5rem 0.9rem;
+  }
+}
+
 .device-presets-brand {
-  margin-top: 0.5rem;
   font-size: settings.$settings-description-size;
   font-weight: 600;
   color: var(--p-text-color);
+}
 
-  &:first-of-type {
-    margin-top: 0;
-  }
+.device-presets-count {
+  font-size: settings.$settings-description-size;
+  color: var(--p-text-muted-color);
+  background: var(--p-content-hover-background, rgb(0 0 0 / 6%));
+  border-radius: 0.75rem;
+  padding: 0 0.45rem;
+  line-height: 1.4;
 }
 
 .device-presets-detail {

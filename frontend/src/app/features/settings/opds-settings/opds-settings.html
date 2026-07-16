@@ -149,15 +149,20 @@
                   <div class="device-presets">
                     <span class="endpoint-hint">{{ t('endpoints.devicePresetsHint') }}</span>
                     @for (group of presetsByBrand; track group.brand) {
-                      <span class="device-presets-brand">{{ group.brand }}</span>
-                      <ul class="device-presets-list">
-                        @for (preset of group.presets; track preset.id) {
-                          <li>
-                            <code>?preset={{ preset.id }}</code>
-                            <span class="device-presets-detail">{{ preset.model || preset.label }} · {{ preset.maxWidth }}×{{ preset.maxHeight }}</span>
-                          </li>
-                        }
-                      </ul>
+                      <details class="device-presets-group">
+                        <summary>
+                          <span class="device-presets-brand">{{ group.brand }}</span>
+                          <span class="device-presets-count">{{ group.presets.length }}</span>
+                        </summary>
+                        <ul class="device-presets-list">
+                          @for (preset of group.presets; track preset.id) {
+                            <li>
+                              <code>?preset={{ preset.id }}</code>
+                              <span class="device-presets-detail">{{ preset.model || preset.label }} · {{ preset.maxWidth }}×{{ preset.maxHeight }}</span>
+                            </li>
+                          }
+                        </ul>
+                      </details>
                     }
                   </div>
                 }
