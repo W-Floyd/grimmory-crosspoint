@@ -60,7 +60,7 @@ public class OpdsController {
     public ResponseEntity<StreamingResponseBody> downloadBook(
             @Parameter(description = "ID of the book to download") @PathVariable("bookId") Long bookId,
             @Parameter(description = "Optional ID of a specific file format to download") @RequestParam(required = false) Long fileId,
-            @Parameter(description = "Optional device preset id (e.g. X3, X4) for on-the-fly EPUB optimization") @RequestParam(required = false) String preset) {
+            @Parameter(description = "Optional device preset id (e.g. xteink-x3, xteink-x4) for on-the-fly EPUB optimization") @RequestParam(required = false) String preset) {
         opdsBookService.validateBookContentAccess(bookId, getOpdsUserId());
         String resolvedPreset = effectivePreset(preset);
 
@@ -88,7 +88,7 @@ public class OpdsController {
     @GetMapping("/{bookId}/cover")
     public ResponseEntity<Resource> getBookCover(
             @Parameter(description = "ID of the book") @PathVariable long bookId,
-            @Parameter(description = "Optional device preset id (e.g. X3, X4) to serve a constrained-device-friendly baseline JPEG cover") @RequestParam(required = false) String preset) {
+            @Parameter(description = "Optional device preset id (e.g. xteink-x3, xteink-x4) to serve a constrained-device-friendly baseline JPEG cover") @RequestParam(required = false) String preset) {
         opdsBookService.validateBookContentAccess(bookId, getOpdsUserId());
         preset = effectivePreset(preset);
         Resource coverImage = bookService.getBookThumbnail(bookId);

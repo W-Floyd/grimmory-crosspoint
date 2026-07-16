@@ -16,7 +16,16 @@ import lombok.Setter;
 @Setter
 public class DevicePreset {
 
-    /** Human-readable label shown in discovery feeds (defaults to the preset id). */
+    /** Device brand/manufacturer, e.g. {@code Xteink}. */
+    private String brand;
+
+    /** Device model, e.g. {@code X4}. */
+    private String model;
+
+    /**
+     * Optional explicit display name. When blank, the display name is derived from
+     * {@code brand} + {@code model} (see {@link #displayName()}), falling back to the preset id.
+     */
     private String label;
 
     /** Maximum image width in pixels (portrait short edge). */
@@ -45,4 +54,17 @@ public class DevicePreset {
      * for a future auto-split heuristic; unused by the current automatic pipeline.
      */
     private String handedness = "right";
+
+    /**
+     * Human-readable name for feeds/UI: an explicit {@link #label} if set, otherwise
+     * {@code "<brand> <model>"}, or {@code null} when none of those are configured (callers
+     * then fall back to the preset id).
+     */
+    public String displayName() {
+        if (label != null && !label.isBlank()) {
+            return label;
+        }
+        String combined = ((brand == null ? "" : brand) + " " + (model == null ? "" : model)).trim();
+        return combined.isBlank() ? null : combined;
+    }
 }

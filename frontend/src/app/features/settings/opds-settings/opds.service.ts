@@ -23,6 +23,8 @@ export interface OpdsUserV2 {
 export interface OpdsDevicePreset {
   id: string;
   label: string;
+  brand?: string | null;
+  model?: string | null;
   maxWidth: number;
   maxHeight: number;
   jpegQuality: number;

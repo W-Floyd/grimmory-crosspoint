@@ -126,7 +126,7 @@ public class OpdsFeedService {
         if (devicePresetService.hasPresets()) {
             appendRootEntry(feed, "Devices", "urn:booklore:navigation:devices",
                     "/api/v1/opds/devices", "navigation",
-                    "Browse with device-optimized files (e.g. Crosspoint X3/X4)");
+                    "Browse with device-optimized files (e.g. Xteink X3/X4)");
         }
 
         feed.append("</feed>");
@@ -161,7 +161,7 @@ public class OpdsFeedService {
         for (var entry : devicePresetService.all().entrySet()) {
             String id = entry.getKey();
             DevicePreset preset = entry.getValue();
-            String label = (preset.getLabel() != null && !preset.getLabel().isBlank()) ? preset.getLabel() : id;
+            String label = preset.displayName() != null ? preset.displayName() : id;
             String href = withPreset("/api/v1/opds/catalog?page=1&size=" + DEFAULT_PAGE_SIZE, id);
             feed.append("""
                       <entry>

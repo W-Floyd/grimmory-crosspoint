@@ -60,6 +60,22 @@ class DevicePresetServiceTest {
     }
 
     @Test
+    void displayName_prefersLabelThenBrandModel() {
+        DevicePreset explicit = new DevicePreset();
+        explicit.setLabel("Custom Name");
+        explicit.setBrand("Xteink");
+        explicit.setModel("X4");
+        assertThat(explicit.displayName()).isEqualTo("Custom Name");
+
+        DevicePreset brandModel = new DevicePreset();
+        brandModel.setBrand("Xteink");
+        brandModel.setModel("X4");
+        assertThat(brandModel.displayName()).isEqualTo("Xteink X4");
+
+        assertThat(new DevicePreset().displayName()).isNull();
+    }
+
+    @Test
     void maxSourceFileSizeBytes_convertsMb_andDisablesWhenNonPositive() {
         assertThat(service.maxSourceFileSizeBytes()).isEqualTo(50L * 1024 * 1024);
 

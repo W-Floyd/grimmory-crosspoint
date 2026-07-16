@@ -297,12 +297,25 @@ export class OpdsSettings implements OnInit {
     this.newUser = {username: '', password: '', sortOrder: 'RECENT', defaultPreset: null};
   }
 
-  /** Device-preset dropdown options, prefixed with a "None" (no optimization) choice. */
-  get presetOptions(): {label: string; value: string | null}[] {
-    return [
-      {label: this.t.translate('settingsOpds.presetNone'), value: null},
-      ...this.devicePresets().map(p => ({label: p.label || p.id, value: p.id}))
-    ];
+  /** Presets grouped by manufacturer (config order preserved), for the endpoints list. */
+  get presetsByBrand(): {brand: string; presets: OpdsDevicePreset[]}[] {
+    const groups = new Map<string, OpdsDevicePreset[]>();
+    for (const preset of this.devicePresets()) {
+      const brand = preset.brand || 'Other';
+      if (!groups.has(brand)) {
+        groups.set(brand, []);
+      }
+      groups.get(brand)!.push(preset);
+    }
+    return [...groups.entries()].map(([brand, presets]) => ({brand, presets}));
+  }
+
+  /** Brand-grouped options for the preset p-select (a cleared select = no preset). */
+  get groupedPresetOptions(): {label: string; items: {label: string; value: string}[]}[] {
+    return this.presetsByBrand.map(group => ({
+      label: group.brand,
+      items: group.presets.map(p => ({label: p.model || p.label || p.id, value: p.id}))
+    }));
   }
 
   getPresetLabel(presetId?: string | null): string {

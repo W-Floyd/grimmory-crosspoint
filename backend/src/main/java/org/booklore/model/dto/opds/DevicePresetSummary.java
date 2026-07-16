@@ -7,6 +7,8 @@ package org.booklore.model.dto.opds;
 public record DevicePresetSummary(
         String id,
         String label,
+        String brand,
+        String model,
         int maxWidth,
         int maxHeight,
         int jpegQuality,

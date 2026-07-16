@@ -40,8 +40,8 @@ public class DevicePresetController {
 
     private DevicePresetSummary toSummary(Map.Entry<String, DevicePreset> entry) {
         DevicePreset p = entry.getValue();
-        String label = (p.getLabel() != null && !p.getLabel().isBlank()) ? p.getLabel() : entry.getKey();
-        return new DevicePresetSummary(entry.getKey(), label, p.getMaxWidth(), p.getMaxHeight(),
-                p.getJpegQuality(), p.isGrayscale());
+        String label = p.displayName() != null ? p.displayName() : entry.getKey();
+        return new DevicePresetSummary(entry.getKey(), label, p.getBrand(), p.getModel(),
+                p.getMaxWidth(), p.getMaxHeight(), p.getJpegQuality(), p.isGrayscale());
     }
 }

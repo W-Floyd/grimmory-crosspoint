@@ -148,14 +148,17 @@
                 @if (devicePresets().length > 0) {
                   <div class="device-presets">
                     <span class="endpoint-hint">{{ t('endpoints.devicePresetsHint') }}</span>
-                    <ul class="device-presets-list">
-                      @for (preset of devicePresets(); track preset.id) {
-                        <li>
-                          <code>?preset={{ preset.id }}</code>
-                          <span class="device-presets-detail">{{ preset.label }} · {{ preset.maxWidth }}×{{ preset.maxHeight }}</span>
-                        </li>
-                      }
-                    </ul>
+                    @for (group of presetsByBrand; track group.brand) {
+                      <span class="device-presets-brand">{{ group.brand }}</span>
+                      <ul class="device-presets-list">
+                        @for (preset of group.presets; track preset.id) {
+                          <li>
+                            <code>?preset={{ preset.id }}</code>
+                            <span class="device-presets-detail">{{ preset.model || preset.label }} · {{ preset.maxWidth }}×{{ preset.maxHeight }}</span>
+                          </li>
+                        }
+                      </ul>
+                    }
                   </div>
                 }
               </div>
@@ -262,14 +265,20 @@
                           <i class="pi pi-tablet" [pTooltip]="t('createDialog.presetHint')" tooltipPosition="top"></i>
                           @if (editingUserId === user.id) {
                             <p-select
-                              [options]="presetOptions"
+                              [options]="groupedPresetOptions"
                               [(ngModel)]="editingDefaultPreset"
+                              [group]="true"
                               optionLabel="label"
                               optionValue="value"
-                              [style]="{width: '180px'}"
+                              optionGroupLabel="label"
+                              optionGroupChildren="items"
+                              [filter]="true"
+                              filterBy="label"
+                              [showClear]="true"
+                              [style]="{width: '200px'}"
                               size="small"
                               [appendTo]="'body'"
-                              [placeholder]="t('createDialog.selectPreset')">
+                              [placeholder]="t('presetNone')">
                             </p-select>
                           } @else {
                             <span class="sort-order-badge">{{ getPresetLabel(user.defaultPreset) }}</span>
@@ -380,12 +389,18 @@
             <label for="defaultPreset">{{ t('createDialog.defaultPreset') }}</label>
             <p-select
               id="defaultPreset"
-              [options]="presetOptions"
+              [options]="groupedPresetOptions"
               [(ngModel)]="newUser.defaultPreset"
+              [group]="true"
               optionLabel="label"
               optionValue="value"
+              optionGroupLabel="label"
+              optionGroupChildren="items"
+              [filter]="true"
+              filterBy="label"
+              [showClear]="true"
               [style]="{width: '100%'}"
-              [placeholder]="t('createDialog.selectPreset')"
+              [placeholder]="t('presetNone')"
               [appendTo]="'body'">
             </p-select>
             <small class="form-hint">

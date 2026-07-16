@@ -23,13 +23,23 @@ app:
   disk-type: ${DISK_TYPE:LOCAL}
 
   # OPDS device-optimization presets. Clients request an optimized file with
-  # ?preset=<id> on catalog/download URLs. Add new devices here without a recompile.
-  # Values below mirror the Crosspoint firmware's DEVICE_PROFILES.
+  # ?preset=<id> on catalog/download/cover URLs. Add a new device here (no recompile):
+  # pick a stable, brand-qualified id (used in URLs, the on-disk cache path, and stored
+  # per-user defaults, so do not change it once released) and set brand + model for the
+  # display name (brand = device manufacturer).
+  #
+  # Conventions:
+  #   - Dimensions are portrait: max-width = short edge, max-height = long edge.
+  #   - grayscale defaults to true; color-panel devices (E Ink Kaleido/Gallery) set
+  #     grayscale: false and size to the full B&W pixel resolution.
+  #   - jpeg-quality defaults to 85, auto-crop to false.
   opds:
     max-source-file-size-mb: ${OPDS_OPTIMIZE_MAX_SOURCE_MB:100}
     device-presets:
-      X4:
-        label: "X4"
+      # --- Xteink (dimensions mirror the third-party Crosspoint firmware's DEVICE_PROFILES) ---
+      xteink-x4:
+        brand: "Xteink"
+        model: "X4"
         max-width: 480
         max-height: 800
         jpeg-quality: 85
@@ -37,8 +47,9 @@ app:
         auto-crop: false
         overlap-percent: 5
         handedness: right
-      X3:
-        label: "X3"
+      xteink-x3:
+        brand: "Xteink"
+        model: "X3"
         max-width: 528
         max-height: 792
         jpeg-quality: 85
@@ -46,6 +57,337 @@ app:
         auto-crop: false
         overlap-percent: 5
         handedness: right
+      # S4 runs Android 11 (sideloadable readers), so optimization is optional; kept for parity.
+      xteink-s4:
+        brand: "Xteink"
+        model: "S4"
+        max-width: 480
+        max-height: 800
+        grayscale: true
+
+      # --- Onyx Boox (Android; native NeoReader or any OPDS app) ---
+      onyx-boox-go-color-7:
+        brand: "Onyx Boox"
+        model: "Go Color 7"
+        max-width: 1264
+        max-height: 1680
+        grayscale: false
+      onyx-boox-go-6:
+        brand: "Onyx Boox"
+        model: "Go 6"
+        max-width: 1072
+        max-height: 1448
+      onyx-boox-go-10-3:
+        brand: "Onyx Boox"
+        model: "Go 10.3"
+        max-width: 1860
+        max-height: 2480
+      onyx-boox-page:
+        brand: "Onyx Boox"
+        model: "Page"
+        max-width: 1264
+        max-height: 1680
+      onyx-boox-palma:
+        brand: "Onyx Boox"
+        model: "Palma"
+        max-width: 824
+        max-height: 1648
+      onyx-boox-note-air3:
+        brand: "Onyx Boox"
+        model: "Note Air3"
+        max-width: 1404
+        max-height: 1872
+      onyx-boox-note-air3c:
+        brand: "Onyx Boox"
+        model: "Note Air3 C / Air4 C"
+        max-width: 1860
+        max-height: 2480
+        grayscale: false
+      onyx-boox-tab-mini-c:
+        brand: "Onyx Boox"
+        model: "Tab Mini C"
+        max-width: 1404
+        max-height: 1872
+        grayscale: false
+      onyx-boox-note-max:
+        brand: "Onyx Boox"
+        model: "Note Max"
+        max-width: 1650
+        max-height: 2200
+
+      # --- Meebook (Android) ---
+      meebook-m6:
+        brand: "Meebook"
+        model: "M6"
+        max-width: 1072
+        max-height: 1448
+      meebook-m7:
+        brand: "Meebook"
+        model: "M7"
+        max-width: 1264
+        max-height: 1680
+      meebook-m8c:
+        brand: "Meebook"
+        model: "M8C"
+        max-width: 1404
+        max-height: 1872
+        grayscale: false
+      meebook-p78-pro:
+        brand: "Meebook"
+        model: "P78 Pro"
+        max-width: 1404
+        max-height: 1872
+
+      # --- Bigme (Android) ---
+      bigme-read:
+        brand: "Bigme"
+        model: "Read"
+        max-width: 758
+        max-height: 1024
+      bigme-b751:
+        brand: "Bigme"
+        model: "B751"
+        max-width: 1264
+        max-height: 1680
+      bigme-b751c:
+        brand: "Bigme"
+        model: "B751C"
+        max-width: 1264
+        max-height: 1680
+        grayscale: false
+      bigme-inknote-color-plus:
+        brand: "Bigme"
+        model: "inkNote Color+"
+        max-width: 1860
+        max-height: 2480
+        grayscale: false
+
+      # --- Kobo (sideloaded KOReader) ---
+      kobo-clara-bw:
+        brand: "Kobo"
+        model: "Clara BW"
+        max-width: 1072
+        max-height: 1448
+      kobo-clara-colour:
+        brand: "Kobo"
+        model: "Clara Colour"
+        max-width: 1072
+        max-height: 1448
+        grayscale: false
+      kobo-libra-2:
+        brand: "Kobo"
+        model: "Libra 2"
+        max-width: 1264
+        max-height: 1680
+      kobo-libra-colour:
+        brand: "Kobo"
+        model: "Libra Colour"
+        max-width: 1264
+        max-height: 1680
+        grayscale: false
+      kobo-sage:
+        brand: "Kobo"
+        model: "Sage"
+        max-width: 1440
+        max-height: 1920
+      kobo-elipsa-2e:
+        brand: "Kobo"
+        model: "Elipsa 2E"
+        max-width: 1404
+        max-height: 1872
+
+      # --- PocketBook (native/sideloaded KOReader or OPDSClient) ---
+      pocketbook-era:
+        brand: "PocketBook"
+        model: "Era"
+        max-width: 1264
+        max-height: 1680
+      pocketbook-era-color:
+        brand: "PocketBook"
+        model: "Era Color"
+        max-width: 1264
+        max-height: 1680
+        grayscale: false
+      pocketbook-inkpad-4:
+        brand: "PocketBook"
+        model: "InkPad 4"
+        max-width: 1404
+        max-height: 1872
+      pocketbook-inkpad-color-3:
+        brand: "PocketBook"
+        model: "InkPad Color 3"
+        max-width: 1404
+        max-height: 1872
+        grayscale: false
+      pocketbook-verse:
+        brand: "PocketBook"
+        model: "Verse / Verse Pro"
+        max-width: 1072
+        max-height: 1448
+
+      # --- Amazon Kindle (sideloaded KOReader, jailbreak required) ---
+      amazon-kindle-11:
+        brand: "Amazon"
+        model: "Kindle (11th Gen)"
+        max-width: 1072
+        max-height: 1448
+      amazon-kindle-paperwhite-11:
+        brand: "Amazon"
+        model: "Kindle Paperwhite (11th Gen)"
+        max-width: 1236
+        max-height: 1648
+      amazon-kindle-paperwhite-12:
+        brand: "Amazon"
+        model: "Kindle Paperwhite (12th Gen)"
+        max-width: 1264
+        max-height: 1680
+      amazon-kindle-oasis-3:
+        brand: "Amazon"
+        model: "Kindle Oasis (3rd Gen)"
+        max-width: 1264
+        max-height: 1680
+      amazon-kindle-colorsoft:
+        brand: "Amazon"
+        model: "Kindle Colorsoft"
+        # Source table listed 300 PPI only; dims from published 7" specs.
+        max-width: 1264
+        max-height: 1680
+        grayscale: false
+      amazon-kindle-scribe:
+        brand: "Amazon"
+        model: "Kindle Scribe"
+        max-width: 1860
+        max-height: 2480
+
+      # --- reMarkable (sideloaded KOReader via Toltec) ---
+      remarkable-2:
+        brand: "reMarkable"
+        model: "reMarkable 2"
+        max-width: 1404
+        max-height: 1872
+      remarkable-paper-pro:
+        brand: "reMarkable"
+        model: "Paper Pro"
+        max-width: 1620
+        max-height: 2160
+        grayscale: false
+
+      # --- Hisense (Android e-ink phones; sideloaded OPDS apps) ---
+      hisense-a9:
+        brand: "Hisense"
+        model: "A9 / A9 Pro"
+        max-width: 824
+        max-height: 1648
+      hisense-a7-cc:
+        brand: "Hisense"
+        model: "A7 CC"
+        max-width: 900
+        max-height: 1800
+        grayscale: false
+      hisense-touch:
+        brand: "Hisense"
+        model: "Touch / Touch Lite"
+        # unverified resolution (not confirmed via spec source)
+        max-width: 720
+        max-height: 1440
+      hisense-hi-reader:
+        brand: "Hisense"
+        model: "Hi Reader / Pro"
+        # unverified resolution (not confirmed via spec source)
+        max-width: 900
+        max-height: 1800
+
+      # --- Moaan (Xiaomi ecosystem; sideloaded Android apps) ---
+      moaan-inkpalm-5:
+        brand: "Moaan"
+        model: "InkPalm 5"
+        max-width: 720
+        max-height: 1280
+      moaan-inkpalm-plus:
+        brand: "Moaan"
+        model: "InkPalm Plus"
+        max-width: 720
+        max-height: 1440
+      moaan-mix-7:
+        brand: "Moaan"
+        model: "Mix 7 / 7S"
+        # unverified resolution (not confirmed via spec source)
+        max-width: 1264
+        max-height: 1680
+      moaan-pantone-6:
+        brand: "Moaan"
+        model: "Pantone 6"
+        # unverified resolution (not confirmed via spec source)
+        max-width: 1072
+        max-height: 1448
+        grayscale: false
+
+      # --- Supernote / Ratta (sideloaded Android apps or KOReader) ---
+      supernote-nomad:
+        brand: "Supernote"
+        model: "Nomad (A6 X2)"
+        max-width: 1404
+        max-height: 1872
+      supernote-a5-x:
+        brand: "Supernote"
+        model: "A5 X"
+        max-width: 1404
+        max-height: 1872
+
+      # --- Pine64 (KOReader on custom Linux) ---
+      pine64-pinenote:
+        brand: "Pine64"
+        model: "PineNote"
+        max-width: 1404
+        max-height: 1872
+
+      # --- Tolino (sideloaded KOReader) ---
+      tolino-shine-color:
+        brand: "Tolino"
+        model: "Shine Color"
+        max-width: 1072
+        max-height: 1448
+        grayscale: false
+      tolino-vision-color:
+        brand: "Tolino"
+        model: "Vision Color"
+        max-width: 1264
+        max-height: 1680
+        grayscale: false
+      tolino-vision-6:
+        brand: "Tolino"
+        model: "Vision 6"
+        max-width: 1264
+        max-height: 1680
+      tolino-epos-3:
+        brand: "Tolino"
+        model: "Epos 3"
+        max-width: 1440
+        max-height: 1920
+
+      # --- Dasung (Android; Not-eReader line) ---
+      dasung-not-ereader-078:
+        brand: "Dasung"
+        model: "Not-eReader 078"
+        max-width: 1404
+        max-height: 1872
+
+      # --- Boyue Likebook (legacy open-Android; secondhand market) ---
+      boyue-likebook-p6:
+        brand: "Boyue"
+        model: "Likebook P6"
+        max-width: 1072
+        max-height: 1448
+      boyue-likebook-p10:
+        brand: "Boyue"
+        model: "Likebook P10"
+        max-width: 1200
+        max-height: 1600
+      boyue-likebook-alita:
+        brand: "Boyue"
+        model: "Likebook Alita"
+        max-width: 1404
+        max-height: 1872
 
 server:
   forward-headers-strategy: native

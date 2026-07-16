@@ -271,6 +271,17 @@
   }
 }
 
+.device-presets-brand {
+  margin-top: 0.5rem;
+  font-size: settings.$settings-description-size;
+  font-weight: 600;
+  color: var(--p-text-color);
+
+  &:first-of-type {
+    margin-top: 0;
+  }
+}
+
 .device-presets-detail {
   color: var(--p-text-muted-color);
 }

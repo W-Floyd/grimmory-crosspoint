@@ -8,7 +8,7 @@ import {TranslocoService} from '@jsverse/transloco';
 import {AppSettings} from '../../../shared/model/app-settings.model';
 import {AppSettingsService} from '../../../shared/service/app-settings.service';
 import {UserService, type User} from '../user-management/user.service';
-import {OpdsService, type OpdsUserV2} from './opds.service';
+import {OpdsService, type OpdsUserV2, type OpdsDevicePreset} from './opds.service';
 import {OpdsSettings} from './opds-settings';
 
 function buildUser(overrides: Partial<User['permissions']> = {}): User {
@@ -106,6 +106,40 @@ describe('OpdsSettings', () => {
     expect(getUser).toHaveBeenCalledOnce();
     expect(component.loading()).toBe(false);
     expect(component.users()).toHaveLength(1);
+
+    fixture.destroy();
+  });
+
+  it('groups device presets by brand for the list and dropdown', () => {
+    const userState = signal<User | null>(buildUser());
+    const appSettingsState = signal<AppSettings | null>(buildAppSettings());
+    const getUser = vi.fn(() => of([] as OpdsUserV2[]));
+
+    setupOpdsTest({userState, appSettingsState, getUser});
+    const fixture = TestBed.createComponent(OpdsSettings);
+    const component = fixture.componentInstance;
+
+    component.devicePresets.set([
+      {id: 'kobo-clara-bw', label: 'Kobo Clara BW', brand: 'Kobo', model: 'Clara BW', maxWidth: 1072, maxHeight: 1448, jpegQuality: 85, grayscale: true},
+      {id: 'kobo-sage', label: 'Kobo Sage', brand: 'Kobo', model: 'Sage', maxWidth: 1440, maxHeight: 1920, jpegQuality: 85, grayscale: true},
+      {id: 'xteink-x4', label: 'Xteink X4', brand: 'Xteink', model: 'X4', maxWidth: 480, maxHeight: 800, jpegQuality: 85, grayscale: true},
+    ] as OpdsDevicePreset[]);
+
+    // Endpoints list: one group per brand, config order preserved.
+    const byBrand = component.presetsByBrand;
+    expect(byBrand.map(g => g.brand)).toEqual(['Kobo', 'Xteink']);
+    expect(byBrand[0].presets).toHaveLength(2);
+
+    // Dropdown: brand groups whose items are labelled by model and valued by id.
+    const options = component.groupedPresetOptions;
+    expect(options[0].label).toBe('Kobo');
+    expect(options[0].items).toEqual([
+      {label: 'Clara BW', value: 'kobo-clara-bw'},
+      {label: 'Sage', value: 'kobo-sage'},
+    ]);
+
+    // Badge shows the full "Brand Model" display label.
+    expect(component.getPresetLabel('xteink-x4')).toBe('Xteink X4');
 
     fixture.destroy();
   });
