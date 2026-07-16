@@ -10,6 +10,8 @@
     "komgaDesc": "Enable the Komga-compatible API to use Komga clients (Tachiyomi, Komelia, etc.) with Grimmory. Uses the same OPDS user accounts for authentication.",
     "groupUnknownLabel": "Group Unknown Series",
     "groupUnknownDesc": "When enabled, books without a series will be grouped under \"Unknown Series\". When disabled, each book will appear as its own individual series.",
+    "replaceCoverLabel": "Replace EPUB Cover",
+    "replaceCoverDesc": "When enabled, EPUBs served over OPDS have their embedded cover replaced with Grimmory's metadata cover. Applies to both regular and device-optimized downloads.",
     "enabled": "Enabled",
     "disabled": "Disabled",
     "grouped": "Grouped",
@@ -82,5 +84,7 @@
   "komgaEnabled": "Komga API Enabled.",
   "komgaDisabled": "Komga API Disabled.",
   "groupEnabled": "Books without series will be grouped under \"Unknown Series\".",
-  "groupDisabled": "Books without series will appear as individual series."
+  "groupDisabled": "Books without series will appear as individual series.",
+  "replaceCoverEnabled": "OPDS EPUBs will use the Grimmory metadata cover.",
+  "replaceCoverDisabled": "OPDS EPUBs will keep their original embedded cover."
 }

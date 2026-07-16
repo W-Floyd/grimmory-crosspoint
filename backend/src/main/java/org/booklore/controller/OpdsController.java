@@ -4,7 +4,6 @@ import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.config.security.userdetails.OpdsUserDetails;
 import org.booklore.exception.ApiError;
 import org.booklore.model.dto.opds.DevicePreset;
-import org.booklore.service.book.BookDownloadService;
 import org.booklore.service.book.BookService;
 import org.booklore.service.opds.OpdsBookService;
 import org.booklore.service.opds.OpdsFeedService;
@@ -44,7 +43,6 @@ public class OpdsController {
 
     private final OpdsFeedService opdsFeedService;
     private final BookService bookService;
-    private final BookDownloadService bookDownloadService;
     private final OpdsBookService opdsBookService;
     private final AuthenticationService authenticationService;
     private final DevicePresetService devicePresetService;
@@ -64,18 +62,18 @@ public class OpdsController {
         opdsBookService.validateBookContentAccess(bookId, getOpdsUserId());
         String resolvedPreset = effectivePreset(preset);
 
+        DevicePreset devicePreset = null;
+        String presetId = null;
         if (resolvedPreset != null && !resolvedPreset.isBlank()) {
-            DevicePreset devicePreset = devicePresetService.resolve(resolvedPreset)
+            devicePreset = devicePresetService.resolve(resolvedPreset)
                     .orElseThrow(() -> ApiError.GENERIC_BAD_REQUEST.createException("Unknown device preset: " + resolvedPreset));
-            // Optimization targets a specific EPUB file; without a fileId fall back to the primary file unchanged.
-            if (fileId != null) {
-                String presetId = devicePresetService.resolveId(resolvedPreset).orElse(resolvedPreset);
-                return optimizedDownloadService.downloadOptimized(bookId, fileId, devicePreset, presetId);
-            }
+            presetId = devicePresetService.resolveId(resolvedPreset).orElse(resolvedPreset);
         }
 
+        // A specific EPUB file can be optimized and/or have its cover replaced; downloadForOpds
+        // decides and falls back to the original bytes. Without a fileId, serve the primary file unchanged.
         if (fileId != null) {
-            return bookDownloadService.downloadBookFile(bookId, fileId);
+            return optimizedDownloadService.downloadForOpds(bookId, fileId, devicePreset, presetId);
         }
         return bookService.downloadBook(bookId);
     }

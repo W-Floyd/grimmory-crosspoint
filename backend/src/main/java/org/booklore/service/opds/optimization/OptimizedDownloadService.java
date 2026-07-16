@@ -7,6 +7,7 @@ import org.booklore.model.dto.opds.DevicePreset;
 import org.booklore.model.entity.BookFileEntity;
 import org.booklore.model.enums.BookFileType;
 import org.booklore.repository.BookFileRepository;
+import org.booklore.service.appsettings.AppSettingService;
 import org.booklore.service.book.BookDownloadService;
 import org.booklore.util.FileService;
 import org.booklore.util.FileUtils;
@@ -32,10 +33,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
- * Serves device-optimized EPUB files for the OPDS server. Optimized copies are cached on
- * disk keyed by (preset, book, file, content hash); anything that is not an optimizable
- * EPUB (or exceeds the configured size cap, or fails to optimize) falls back to the
- * original file via {@link BookDownloadService}.
+ * Serves EPUB variants for the OPDS server. Depending on request/settings an EPUB may be
+ * device-optimized for a preset and/or have its embedded cover replaced by BookLore's metadata
+ * cover (when {@code opds_replace_cover} is enabled). Variants are cached on disk keyed by
+ * (variant, book, file, content hash, and — when the cover is replaced — the cover's hash);
+ * anything that is not an optimizable/rewritable EPUB (or exceeds the configured size cap, or
+ * fails) falls back to the original file via {@link BookDownloadService}.
  */
 @Slf4j
 @Service
@@ -43,23 +46,30 @@ import java.util.regex.Pattern;
 public class OptimizedDownloadService {
 
     private static final Pattern UNSAFE_FILENAME = Pattern.compile("[^a-zA-Z0-9._-]");
+    /** Cache dir + variant-hash key used for cover-replaced (but not preset-optimized) EPUBs. */
+    private static final String COVER_VARIANT = "cover";
 
     private final BookFileRepository bookFileRepository;
     private final BookDownloadService bookDownloadService;
     private final EpubDeviceOptimizer epubDeviceOptimizer;
+    private final EpubCoverReplacer epubCoverReplacer;
     private final DevicePresetService devicePresetService;
     private final FileService fileService;
     private final OpdsVariantHashService variantHashService;
+    private final AppSettingService appSettingService;
 
     /** Variant keys currently being warmed, so concurrent feed loads don't optimize the same file twice. */
     private final Set<String> inFlightPrewarms = ConcurrentHashMap.newKeySet();
 
     /**
-     * Download {@code fileId} optimized for {@code preset}. Non-EPUB files, oversized files,
-     * and optimization failures transparently serve the original bytes.
+     * Serve {@code fileId} for OPDS. When {@code preset} is non-null the EPUB is device-optimized;
+     * when {@code opds_replace_cover} is enabled its embedded cover is replaced with the metadata
+     * cover. Both transforms can apply together (cover replaced first, then optimized). Non-EPUB
+     * files, oversized files, downloads that need no transform, and any failure transparently serve
+     * the original bytes.
      */
-    public ResponseEntity<StreamingResponseBody> downloadOptimized(Long bookId, Long fileId,
-                                                                   DevicePreset preset, String presetId) {
+    public ResponseEntity<StreamingResponseBody> downloadForOpds(Long bookId, Long fileId,
+                                                                 DevicePreset preset, String presetId) {
         BookFileEntity bookFile = bookFileRepository.findByIdWithBookAndLibraryPath(fileId)
                 .orElseThrow(() -> ApiError.FILE_NOT_FOUND.createException(fileId));
 
@@ -67,8 +77,14 @@ public class OptimizedDownloadService {
             throw ApiError.FILE_NOT_FOUND.createException(fileId);
         }
 
-        // Only EPUBs are optimized; everything else streams unchanged.
+        // Only EPUBs are transformed; everything else streams unchanged.
         if (bookFile.getBookType() != BookFileType.EPUB) {
+            return bookDownloadService.downloadBookFile(bookId, fileId);
+        }
+
+        boolean optimize = preset != null;
+        boolean replaceCover = shouldReplaceCover(bookId);
+        if (!optimize && !replaceCover) {
             return bookDownloadService.downloadBookFile(bookId, fileId);
         }
 
@@ -85,11 +101,25 @@ public class OptimizedDownloadService {
                 return bookDownloadService.downloadBookFile(bookId, fileId);
             }
 
-            Path cached = ensureCached(source, bookId, fileId, preset, presetId, bookFile);
+            Path cached = ensureVariant(source, bookId, fileId, preset, presetId, replaceCover, bookFile);
             return streamEpub(cached, bookFile.getFileName());
         } catch (Exception e) {
-            log.warn("Failed to optimize EPUB {} for preset {}; serving original: {}", fileId, presetId, e.getMessage());
+            log.warn("Failed to build EPUB variant for file {} (preset {}, replaceCover {}); serving original: {}",
+                    fileId, presetId, replaceCover, e.getMessage());
             return bookDownloadService.downloadBookFile(bookId, fileId);
+        }
+    }
+
+    /** Whether the metadata cover should be embedded: setting enabled and a real cover file exists. */
+    private boolean shouldReplaceCover(Long bookId) {
+        if (!appSettingService.getAppSettings().isOpdsReplaceCover()) {
+            return false;
+        }
+        try {
+            Path cover = Path.of(fileService.getCoverFile(bookId));
+            return Files.exists(cover) && Files.size(cover) > 0;
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -185,7 +215,7 @@ public class OptimizedDownloadService {
                     || sourceSize > devicePresetService.maxSourceFileSizeBytes()) {
                 return OptionalLong.of(sourceSize);
             }
-            Path cached = ensureCached(source, bookId, fileId, preset, presetId, bookFile);
+            Path cached = ensureVariant(source, bookId, fileId, preset, presetId, shouldReplaceCover(bookId), bookFile);
             return OptionalLong.of(Files.size(cached));
         } catch (Exception e) {
             log.debug("Could not determine optimized size for book {} file {} preset {}: {}",
@@ -194,37 +224,86 @@ public class OptimizedDownloadService {
         }
     }
 
-    private Path ensureCached(Path source, Long bookId, Long fileId, DevicePreset preset,
-                              String presetId, BookFileEntity bookFile) throws Exception {
+    /**
+     * Build (or reuse from cache) the requested EPUB variant. {@code preset != null} optimizes;
+     * {@code replaceCover} embeds the metadata cover first. The cache key is
+     * {@code {variant}/{bookId}_{fileId}_{sourceHash}[_c{coverHash}].epub}, so a changed source
+     * file or cover invalidates the cached copy.
+     */
+    private Path ensureVariant(Path source, Long bookId, Long fileId, DevicePreset preset, String presetId,
+                               boolean replaceCover, BookFileEntity bookFile) throws Exception {
+        boolean optimize = preset != null;
         String hash = bookFile.getCurrentHash() != null ? bookFile.getCurrentHash()
                 : bookFile.getInitialHash() != null ? bookFile.getInitialHash() : "nohash";
+        String variant = optimize ? presetId : COVER_VARIANT;
 
-        Path cacheDir = Path.of(fileService.getOpdsCachePath(), sanitize(presetId));
+        Path coverFile = replaceCover ? Path.of(fileService.getCoverFile(bookId)) : null;
+        String coverSegment = replaceCover ? "_c" + sanitize(coverToken(coverFile)) : "";
+
+        Path cacheDir = Path.of(fileService.getOpdsCachePath(), sanitize(variant));
         Files.createDirectories(cacheDir);
-        Path cached = cacheDir.resolve(bookId + "_" + fileId + "_" + sanitize(hash) + ".epub");
+        Path cached = cacheDir.resolve(bookId + "_" + fileId + "_" + sanitize(hash) + coverSegment + ".epub");
 
         if (Files.exists(cached) && Files.size(cached) > 0) {
             // Registration is idempotent and skips work when already up to date, so it is safe
             // to (re)assert the mapping on a cache hit too (e.g. after a DB reset).
-            variantHashService.register(bookFile, presetId, hash, cached);
+            variantHashService.register(bookFile, variant, hash, cached);
             return cached;
         }
 
-        Path temp = Files.createTempFile(cacheDir, "opt-", ".epub.tmp");
+        Path coverTemp = null;
+        Path optTemp = null;
         try {
-            epubDeviceOptimizer.optimize(source, preset, temp);
-            try {
-                Files.move(temp, cached, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (Exception atomicFailed) {
-                Files.move(temp, cached, StandardCopyOption.REPLACE_EXISTING);
+            Path working = source;
+            if (replaceCover) {
+                coverTemp = Files.createTempFile(cacheDir, "cov-", ".epub.tmp");
+                if (epubCoverReplacer.replaceCover(source, Files.readAllBytes(coverFile), fileExtension(coverFile), coverTemp)) {
+                    working = coverTemp;
+                } else {
+                    Files.deleteIfExists(coverTemp);
+                    coverTemp = null; // replacement not applied; optimize/serve the source as-is
+                }
             }
-            // Map this variant's partial-MD5 to the book so KOReader sync can match the
-            // optimized copy the reader downloaded (its bytes differ from the original).
-            variantHashService.register(bookFile, presetId, hash, cached);
+
+            Path result;
+            if (optimize) {
+                optTemp = Files.createTempFile(cacheDir, "opt-", ".epub.tmp");
+                epubDeviceOptimizer.optimize(working, preset, optTemp);
+                result = optTemp;
+            } else {
+                result = working;
+            }
+
+            if (result.equals(source)) {
+                // No transform actually happened (e.g. cover replacement failed, no preset);
+                // cache a copy so subsequent requests hit the cache instead of retrying.
+                Files.copy(source, cached, StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                try {
+                    Files.move(result, cached, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } catch (Exception atomicFailed) {
+                    Files.move(result, cached, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+            // Map this variant's partial-MD5 to the book so KOReader sync can match the copy the
+            // reader downloaded (its bytes differ from the library original).
+            variantHashService.register(bookFile, variant, hash, cached);
             return cached;
         } finally {
-            Files.deleteIfExists(temp);
+            if (coverTemp != null) Files.deleteIfExists(coverTemp);
+            if (optTemp != null) Files.deleteIfExists(optTemp);
         }
+    }
+
+    /** Cheap cache-busting token for the metadata cover: its size + last-modified time. */
+    private static String coverToken(Path coverFile) throws IOException {
+        return Files.size(coverFile) + "-" + Files.getLastModifiedTime(coverFile).toMillis();
+    }
+
+    private static String fileExtension(Path path) {
+        String name = path.getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? "" : name.substring(dot + 1);
     }
 
     private ResponseEntity<StreamingResponseBody> streamEpub(Path file, String fileName) throws Exception {

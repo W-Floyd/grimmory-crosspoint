@@ -181,6 +181,7 @@ export interface AppSettings {
   opdsServerEnabled: boolean;
   komgaApiEnabled: boolean;
   komgaGroupUnknown: boolean;
+  opdsReplaceCover: boolean;
   remoteAuthEnabled: boolean;
   oidcEnabled: boolean;
   oidcProviderDetails: OidcProviderDetails;
@@ -232,6 +233,7 @@ export enum AppSettingKey {
   OPDS_SERVER_ENABLED = 'OPDS_SERVER_ENABLED',
   KOMGA_API_ENABLED = 'KOMGA_API_ENABLED',
   KOMGA_GROUP_UNKNOWN = 'KOMGA_GROUP_UNKNOWN',
+  OPDS_REPLACE_COVER = 'OPDS_REPLACE_COVER',
   OIDC_ENABLED = 'OIDC_ENABLED',
   OIDC_PROVIDER_DETAILS = 'OIDC_PROVIDER_DETAILS',
   OIDC_REDIRECT_URIS = 'OIDC_REDIRECT_URIS',

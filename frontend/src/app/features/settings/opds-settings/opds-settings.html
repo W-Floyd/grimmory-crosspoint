@@ -49,6 +49,32 @@
             </p-toggleswitch>
           </div>
 
+          @if (opdsEnabled) {
+            <div class="toggle-item sub-item border-l-orange-500 dark:border-l-orange-400 [&.is-active]:border-l-emerald-500 dark:[&.is-active]:border-l-emerald-300" [class.is-active]="opdsReplaceCover">
+              <div class="toggle-content">
+                <div class="toggle-header">
+                  <div class="toggle-icon">
+                    <i class="pi pi-image"></i>
+                  </div>
+                  <div class="toggle-info">
+                    <span class="toggle-label">{{ t('server.replaceCoverLabel') }}</span>
+                    <span class="toggle-status text-(--p-text-muted-color) [&.active]:text-emerald-700 dark:[&.active]:text-emerald-300" [class.active]="opdsReplaceCover">
+                      {{ opdsReplaceCover ? t('server.enabled') : t('server.disabled') }}
+                    </span>
+                  </div>
+                </div>
+                <p class="toggle-description">
+                  {{ t('server.replaceCoverDesc') }}
+                </p>
+              </div>
+              <p-toggleswitch
+                [(ngModel)]="opdsReplaceCover"
+                [disabled]="loading()"
+                (onChange)="toggleOpdsReplaceCover()">
+              </p-toggleswitch>
+            </div>
+          }
+
           <div class="toggle-item border-l-(--p-content-border-color) [&.is-active]:border-l-emerald-500 dark:[&.is-active]:border-l-emerald-300" [class.is-active]="komgaApiEnabled">
             <div class="toggle-content">
               <div class="toggle-header">

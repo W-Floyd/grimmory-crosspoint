@@ -20,6 +20,7 @@ public class AppSettings {
     private boolean opdsServerEnabled;
     private boolean komgaApiEnabled;
     private boolean komgaGroupUnknown;
+    private boolean opdsReplaceCover;
     private String uploadPattern;
     private Integer pdfCacheSizeInMb;
     private Integer maxFileUploadSizeInMb;

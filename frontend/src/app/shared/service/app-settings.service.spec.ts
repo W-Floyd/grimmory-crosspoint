@@ -40,6 +40,7 @@ function buildAppSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     opdsServerEnabled: true,
     komgaApiEnabled: false,
     komgaGroupUnknown: false,
+    opdsReplaceCover: false,
     remoteAuthEnabled: publicSettings.remoteAuthEnabled,
     oidcEnabled: publicSettings.oidcEnabled,
     oidcProviderDetails: publicSettings.oidcProviderDetails,

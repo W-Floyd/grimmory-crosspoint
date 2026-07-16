@@ -48,6 +48,7 @@ export class OpdsSettings implements OnInit {
   opdsEnabled = false;
   komgaApiEnabled = false;
   komgaGroupUnknown = true;
+  opdsReplaceCover = false;
 
   private opdsService = inject(OpdsService);
   private confirmationService = inject(ConfirmationService);
@@ -121,6 +122,7 @@ export class OpdsSettings implements OnInit {
     this.opdsEnabled = settings.opdsServerEnabled ?? false;
     this.komgaApiEnabled = settings.komgaApiEnabled ?? false;
     this.komgaGroupUnknown = settings.komgaGroupUnknown ?? true;
+    this.opdsReplaceCover = settings.opdsReplaceCover ?? false;
 
     if (this.opdsEnabled && !this.hasLoadedPresets) {
       this.loadDevicePresets();
@@ -252,6 +254,22 @@ export class OpdsSettings implements OnInit {
         const successMessage = (this.komgaGroupUnknown === true)
           ? this.t.translate('settingsOpds.groupEnabled')
           : this.t.translate('settingsOpds.groupDisabled');
+        this.showMessage('success', this.t.translate('settingsOpds.settingsSaved'), successMessage);
+      },
+      error: () => {
+        this.showMessage('error', this.t.translate('common.error'), this.t.translate('settingsOpds.settingsError'));
+      }
+    });
+  }
+
+  toggleOpdsReplaceCover(): void {
+    this.appSettingsService.saveSettings([{key: AppSettingKey.OPDS_REPLACE_COVER, newValue: this.opdsReplaceCover}]).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe({
+      next: () => {
+        const successMessage = this.opdsReplaceCover
+          ? this.t.translate('settingsOpds.replaceCoverEnabled')
+          : this.t.translate('settingsOpds.replaceCoverDisabled');
         this.showMessage('success', this.t.translate('settingsOpds.settingsSaved'), successMessage);
       },
       error: () => {

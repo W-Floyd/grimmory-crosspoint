@@ -31,9 +31,11 @@ class OptimizedDownloadServiceTest {
                 mock(BookFileRepository.class),
                 mock(BookDownloadService.class),
                 mock(EpubDeviceOptimizer.class),
+                mock(EpubCoverReplacer.class),
                 mock(DevicePresetService.class),
                 fileService,
-                mock(OpdsVariantHashService.class));
+                mock(OpdsVariantHashService.class),
+                mock(org.booklore.service.appsettings.AppSettingService.class));
     }
 
     @Test
