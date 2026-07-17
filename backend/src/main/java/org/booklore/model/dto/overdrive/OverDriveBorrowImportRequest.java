@@ -23,4 +23,9 @@ public class OverDriveBorrowImportRequest {
     private String coverUrl;
     /** Optional ISBN from the catalog result (applied to the book metadata). */
     private String isbn;
+    /**
+     * Optional format id the user selected (e.g. {@code ebook-epub-adobe}). Honored only when the loan
+     * offers it and it's importable; otherwise the operator's format preference decides.
+     */
+    private String formatId;
 }

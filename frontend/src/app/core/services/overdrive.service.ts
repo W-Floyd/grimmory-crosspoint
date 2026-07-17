@@ -82,6 +82,8 @@ export interface OverDriveCatalogItem {
   ownedCopies?: number | null;
   holdsCount?: number | null;
   estimatedWaitDays?: number | null;
+  /** Importable formats this title offers, in the operator's preference order; formatId is the default (first). */
+  formats?: string[];
   /** Not yet released; neither borrowable nor holdable. */
   preRelease: boolean;
 }
@@ -94,6 +96,8 @@ export interface OverDriveBorrowImportRequest {
   author?: string | null;
   coverUrl?: string | null;
   isbn?: string | null;
+  /** Optional format to borrow (e.g. ebook-epub-adobe); honored if the loan offers it, else preference decides. */
+  formatId?: string | null;
 }
 
 /** Minimal shape of the imported book returned by borrow-and-import. */

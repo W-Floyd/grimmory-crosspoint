@@ -160,3 +160,14 @@
     }
   }
 }
+/* Search result borrow action: format selector + button inline. */
+.borrow-action {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+
+  .format-select {
+    min-width: 12rem;
+  }
+}

@@ -153,14 +153,25 @@
              </span>
            </td>
            <td>
-             <p-button
-               *ngIf="item.available"
-               label="Borrow &amp; Import"
-               icon="pi pi-download"
-               [disabled]="!item.titleId || !selectedLibrary() || !selectedPath() || importingTitleId() !== null"
-               [loading]="importingTitleId() === item.titleId"
-               (onClick)="onBorrowImport(item)"
-             />
+             <div *ngIf="item.available" class="borrow-action">
+               <p-select
+                 *ngIf="(item.formats?.length ?? 0) > 1"
+                 [options]="formatOptions(item)"
+                 optionLabel="label"
+                 optionValue="value"
+                 [ngModel]="chosenFormat(item)"
+                 (ngModelChange)="setFormat(item.titleId, $event)"
+                 [disabled]="importingTitleId() !== null"
+                 pTooltip="Choose which format to download & import"
+                 styleClass="format-select" />
+               <p-button
+                 label="Borrow &amp; Import"
+                 icon="pi pi-download"
+                 pTooltip="Borrow this title and import it into grimmory (server-side)"
+                 [disabled]="!item.titleId || !selectedLibrary() || !selectedPath() || importingTitleId() !== null"
+                 [loading]="importingTitleId() === item.titleId"
+                 (onClick)="onBorrowImport(item)" />
+             </div>
              <p-button
                *ngIf="!item.available && item.holdable"
                label="Place Hold"
@@ -218,12 +229,23 @@
            <td>{{ loan.creators?.[0]?.name }}</td>
            <td>{{ formatDate(loan.expireDate) }}</td>
            <td>
+             <p-button icon="pi pi-file-import"
+               pTooltip="Import into grimmory (borrow-and-import server-side; pick a library & path in Search & Borrow)"
+               tooltipPosition="top"
+               [disabled]="!selectedLibrary() || !selectedPath() || importingTitleId() !== null"
+               [loading]="importingTitleId() === loan.id"
+               (onClick)="onImportLoan(loan)"
+               class="mr-2" />
              <p-button icon="pi pi-download"
-               tooltip="Download ACSM fulfillment token"
+               severity="secondary"
+               pTooltip="Download the raw ACSM file to your browser"
+               tooltipPosition="top"
                (onClick)="onFulfill(loan.id)"
                class="mr-2" />
              <p-button icon="pi pi-sign-out"
-               tooltip="Return book"
+               severity="danger"
+               pTooltip="Return this loan to the library"
+               tooltipPosition="top"
                (onClick)="onReturn(loan.id)" />
            </td>
          </tr>

@@ -77,6 +77,8 @@ export class OverdriveCatalogComponent {
   selectedLibrary = signal<Library | null>(null);
   selectedPath = signal<LibraryPath | null>(null);
   importingTitleId = signal<string | null>(null);
+  // Per-title chosen download format (titleId → formatId); defaults to the title's top preference.
+  selectedFormats = signal<Record<string, string>>({});
 
    // Diagnostics: a passive, read-only state snapshot (no live calls, no inputs).
   diagnosticsJson = signal<string | null>(null);
@@ -304,7 +306,8 @@ export class OverdriveCatalogComponent {
        title: item.title,
        author: item.author,
        coverUrl: item.coverUrl,
-       isbn: item.isbn
+       isbn: item.isbn,
+       formatId: this.chosenFormat(item)
      }).subscribe({
        next: (book) => {
          this.messageService.add({
@@ -317,6 +320,66 @@ export class OverdriveCatalogComponent {
          },
        error: (err: unknown) => {
          this.error.set(this.errorMessage(err, 'Borrow & import failed'));
+         this.importingTitleId.set(null);
+         }
+       });
+     }
+
+   /** Human-friendly label for an OverDrive format id. */
+   formatLabel(formatId: string): string {
+     const labels: Record<string, string> = {
+       'ebook-epub-open': 'EPUB',
+       'ebook-epub-adobe': 'EPUB (Adobe DRM)',
+       'ebook-pdf-open': 'PDF',
+       'ebook-pdf-adobe': 'PDF (Adobe DRM)',
+       };
+     return labels[formatId] ?? formatId;
+     }
+
+   /** p-select options for a title's available formats (preference order). */
+   formatOptions(item: OverDriveCatalogItem): { label: string; value: string }[] {
+     return (item.formats ?? []).map((f) => ({ label: this.formatLabel(f), value: f }));
+     }
+
+   /** The currently chosen format for a title (user selection, else the default/top preference). */
+   chosenFormat(item: OverDriveCatalogItem): string | null {
+     return this.selectedFormats()[item.titleId] ?? item.formatId ?? item.formats?.[0] ?? null;
+     }
+
+   /** Record the user's format choice for a title. */
+   setFormat(titleId: string, formatId: string): void {
+     this.selectedFormats.update((m) => ({ ...m, [titleId]: formatId }));
+     }
+
+   /**
+    * Import an already-borrowed loan into grimmory server-side (borrow-and-import resumes the existing
+    * loan). Needs a destination library + path chosen in the Search & Borrow section.
+    */
+   onImportLoan(loan: OverDriveLoan): void {
+     const card = this.selectedCard();
+     if (!card) return;
+     const library = this.selectedLibrary();
+     const path = this.selectedPath();
+     if (!library?.id || !path?.id) {
+       this.error.set('Choose a destination library and path in the "Search & Borrow" section first.');
+       return;
+       }
+     this.importingTitleId.set(loan.id);
+     this.error.set(null);
+     this.overdriveService.borrowAndImport(card.cardId, {
+       titleId: loan.id,
+       libraryId: library.id,
+       pathId: path.id,
+       title: loan.title,
+       author: loan.creators?.[0]?.name,
+       formatId: loan.formatId
+     }).subscribe({
+       next: (book) => {
+         this.messageService.add({ severity: 'success', summary: 'Imported', detail: `"${loan.title}" imported (book #${book.id})` });
+         this.importingTitleId.set(null);
+         },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Import failed'));
          this.importingTitleId.set(null);
          }
        });

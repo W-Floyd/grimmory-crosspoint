@@ -976,7 +976,8 @@ public class OverDriveService {
        * supported formats) if set, otherwise the built-in default.
        */
       private List<String> formatPreference() {
-        MetadataProviderSettings settings = appSettingService.getAppSettings().getMetadataProviderSettings();
+        var appSettings = appSettingService.getAppSettings();
+        MetadataProviderSettings settings = appSettings != null ? appSettings.getMetadataProviderSettings() : null;
         List<String> configured = settings != null && settings.getOverdrive() != null
                 ? settings.getOverdrive().getFormatPreference() : null;
         if (configured != null) {
@@ -995,6 +996,11 @@ public class OverDriveService {
        */
       private String chooseFormat(List<String> loanFormats) {
         return selectFormat(loanFormats, formatPreference(), acsmHandler.isConfigured());
+      }
+
+      /** A supported format we can actually import: open formats always, Adobe only with an ACSM handler. */
+      private boolean isImportableFormat(String formatId) {
+        return SUPPORTED_FORMATS.contains(formatId) && (isOpenFormat(formatId) || acsmHandler.isConfigured());
       }
 
       /** Pure selection: first preferred format offered by the loan that is fulfillable. */
@@ -1178,7 +1184,7 @@ public class OverDriveService {
        * @return the persisted {@link Book}
        */
       public Book borrowAndImport(String identity, String authToken, String titleId, long libraryId, long pathId,
-                                  String title, String author, String coverUrl, String isbn) {
+                                  String title, String author, String coverUrl, String isbn, String preferredFormat) {
         // Borrow and fulfill with the stored identity as-is, mirroring the web client: it does not
         // pre-mint, and fetchFulfillment re-mints reactively on missing_chip. Pre-minting here only
         // added chip churn without avoiding the missing_chip round-trip.
@@ -1197,7 +1203,15 @@ public class OverDriveService {
         String loanId = loan.loanId();
         List<String> formats = loan.formatIds();
 
-        String chosenFormat = chooseFormat(formats);
+        // Honor a user-selected format when the loan actually offers it and we can import it; otherwise
+        // fall back to the operator's preference order.
+        String chosenFormat;
+        if (preferredFormat != null && !preferredFormat.isBlank()
+                && formats.contains(preferredFormat) && isImportableFormat(preferredFormat)) {
+            chosenFormat = preferredFormat;
+        } else {
+            chosenFormat = chooseFormat(formats);
+        }
         if (chosenFormat == null) {
             throw new RestClientException("No importable format for this title (loan " + loanId + "). "
                     + "Offered: " + formats + ". Open formats import directly; Adobe formats require a "
@@ -1271,9 +1285,10 @@ public class OverDriveService {
       }
 
       private OverDriveCatalogItem toCatalogItem(OverDriveApiResponse.Item item) {
+        List<String> formats = importableFormats(item);
         return new OverDriveCatalogItem(
                 item.getId(),
-                pickBorrowFormatId(item),
+                formats.isEmpty() ? pickBorrowFormatId(item) : formats.getFirst(),
                 item.getTitle(),
                 extractPrimaryAuthor(item),
                 extractCoverUrl(item),
@@ -1284,7 +1299,32 @@ public class OverDriveService {
                 item.getOwnedCopies(),
                 item.getHoldsCount(),
                 item.getEstimatedWaitDays(),
-                Boolean.TRUE.equals(item.getPreRelease()));
+                Boolean.TRUE.equals(item.getPreRelease()),
+                formats);
+      }
+
+      /**
+       * The supported/importable format ids this title offers, in the operator's preference order (see
+       * {@link #formatPreference()}) — the list the UI presents so the user may pick a non-default
+       * version. Adobe formats are only included when an ACSM handler is configured (else they can't be
+       * imported). Empty when the title offers nothing we can import.
+       */
+      private List<String> importableFormats(OverDriveApiResponse.Item item) {
+        if (item.getFormats() == null || item.getFormats().isEmpty()) {
+            return List.of();
+        }
+        Set<String> offered = item.getFormats().stream()
+                .map(OverDriveApiResponse.Item.Format::getId)
+                .filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        boolean acsm = acsmHandler.isConfigured();
+        List<String> ordered = new ArrayList<>();
+        for (String f : formatPreference()) {
+            if (offered.contains(f) && !ordered.contains(f) && (isOpenFormat(f) || acsm)) {
+                ordered.add(f);
+            }
+        }
+        return ordered;
       }
 
       /** Prefer the Adobe EPUB format (what {@link #getAcsm} fulfills), else the first format id. */
