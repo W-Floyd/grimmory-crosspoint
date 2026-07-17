@@ -74,6 +74,8 @@ class FileUploadServiceTest {
     MonitoringRegistrationService monitoringRegistrationService;
     @Mock
     AuditService auditService;
+    @Mock
+    org.booklore.service.acsm.AcsmHandler acsmHandler;
 
     AppProperties appProperties;
     FileUploadService service;
@@ -91,7 +93,7 @@ class FileUploadServiceTest {
 
         service = new FileUploadService(
                 libraryRepository, bookRepository, bookAdditionalFileRepository,
-                appSettingService, appProperties, metadataExtractorFactory, additionalFileMapper, fileMovingHelper, monitoringRegistrationService, auditService
+                appSettingService, appProperties, metadataExtractorFactory, additionalFileMapper, fileMovingHelper, monitoringRegistrationService, auditService, acsmHandler
         );
     }
 

@@ -2,6 +2,7 @@ package org.booklore.service.acsm;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.booklore.exception.ApiError;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
@@ -105,21 +106,25 @@ public class AcsmHandler {
             if (!completed) {
                 process.destroyForcibly();
                 log.warn("ACSM handler tool timed out after {} seconds", config.getTimeoutSeconds());
-                return null;
+                throw ApiError.GENERIC_BAD_REQUEST.createException(
+                        "ACSM handler timed out after " + config.getTimeoutSeconds() + "s.");
             }
 
             int exitCode = process.exitValue();
+            String output = toolLog.toString(StandardCharsets.UTF_8).strip();
             if (exitCode != 0) {
-                log.error("ACSM handler tool exited with code {}. Output: {}",
-                        exitCode, toolLog.toString(StandardCharsets.UTF_8).strip());
-                return null;
+                log.error("ACSM handler tool exited with code {}. Output: {}", exitCode, output);
+                throw ApiError.GENERIC_BAD_REQUEST.createException(
+                        "ACSM handler failed (exit " + exitCode + "): " + tail(output));
             }
 
-            // The produced book file is written to the output path, not stdout.
+            // The produced book file is written to the output path, not stdout. Many ACSM tools exit 0
+            // even on failure, so surface their output — e.g. an unactivated ADE account reports
+            // "did not find the licenseService certificate in the activation data".
             if (!Files.exists(outputFile)) {
-                log.error("ACSM handler tool exited 0 but produced no output file. Output: {}",
-                        toolLog.toString(StandardCharsets.UTF_8).strip());
-                return null;
+                log.error("ACSM handler tool exited 0 but produced no output file. Output: {}", output);
+                throw ApiError.GENERIC_BAD_REQUEST.createException(
+                        "ACSM handler produced no book file. Tool output: " + tail(output));
             }
             byte[] book = Files.readAllBytes(outputFile);
             log.info("ACSM handler tool produced {} bytes", book.length);
@@ -127,11 +132,11 @@ public class AcsmHandler {
 
         } catch (IOException e) {
             log.error("ACSM handler tool IO error: {}", e.getMessage());
-            return null;
+            throw ApiError.GENERIC_BAD_REQUEST.createException("ACSM handler IO error: " + e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("ACSM handler tool interrupted");
-            return null;
+            throw ApiError.GENERIC_BAD_REQUEST.createException("ACSM handler was interrupted.");
         } finally {
             if (tempDir != null) {
                 try {
@@ -150,5 +155,15 @@ public class AcsmHandler {
                 }
             }
         }
+    }
+
+    /** A single-line, length-capped tail of tool output for surfacing in error messages. */
+    private static String tail(String output) {
+        if (output == null || output.isBlank()) {
+            return "(no output)";
+        }
+        String oneLine = output.replaceAll("\\s+", " ").strip();
+        int max = 400;
+        return oneLine.length() > max ? "…" + oneLine.substring(oneLine.length() - max) : oneLine;
     }
 }

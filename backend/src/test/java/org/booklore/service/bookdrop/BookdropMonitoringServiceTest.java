@@ -31,7 +31,8 @@ class BookdropMonitoringServiceTest {
         bookdropFileRepository = mock(BookdropFileRepository.class);
         
         when(appProperties.getBookdropFolder()).thenReturn(tempDir.toString());
-        monitoringService = new BookdropMonitoringService(appProperties, eventHandler, bookdropFileRepository);
+        monitoringService = new BookdropMonitoringService(appProperties, eventHandler, bookdropFileRepository,
+                mock(org.booklore.service.acsm.AcsmHandler.class));
     }
 
     @Test

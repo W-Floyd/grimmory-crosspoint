@@ -3,6 +3,7 @@ package org.booklore.service.bookdrop;
 import org.booklore.config.AppProperties;
 import org.booklore.model.enums.BookFileExtension;
 import org.booklore.repository.BookdropFileRepository;
+import org.booklore.service.acsm.AcsmHandler;
 import org.booklore.util.FileUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.SmartLifecycle;
@@ -26,6 +27,7 @@ public class BookdropMonitoringService implements SmartLifecycle {
     private final AppProperties appProperties;
     private final BookdropEventHandlerService eventHandler;
     private final BookdropFileRepository bookdropFileRepository;
+    private final AcsmHandler acsmHandler;
 
     private Path bookdrop;
     private WatchService watchService;
@@ -39,11 +41,13 @@ public class BookdropMonitoringService implements SmartLifecycle {
     public BookdropMonitoringService(
             AppProperties appProperties,
             BookdropEventHandlerService eventHandler,
-            BookdropFileRepository bookdropFileRepository
+            BookdropFileRepository bookdropFileRepository,
+            AcsmHandler acsmHandler
     ) {
         this.appProperties = appProperties;
         this.eventHandler = eventHandler;
         this.bookdropFileRepository = bookdropFileRepository;
+        this.acsmHandler = acsmHandler;
     }
 
     @Override
@@ -243,7 +247,52 @@ public class BookdropMonitoringService implements SmartLifecycle {
             return;
         }
         log.info("Rescan of Bookdrop folder triggered.");
+        convertPendingAcsmFiles();
         scanExistingBookdropFiles();
+    }
+
+    /**
+     * Convert any {@code .acsm} files dropped into the bookdrop folder into real book files, in place,
+     * via the configured external ACSM handler: the produced EPUB/PDF is written alongside and the
+     * {@code .acsm} deleted, so the normal scan then ingests the book. No-op when no handler is
+     * configured (the {@code .acsm} files are left untouched rather than silently discarded).
+     */
+    private void convertPendingAcsmFiles() {
+        if (bookdrop == null || !acsmHandler.isConfigured()) {
+            return;
+        }
+        List<Path> acsmFiles;
+        try (Stream<Path> files = Files.walk(bookdrop)) {
+            acsmFiles = files.filter(Files::isRegularFile)
+                    .filter(path -> !FileUtils.shouldIgnore(path))
+                    .filter(path -> path.getFileName().toString().toLowerCase().endsWith(".acsm"))
+                    .toList();
+        } catch (IOException e) {
+            log.error("Error scanning bookdrop folder for ACSM files", e);
+            return;
+        }
+        for (Path acsm : acsmFiles) {
+            try {
+                byte[] content = acsmHandler.handle(Files.readAllBytes(acsm));
+                if (content == null || content.length == 0) {
+                    log.warn("ACSM handler produced no book for bookdrop file {}; leaving it in place", acsm.getFileName());
+                    continue;
+                }
+                boolean isPdf = content.length >= 4
+                        && content[0] == '%' && content[1] == 'P' && content[2] == 'D' && content[3] == 'F';
+                String name = acsm.getFileName().toString();
+                String base = name.substring(0, name.length() - ".acsm".length());
+                Path out = acsm.resolveSibling(base + (isPdf ? ".pdf" : ".epub"));
+                if (Files.exists(out)) {
+                    out = acsm.resolveSibling(base + "-" + System.currentTimeMillis() + (isPdf ? ".pdf" : ".epub"));
+                }
+                Files.write(out, content);
+                Files.delete(acsm);
+                log.info("Converted bookdrop ACSM {} -> {}", name, out.getFileName());
+            } catch (Exception e) {
+                log.error("Failed to convert bookdrop ACSM {}: {}", acsm.getFileName(), e.getMessage());
+            }
+        }
     }
 
     private void scanExistingBookdropFiles() {

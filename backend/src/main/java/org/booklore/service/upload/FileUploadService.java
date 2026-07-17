@@ -60,22 +60,31 @@ public class FileUploadService {
     private final FileMovingHelper fileMovingHelper;
     private final MonitoringRegistrationService monitoringRegistrationService;
     private final AuditService auditService;
+    private final org.booklore.service.acsm.AcsmHandler acsmHandler;
 
     @Transactional
     public void uploadFile(MultipartFile file, long libraryId, long pathId) {
-        validateFile(file);
+        // .acsm uploads are converted to a book file via the ACSM handler, then imported normally.
+        final MaterializedAcsm acsm = materializeAcsmIfNeeded(file);
+        if (acsm == null) {
+            validateFile(file);
+        }
 
         final LibraryEntity libraryEntity = findLibraryById(libraryId);
         final LibraryPathEntity libraryPathEntity = findLibraryPathById(libraryEntity, pathId);
         final Path libraryRoot = FileUtils.normalizeAbsolutePath(Path.of(libraryPathEntity.getPath()));
-        final String originalFileName = getValidatedFileName(file);
+        final String originalFileName = acsm != null ? acsm.fileName() : getValidatedFileName(file);
         final BookFileExtension fileExtension = getFileExtension(originalFileName);
         validateAllowedFormat(libraryEntity, fileExtension.getType());
 
         Path tempPath = null;
         try {
             tempPath = createTempFile(UPLOAD_TEMP_PREFIX, originalFileName);
-            file.transferTo(tempPath);
+            if (acsm != null) {
+                Files.write(tempPath, acsm.content());
+            } else {
+                file.transferTo(tempPath);
+            }
             final BookMetadata metadata = extractMetadata(fileExtension, tempPath.toFile(), originalFileName);
             final String uploadPattern = fileMovingHelper.getFileNamingPattern(libraryEntity);
 
@@ -220,18 +229,25 @@ public class FileUploadService {
     }
 
     public Book uploadFileBookDrop(MultipartFile file) throws IOException {
-        validateFile(file);
+        final MaterializedAcsm acsm = materializeAcsmIfNeeded(file);
+        if (acsm == null) {
+            validateFile(file);
+        }
 
         final Path dropFolder = FileUtils.normalizeAbsolutePath(Path.of(appProperties.getBookdropFolder()));
         Files.createDirectories(dropFolder);
 
-        final String originalFilename = getValidatedFileName(file);
+        final String originalFilename = acsm != null ? acsm.fileName() : getValidatedFileName(file);
         final String sanitizedFilename = PathPatternResolver.truncateFilenameWithExtension(originalFilename);
         Path tempPath = null;
 
         try {
             tempPath = createTempFile(BOOKDROP_TEMP_PREFIX, sanitizedFilename);
-            file.transferTo(tempPath);
+            if (acsm != null) {
+                Files.write(tempPath, acsm.content());
+            } else {
+                file.transferTo(tempPath);
+            }
 
             final Path finalPath = resolvePathWithinRoot(dropFolder, sanitizedFilename);
             validateFinalPath(finalPath, dropFolder);
@@ -417,6 +433,41 @@ public class FileUploadService {
         }
 
         return metadata;
+    }
+
+    /** An .acsm converted (via the ACSM handler) into a book file ready for the normal import flow. */
+    private record MaterializedAcsm(String fileName, byte[] content) {}
+
+    /**
+     * If the upload is an {@code .acsm} fulfillment token, hand it to the configured external ACSM
+     * handler and return the produced book bytes with a derived {@code .epub}/{@code .pdf} filename;
+     * returns null for any other file. Throws a clear error if no ACSM handler is configured or the
+     * handler produces nothing.
+     */
+    private MaterializedAcsm materializeAcsmIfNeeded(MultipartFile file) {
+        final String name = getValidatedFileName(file);
+        if (!name.toLowerCase().endsWith(".acsm")) {
+            return null;
+        }
+        if (!acsmHandler.isConfigured()) {
+            throw ApiError.INVALID_FILE_FORMAT.createException(
+                    "ACSM files require a configured external ACSM handler (app.acsm.*).");
+        }
+        final byte[] acsmBytes;
+        try {
+            acsmBytes = file.getBytes();
+        } catch (IOException e) {
+            throw ApiError.FILE_READ_ERROR.createException(e.getMessage());
+        }
+        final byte[] content = acsmHandler.handle(acsmBytes);
+        if (content == null || content.length == 0) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException(
+                    "The external ACSM handler did not produce a book file from the uploaded ACSM.");
+        }
+        final String base = name.substring(0, name.length() - ".acsm".length());
+        final boolean isPdf = content.length >= 4
+                && content[0] == '%' && content[1] == 'P' && content[2] == 'D' && content[3] == 'F';
+        return new MaterializedAcsm(base + (isPdf ? ".pdf" : ".epub"), content);
     }
 
     private void validateFile(MultipartFile file) {
