@@ -163,6 +163,22 @@ public class OverDriveController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * PUT /api/overdrive/{identity}/label — set a card's display label. Omit the param to clear it
+     * back to the library-derived default name.
+     */
+    @Operation(summary = "Set a card's display label",
+               description = "Stores a friendly label for the card; omit the name to clear it.")
+    @ApiResponse(responseCode = "204", description = "Label saved")
+    @PutMapping("/{identity}/label")
+    public ResponseEntity<Void> setCardLabel(
+            @Parameter(description = "Library card id") @PathVariable String identity,
+            @RequestParam(required = false) String name) {
+        requireEnabled();
+        overDriveService.setCardLabel(identity, name);
+        return ResponseEntity.noContent().build();
+    }
+
     // ── Sync ────────────────────────────────────────────────────────────
 
     /**

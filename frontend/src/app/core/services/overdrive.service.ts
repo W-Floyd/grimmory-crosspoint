@@ -179,6 +179,15 @@ export class OverDriveService {
     return this.http.post<void>(`${this.baseUrl}/${cardId}/refresh`, null);
   }
 
+  /** Set a friendly display label for a card (blank clears it back to the default name). */
+  setCardLabel(cardId: string, name: string): Observable<void> {
+    const params: Record<string, string> = {};
+    if (name && name.trim()) {
+      params['name'] = name.trim();
+    }
+    return this.http.put<void>(`${this.baseUrl}/${cardId}/label`, null, { params });
+  }
+
   /** Remember a card's default destination library + path (omit both to clear → Bookdrop). */
   setDefaultLibrary(cardId: string, libraryId: number | null, pathId: number | null): Observable<void> {
     const params: Record<string, string> = {};

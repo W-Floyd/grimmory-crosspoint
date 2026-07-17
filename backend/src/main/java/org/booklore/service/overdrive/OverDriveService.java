@@ -1520,6 +1520,14 @@ public class OverDriveService {
                 .toList();
       }
 
+      /** Set a friendly display label for a card; a blank label clears it back to the default name. */
+      public void setCardLabel(String identity, String label) {
+        OverDriveTokenEntity entity = tokenRepository.findByUserIdAndIdentity(currentUserId(), identity)
+                .orElseThrow(() -> new RestClientException("No such card: " + identity));
+        entity.setCardName(label != null && !label.isBlank() ? label.trim() : null);
+        tokenRepository.save(entity);
+      }
+
       /**
        * Set (or clear) the default destination library + path for a card, remembered for next time.
        * Passing nulls clears the default so imports fall back to the Bookdrop folder.

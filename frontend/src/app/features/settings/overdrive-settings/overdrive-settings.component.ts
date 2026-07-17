@@ -97,6 +97,18 @@ export class OverdriveSettingsComponent {
     });
   }
 
+  /** Set a friendly display label for a card (blank clears it back to the default name). */
+  onRenameCard(card: OverDriveCard, name: string): void {
+    const label = name.trim();
+    this.overdriveService.setCardLabel(card.cardId, label).subscribe({
+      next: () => {
+        this.linkedCards.update(cards => cards.map(c => c.cardId === card.cardId ? { ...c, name: label || null } : c));
+        this.messageService.add({ severity: 'success', summary: 'Renamed', detail: label ? `Card labelled "${label}"` : 'Card label cleared' });
+      },
+      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Rename failed')
+    });
+  }
+
   /** Refresh a card+PIN card's token by re-linking from its stored credentials. */
   onRefreshCard(card: OverDriveCard): void {
     this.overdriveService.refreshCard(card.cardId).subscribe({

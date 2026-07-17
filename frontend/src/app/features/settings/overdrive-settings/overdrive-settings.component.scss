@@ -64,8 +64,24 @@
   gap: 0.5rem;
   padding: 0.25rem 0;
 
-  .linked-card-name {
-    overflow-wrap: anywhere;
+  .linked-card-info {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
+
+    .linked-card-label {
+      flex: 1 1 auto;
+      min-width: 8rem;
+      max-width: 20rem;
+    }
+
+    .linked-card-id {
+      flex-shrink: 0;
+      color: var(--text-color-secondary);
+      overflow-wrap: anywhere;
+    }
   }
 
   .linked-card-actions {
