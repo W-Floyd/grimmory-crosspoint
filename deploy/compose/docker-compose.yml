@@ -22,6 +22,14 @@ services:
       - FORCE_DISABLE_OIDC=false
       # ALLOWED_ORIGINS=
       #
+      # OverDrive / Libby integration (borrow, holds, sync, catalog search). Off by default;
+      # set OVERDRIVE_ENABLED=true to expose the endpoints, then configure your library key
+      # under Settings → OverDrive/Libby and link a Libby account with an 8-digit setup code.
+      # - OVERDRIVE_ENABLED=true
+      # - OVERDRIVE_AUTO_RETURN=true                    # auto-return expired loans in the background
+      # - OVERDRIVE_CLIENT_ID=dewey                     # rarely needs changing
+      # - OVERDRIVE_SENTRY_BASE_URL=https://sentry.libbyapp.com
+      #
       # Most Libby titles offer a DRM-free "open" EPUB and import with no extra setup.
       # For titles that only offer the Adobe/ACSM format, Grimmory can hand the ACSM to an
       # operator-supplied external tool that procures the book file. Grimmory ships no such
