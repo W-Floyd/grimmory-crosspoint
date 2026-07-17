@@ -203,6 +203,31 @@ export class OverdriveCatalogComponent {
        });
      }
 
+   /** Unlink a card (clear its stored token/credentials) and refresh the picker. */
+   onUnlinkCard(card: OverDriveCard): void {
+     this.overdriveService.removeCard(card.cardId).subscribe({
+       next: () => {
+         this.messageService.add({ severity: 'success', summary: 'Unlinked', detail: `Removed ${this.cardLabel(card)}` });
+         if (this.selectedCard()?.cardId === card.cardId) {
+           this.selectedCard.set(null);
+         }
+         this.loadCards();
+         },
+       error: (err: unknown) => this.error.set(this.errorMessage(err, 'Unlink failed'))
+       });
+     }
+
+   /** Refresh a card+PIN card's token by re-linking from its stored credentials. */
+   onRefreshCard(card: OverDriveCard): void {
+     this.overdriveService.refreshCard(card.cardId).subscribe({
+       next: () => {
+         this.messageService.add({ severity: 'success', summary: 'Refreshed', detail: `Re-linked ${this.cardLabel(card)}` });
+         this.onLoadLoans();
+         },
+       error: (err: unknown) => this.error.set(this.errorMessage(err, 'Refresh failed'))
+       });
+     }
+
    onLoadLoans(): void {
      const card = this.selectedCard();
      if (!card) {

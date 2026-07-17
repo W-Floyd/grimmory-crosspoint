@@ -67,6 +67,12 @@
     color: var(--text-color-secondary);
   }
 
+  .card-actions {
+    display: flex;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+  }
+
   .cred-note {
     color: var(--orange-600, #ea580c);
     margin-top: 0.35rem;

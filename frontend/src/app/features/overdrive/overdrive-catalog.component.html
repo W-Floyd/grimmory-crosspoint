@@ -74,6 +74,14 @@
          <ng-template let-card pTemplate="item">{{ cardLabel(card) }}</ng-template>
        </p-select>
      </div>
+     <div class="card-actions" *ngIf="selectedCard() as card">
+       <p-button label="Refresh" icon="pi pi-refresh" severity="secondary" size="small" [text]="true"
+         *ngIf="card.credentialsStored" pTooltip="Re-link from stored card + PIN to get a fresh token"
+         (onClick)="onRefreshCard(card)" />
+       <p-button label="Unlink" icon="pi pi-times" severity="danger" size="small" [text]="true"
+         pTooltip="Clear this card's stored token/credentials" (onClick)="onUnlinkCard(card)" />
+     </div>
+     <small class="hint">Token expired or blocked? <strong>Unlink</strong> and link again. <strong>Refresh</strong> (card+PIN links) re-links from stored credentials without re-entering the PIN.</small>
   </p-card>
 
    <!-- Catalog Search + Borrow & Import -->
