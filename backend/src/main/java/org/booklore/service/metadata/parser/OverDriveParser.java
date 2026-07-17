@@ -21,7 +21,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -319,7 +318,7 @@ public class OverDriveParser implements BookParser {
     }
 
     private BookMetadata toMetadata(OverDriveApiResponse.Item item) {
-        String[] isbns = extractIsbns(item);
+        String[] isbns = OverDriveItemExtractor.isbns(item);
         SeriesData series = extractSeries(item);
 
         return BookMetadata.builder()
@@ -327,7 +326,7 @@ public class OverDriveParser implements BookParser {
                 .externalUrl(item.getId() != null ? LIBBY_TITLE_URL + item.getId() : null)
                 .title(item.getTitle())
                 .subtitle(item.getSubtitle())
-                .authors(extractAuthors(item))
+                .authors(OverDriveItemExtractor.authors(item))
                 .description(cleanDescription(item.getFullDescription() != null ? item.getFullDescription() : item.getDescription()))
                 .publisher(item.getPublisher() != null ? item.getPublisher().getName() : null)
                 .publishedDate(parseDate(item.getPublishDate()))
@@ -336,29 +335,11 @@ public class OverDriveParser implements BookParser {
                         ? LanguageNormalizer.normalize(item.getLanguages().getFirst().getName()) : null)
                 .isbn13(isbns[0])
                 .isbn10(isbns[1])
-                .thumbnailUrl(extractCover(item.getCovers()))
+                .thumbnailUrl(OverDriveItemExtractor.coverHref(item.getCovers()))
                 .seriesName(series.name())
                 .seriesNumber(series.number())
                 .rating(item.getStarRating())
                 .build();
-    }
-
-    private List<String> extractAuthors(OverDriveApiResponse.Item item) {
-        if (item.getCreators() == null || item.getCreators().isEmpty()) {
-            return null;
-        }
-        List<String> authors = item.getCreators().stream()
-                .filter(c -> c.getName() != null && c.getRole() != null && c.getRole().toLowerCase().contains("author"))
-                .map(OverDriveApiResponse.Item.Creator::getName)
-                .toList();
-        if (authors.isEmpty()) {
-            // No explicit author role — fall back to all named creators.
-            authors = item.getCreators().stream()
-                    .map(OverDriveApiResponse.Item.Creator::getName)
-                    .filter(n -> n != null && !n.isBlank())
-                    .toList();
-        }
-        return authors.isEmpty() ? null : new ArrayList<>(authors);
     }
 
     private Set<String> extractNames(List<OverDriveApiResponse.Item.NamedValue> values) {
@@ -370,51 +351,6 @@ public class OverDriveParser implements BookParser {
                 .filter(n -> n != null && !n.isBlank())
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         return names.isEmpty() ? null : names;
-    }
-
-    /** @return [isbn13, isbn10] (either may be null). */
-    private String[] extractIsbns(OverDriveApiResponse.Item item) {
-        String isbn13 = null;
-        String isbn10 = null;
-        if (item.getFormats() != null) {
-            for (OverDriveApiResponse.Item.Format format : item.getFormats()) {
-                for (String candidate : isbnCandidates(format)) {
-                    String cleaned = ParserUtils.cleanIsbn(candidate);
-                    if (cleaned == null) continue;
-                    if (cleaned.length() == 13 && isbn13 == null) isbn13 = cleaned;
-                    else if (cleaned.length() == 10 && isbn10 == null) isbn10 = cleaned;
-                }
-            }
-        }
-        return new String[]{isbn13, isbn10};
-    }
-
-    private List<String> isbnCandidates(OverDriveApiResponse.Item.Format format) {
-        List<String> candidates = new ArrayList<>();
-        if (format.getIsbn() != null) {
-            candidates.add(format.getIsbn());
-        }
-        if (format.getIdentifiers() != null) {
-            format.getIdentifiers().stream()
-                    .filter(id -> id.getType() != null && id.getType().toUpperCase().contains("ISBN") && id.getValue() != null)
-                    .forEach(id -> candidates.add(id.getValue()));
-        }
-        return candidates;
-    }
-
-    private String extractCover(OverDriveApiResponse.Item.Covers covers) {
-        if (covers == null) return null;
-        for (OverDriveApiResponse.Item.Covers.Cover cover :
-                List.of(nullSafe(covers.getCover510Wide()), nullSafe(covers.getCover300Wide()), nullSafe(covers.getCover150Wide()))) {
-            if (cover.getHref() != null && !cover.getHref().isBlank()) {
-                return cover.getHref();
-            }
-        }
-        return null;
-    }
-
-    private OverDriveApiResponse.Item.Covers.Cover nullSafe(OverDriveApiResponse.Item.Covers.Cover cover) {
-        return cover != null ? cover : new OverDriveApiResponse.Item.Covers.Cover();
     }
 
     private record SeriesData(String name, Float number) {}

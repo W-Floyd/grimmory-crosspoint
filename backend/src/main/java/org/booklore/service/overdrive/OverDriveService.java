@@ -17,6 +17,7 @@ import org.booklore.repository.OverDriveLoanRepository;
 import org.booklore.repository.OverDriveTokenRepository;
 import org.booklore.service.acsm.AcsmHandler;
 import org.booklore.service.appsettings.AppSettingService;
+import org.booklore.service.metadata.parser.OverDriveItemExtractor;
 import org.booklore.service.metadata.parser.OverDriveParser;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -1294,14 +1295,14 @@ public class OverDriveService {
 
       private OverDriveCatalogItem toCatalogItem(OverDriveApiResponse.Item item) {
         List<String> formats = importableFormats(item);
-        String isbn = extractIsbn(item);
+        String isbn = OverDriveItemExtractor.primaryIsbn(item);
         return new OverDriveCatalogItem(
                 item.getId(),
                 formats.isEmpty() ? pickBorrowFormatId(item) : formats.getFirst(),
                 item.getTitle(),
                 item.getSubtitle(),
-                extractPrimaryAuthor(item),
-                extractCoverUrl(item),
+                OverDriveItemExtractor.primaryAuthor(item),
+                OverDriveItemExtractor.coverHref(item.getCovers()),
                 isbn,
                 Boolean.TRUE.equals(item.getAvailable()),
                 Boolean.TRUE.equals(item.getHoldable()),
@@ -1388,42 +1389,6 @@ public class OverDriveService {
                 .filter(id -> id.toLowerCase().contains("epub"))
                 .findFirst()
                 .orElseGet(() -> item.getFormats().getFirst().getId());
-      }
-
-      private String extractPrimaryAuthor(OverDriveApiResponse.Item item) {
-        if (item.getCreators() == null || item.getCreators().isEmpty()) {
-            return null;
-        }
-        return item.getCreators().stream()
-                .filter(c -> c.getName() != null && c.getRole() != null && c.getRole().toLowerCase().contains("author"))
-                .map(OverDriveApiResponse.Item.Creator::getName)
-                .findFirst()
-                .orElseGet(() -> item.getCreators().getFirst().getName());
-      }
-
-      private String extractCoverUrl(OverDriveApiResponse.Item item) {
-        OverDriveApiResponse.Item.Covers covers = item.getCovers();
-        if (covers == null) {
-            return null;
-        }
-        for (OverDriveApiResponse.Item.Covers.Cover cover :
-                Arrays.asList(covers.getCover510Wide(), covers.getCover300Wide(), covers.getCover150Wide())) {
-            if (cover != null && cover.getHref() != null && !cover.getHref().isBlank()) {
-                return cover.getHref();
-            }
-        }
-        return null;
-      }
-
-      private String extractIsbn(OverDriveApiResponse.Item item) {
-        if (item.getFormats() == null) {
-            return null;
-        }
-        return item.getFormats().stream()
-                .map(OverDriveApiResponse.Item.Format::getIsbn)
-                .filter(isbn -> isbn != null && !isbn.isBlank())
-                .findFirst()
-                .orElse(null);
       }
 
       /**
