@@ -42,6 +42,17 @@
     margin-top: 0.35rem;
    }
 
+   .linked-card-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+
+    .linked-card-name { overflow-wrap: anywhere; }
+    .linked-card-actions { display: flex; gap: 0.25rem; flex-shrink: 0; }
+   }
+
    .link-card-section {
     margin-top: 1rem;
     padding-top: 1rem;

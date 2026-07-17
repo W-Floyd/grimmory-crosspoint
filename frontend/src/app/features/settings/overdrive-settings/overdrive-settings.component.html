@@ -100,9 +100,17 @@
        </div>
 
        <p-card header="Linked Cards" *ngIf="linkedCards().length > 0">
-        <ul class="m-0">
-          <li *ngFor="let card of linkedCards()">{{ cardLabel(card) }}</li>
-        </ul>
+        <div class="linked-card-row" *ngFor="let card of linkedCards()">
+          <span class="linked-card-name">{{ cardLabel(card) }}</span>
+          <span class="linked-card-actions">
+            <p-button label="Refresh" icon="pi pi-refresh" severity="secondary" size="small" [text]="true"
+              *ngIf="card.credentialsStored" pTooltip="Re-link from stored card + PIN to get a fresh token"
+              (onClick)="onRefreshCard(card)" />
+            <p-button label="Unlink" icon="pi pi-times" severity="danger" size="small" [text]="true"
+              pTooltip="Clear this card's stored token/credentials" (onClick)="onUnlinkCard(card)" />
+          </span>
+        </div>
+        <small class="hint">Unlink to clear an expired/blocked token, then re-link. Refresh (card+PIN links only) re-links from the stored credentials without re-entering the PIN.</small>
        </p-card>
      </div>
 

@@ -7,6 +7,9 @@ import { Observable } from 'rxjs';
 export interface OverDriveCard {
   cardId: string;
   name?: string | null;
+  libraryKey?: string | null;
+  /** True only for card+PIN links with a credential key set — those can be refreshed/re-linked. */
+  credentialsStored?: boolean;
 }
 
 export interface OverDriveLoan {
@@ -138,9 +141,14 @@ export class OverDriveService {
     return this.http.get<OverDriveCard[]>(`${this.baseUrl}/cards`);
   }
 
-  /** Unlink a card. */
+  /** Unlink a card (clear its stored token/credentials). */
   removeCard(cardId: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/token`, { params: { identity: cardId } });
+  }
+
+  /** Refresh a card+PIN card's token by re-linking from its stored credentials. */
+  refreshCard(cardId: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${cardId}/refresh`, null);
   }
 
   /** Report which OverDrive features are available (e.g. whether an ACSM handler is configured). */

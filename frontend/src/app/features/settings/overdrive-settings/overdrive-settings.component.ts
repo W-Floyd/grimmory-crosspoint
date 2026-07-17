@@ -9,6 +9,7 @@ import { MessageService } from 'primeng/api';
 import { CommonModule } from '@angular/common';
 import { OverDriveService, OverDriveCard, OverDriveLibraryResolution } from '../../../core/services/overdrive.service';
 import { ButtonModule } from 'primeng/button';
+import { TooltipModule } from 'primeng/tooltip';
 
 @Component({
   selector: 'app-overdrive-settings',
@@ -19,7 +20,8 @@ import { ButtonModule } from 'primeng/button';
     InputTextModule,
     MessageModule,
     CardModule,
-    ButtonModule
+    ButtonModule,
+    TooltipModule
   ],
   templateUrl: './overdrive-settings.component.html',
   styleUrl: './overdrive-settings.component.scss',
@@ -78,6 +80,25 @@ export class OverdriveSettingsComponent {
 
   cardLabel(card: OverDriveCard): string {
     return card.name ? `${card.name} (${card.cardId})` : card.cardId;
+  }
+
+  /** Unlink a card (clear its stored token/credentials). */
+  onUnlinkCard(card: OverDriveCard): void {
+    this.overdriveService.removeCard(card.cardId).subscribe({
+      next: () => {
+        this.linkedCards.update(cards => cards.filter(c => c.cardId !== card.cardId));
+        this.messageService.add({ severity: 'success', summary: 'Unlinked', detail: `Removed ${this.cardLabel(card)}` });
+      },
+      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Unlink failed')
+    });
+  }
+
+  /** Refresh a card+PIN card's token by re-linking from its stored credentials. */
+  onRefreshCard(card: OverDriveCard): void {
+    this.overdriveService.refreshCard(card.cardId).subscribe({
+      next: () => this.messageService.add({ severity: 'success', summary: 'Refreshed', detail: `Re-linked ${this.cardLabel(card)}` }),
+      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Refresh failed')
+    });
   }
 
   /** Update the key and clear any stale validation result so the UI doesn't show a mismatched name. */
