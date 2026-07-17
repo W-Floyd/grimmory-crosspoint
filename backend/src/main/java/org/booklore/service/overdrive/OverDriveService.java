@@ -1239,7 +1239,13 @@ public class OverDriveService {
         }
 
         BookFileType fileType = bookFileType(chosenFormat);
-        BookMetadata metadata = buildImportMetadata(title, author, coverUrl, isbn);
+        // Pull the full OverDrive catalog metadata for this title so the import can overlay every field
+        // (description, publisher, series, subjects, language, …), not just the handful the borrow request
+        // carried. Fall back to the request-supplied fields if the lookup fails.
+        BookMetadata metadata = overDriveParser.fetchTitleMetadata(titleId);
+        if (metadata == null) {
+            metadata = buildImportMetadata(title, author, coverUrl, isbn);
+        }
         Book book = overDriveImportService.importBook(
                 content, buildFileName(title, loanId, fileExtension(chosenFormat)), libraryId, pathId, metadata, fileType);
 

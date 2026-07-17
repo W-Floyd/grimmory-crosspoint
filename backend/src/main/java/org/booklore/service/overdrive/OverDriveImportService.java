@@ -132,9 +132,10 @@ public class OverDriveImportService {
     }
 
     /**
-     * Layer the OverDrive catalog metadata over the EPUB-extracted metadata: {@code REPLACE_WHEN_PROVIDED}
-     * lets the OverDrive title/author/ISBN win, but {@code updateThumbnail=false} means the <b>cover is
-     * never replaced</b> — the EPUB's embedded cover always wins.
+     * Layer the full OverDrive catalog metadata over the EPUB-extracted metadata: {@code REPLACE_WHEN_PROVIDED}
+     * lets every field OverDrive supplies win, while a field OverDrive omits keeps its EPUB value (never
+     * wiped). {@code updateThumbnail=false} means the <b>cover is never replaced</b> — the EPUB's embedded
+     * cover always wins.
      */
     private void applyOverDriveMetadata(Book book, BookMetadata metadata) {
         if (metadata == null) {
@@ -144,6 +145,16 @@ public class OverDriveImportService {
         if (bookEntity == null) {
             return;
         }
+        // Diagnostic: shows whether the OverDrive overlay actually differs from the EPUB-extracted
+        // metadata, and whether the target fields are locked (locked fields are skipped by the updater).
+        var existing = bookEntity.getMetadata();
+        log.info("OverDrive metadata overlay for book id={}: title '{}' -> '{}' (locked={}), author -> {} (locked={}), isbn13 '{}' -> '{}', cover preserved",
+                book.getId(),
+                existing != null ? existing.getTitle() : null, metadata.getTitle(),
+                existing != null ? existing.getTitleLocked() : null,
+                metadata.getAuthors(),
+                existing != null ? existing.getAuthorsLocked() : null,
+                existing != null ? existing.getIsbn13() : null, metadata.getIsbn13());
         MetadataUpdateContext context = MetadataUpdateContext.builder()
                 .bookEntity(bookEntity)
                 .metadataUpdateWrapper(MetadataUpdateWrapper.builder()

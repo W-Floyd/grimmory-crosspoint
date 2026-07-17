@@ -44,6 +44,8 @@ import java.util.regex.Pattern;
 public class OverDriveParser implements BookParser {
 
     private static final String THUNDER_BASE_URL = "https://thunder.api.overdrive.com/v2/libraries";
+    /** Library-agnostic single-title endpoint: .../v2/media/{titleId} returns one media object. */
+    private static final String THUNDER_MEDIA_URL = "https://thunder.api.overdrive.com/v2/media";
     /** Libby's public, library-agnostic share link for a title id (e.g. .../title/618973). */
     private static final String LIBBY_TITLE_URL = "https://share.libbyapp.com/title/";
     private static final int MAX_RESULTS = 20;
@@ -212,6 +214,45 @@ public class OverDriveParser implements BookParser {
             return websiteId != null && !websiteId.asString().isBlank() ? websiteId.asString() : null;
         } catch (IOException e) {
             log.warn("OverDrive: failed to resolve websiteId for {}: {}", libraryKey, e.getMessage());
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
+    /**
+     * Fetch the full OverDrive catalog metadata for a single title by its id, via the library-agnostic
+     * {@code /v2/media/{titleId}} endpoint (no library key or auth required). Returns the complete
+     * {@link BookMetadata} (title, subtitle, authors, description, publisher, series, subjects, …) so an
+     * import can overlay every field, or null on any failure.
+     */
+    public BookMetadata fetchTitleMetadata(String titleId) {
+        if (titleId == null || titleId.isBlank()) {
+            return null;
+        }
+        try {
+            waitForRateLimit();
+            URI uri = UriComponentsBuilder.fromUriString(THUNDER_MEDIA_URL)
+                    .pathSegment(titleId)
+                    .build()
+                    .encode()
+                    .toUri();
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(uri)
+                    .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.warn("OverDrive: media-by-id fetch for {} returned status {}", titleId, response.statusCode());
+                return null;
+            }
+            OverDriveApiResponse.Item item = objectMapper.readValue(response.body(), OverDriveApiResponse.Item.class);
+            return item != null ? toMetadata(item) : null;
+        } catch (IOException e) {
+            log.warn("OverDrive: failed to fetch media metadata for {}: {}", titleId, e.getMessage());
             return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
