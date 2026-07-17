@@ -1,8 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { OverDriveService, OverDriveCard, OverDriveCatalogItem, OverDriveHold, OverDriveLibrary, OverDriveLoan, OverDriveSyncResult } from '../../core/services/overdrive.service';
+import { OverDriveService, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLoan, OverDriveSyncResult } from '../../core/services/overdrive.service';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { MessageModule } from 'primeng/message';
@@ -16,13 +15,14 @@ import { TooltipModule } from 'primeng/tooltip';
 import { InputTextModule } from 'primeng/inputtext';
 import { LibraryService } from '../../features/book/service/library.service';
 import { Library, LibraryPath } from '../../features/book/model/library.model';
+import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
 
 @Component({
   selector: 'app-overdrive-catalog',
   standalone: true,
   imports: [
     CommonModule,
-    RouterLink,
+    OverdriveTitleCellComponent,
     FormsModule,
     ButtonModule,
     MessageModule,
@@ -335,11 +335,6 @@ export class OverdriveCatalogComponent {
      return item.subtitle ? `${item.title}: ${item.subtitle}` : item.title;
      }
 
-   /** Router link to an existing library book's detail page (guarded by an in-library check in the template). */
-   bookRoute(bookId: number | null | undefined): (string | number | null | undefined)[] {
-     return ['/book', bookId];
-     }
-
    /** True when a search result already matches a book in the library (by ISBN). */
    isInLibrary(item: OverDriveCatalogItem): boolean {
      return item.bookId != null;
@@ -397,24 +392,12 @@ export class OverdriveCatalogComponent {
      this.selectedFormats.update((m) => ({ ...m, [titleId]: formatId }));
      }
 
-   /** Cover thumbnail URL for a loan (server derives it from the sync covers). */
-   loanCoverUrl(loan: OverDriveLoan): string | null {
-     return loan.coverUrl ?? null;
-     }
-
-   /** Best author label for a loan (sync provides firstCreatorName, not a creators array). */
-   loanAuthor(loan: OverDriveLoan): string {
-     return loan.firstCreatorName ?? loan.creators?.[0]?.name ?? '';
-     }
-
-   /** Cover thumbnail URL for a hold (server derives it from the sync covers). */
-   holdCoverUrl(hold: OverDriveHold): string | null {
-     return hold.coverUrl ?? null;
-     }
-
-   /** Best author label for a hold (sync provides firstCreatorName, not a creators array). */
-   holdAuthor(hold: OverDriveHold): string {
-     return hold.firstCreatorName ?? hold.creators?.[0]?.name ?? '';
+   /**
+    * Best author label for a loan or hold: sync provides a flat firstCreatorName rather than a
+    * creators array, so prefer that and fall back to the first creator name.
+    */
+   creatorName(item: { firstCreatorName?: string; creators?: OverDriveCreator[] }): string {
+     return item.firstCreatorName ?? item.creators?.[0]?.name ?? '';
      }
 
    /**
@@ -450,8 +433,8 @@ export class OverdriveCatalogComponent {
        libraryId: library.id,
        pathId: path.id,
        title: loan.title,
-       author: this.loanAuthor(loan) || undefined,
-       coverUrl: this.loanCoverUrl(loan) || undefined,
+       author: this.creatorName(loan) || undefined,
+       coverUrl: loan.coverUrl || undefined,
        formatId: loan.formatId
      }).subscribe({
        next: (book) => {

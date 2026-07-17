@@ -139,14 +139,10 @@
              <img *ngIf="item.coverUrl" [src]="item.coverUrl" alt="cover" class="result-cover" />
            </td>
            <td>
-             <div class="result-title">
-               <span>{{ item.title }}</span>
-               <small *ngIf="item.subtitle" class="subtitle">{{ item.subtitle }}</small>
-               <a *ngIf="isInLibrary(item)" class="in-library-link" [routerLink]="bookRoute(item.bookId)"
-                  pTooltip="Open this book in your library" tooltipPosition="top">
-                 <i class="pi pi-check-circle"></i> In your library
-               </a>
-             </div>
+             <app-overdrive-title-cell
+               [title]="item.title"
+               [subtitle]="item.subtitle"
+               [bookId]="item.bookId" />
            </td>
            <td>{{ item.author }}</td>
            <td>
@@ -244,6 +240,7 @@
        currentPageReportTemplate="Showing {first} to {last} of {totalRecords} loans">
        <ng-template pTemplate="header">
          <tr>
+           <th>Cover</th>
            <th>Title</th>
            <th>Author</th>
            <th>Expires</th>
@@ -253,19 +250,15 @@
        <ng-template pTemplate="body" let-loan>
          <tr>
            <td>
-             <div class="loan-title">
-               <img *ngIf="loanCoverUrl(loan)" [src]="loanCoverUrl(loan)" alt="cover" class="result-cover" />
-               <div class="loan-title-text">
-                 <span>{{ loan.title }}</span>
-                 <small *ngIf="loan.subtitle" class="subtitle">{{ loan.subtitle }}</small>
-                 <a *ngIf="loan.bookId" class="in-library-link" [routerLink]="bookRoute(loan.bookId)"
-                    pTooltip="Open this book in your library" tooltipPosition="top">
-                   <i class="pi pi-check-circle"></i> In your library
-                 </a>
-               </div>
-             </div>
+             <img *ngIf="loan.coverUrl" [src]="loan.coverUrl" alt="cover" class="result-cover" />
            </td>
-           <td>{{ loanAuthor(loan) }}</td>
+           <td>
+             <app-overdrive-title-cell
+               [title]="loan.title"
+               [subtitle]="loan.subtitle"
+               [bookId]="loan.bookId" />
+           </td>
+           <td>{{ creatorName(loan) }}</td>
            <td>{{ formatDate(loan.expireDate) }}</td>
            <td>
              <p-button icon="pi pi-file-import"
@@ -298,6 +291,7 @@
        currentPageReportTemplate="Showing {first} to {last} of {totalRecords} holds">
        <ng-template pTemplate="header">
          <tr>
+           <th>Cover</th>
            <th>Title</th>
            <th>Author</th>
            <th>Est. Wait</th>
@@ -307,15 +301,14 @@
        <ng-template pTemplate="body" let-hold>
          <tr>
            <td>
-             <div class="loan-title">
-               <img *ngIf="holdCoverUrl(hold)" [src]="holdCoverUrl(hold)" alt="cover" class="result-cover" />
-               <div class="loan-title-text">
-                 <span>{{ hold.title }}</span>
-                 <small *ngIf="hold.subtitle" class="subtitle">{{ hold.subtitle }}</small>
-               </div>
-             </div>
+             <img *ngIf="hold.coverUrl" [src]="hold.coverUrl" alt="cover" class="result-cover" />
            </td>
-           <td>{{ holdAuthor(hold) }}</td>
+           <td>
+             <app-overdrive-title-cell
+               [title]="hold.title"
+               [subtitle]="hold.subtitle" />
+           </td>
+           <td>{{ creatorName(hold) }}</td>
            <td>{{ hold.estimatedWaitDays }} days</td>
            <td>
              <p-button icon="pi pi-times" severity="danger"

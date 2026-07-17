@@ -1,0 +1,29 @@
+.od-title-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.od-subtitle {
+  color: var(--text-color-secondary);
+  font-size: 0.85rem;
+}
+
+.od-in-library {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  width: fit-content;
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  color: var(--primary-color);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  .pi {
+    font-size: 0.8rem;
+  }
+}
