@@ -56,6 +56,49 @@
        class="mt-2"
       />
 
+       <div class="link-card-section">
+         <label>Or link a card by number + PIN</label>
+         <small>Links a card the same way a signed-in browser does (a <strong>primary</strong> chip). Recommended if setup-code downloads of Adobe-DRM titles fail. Uses the library key above.</small>
+         <small *ngIf="!credentialStorageEnabled()" class="cred-note">Set <code>OVERDRIVE_CREDENTIAL_KEY</code> to store the card + PIN (encrypted) and auto-relink when the token expires. Without it, re-link manually on expiry.</small>
+         <div class="link-card-row">
+           <input
+             pInputText
+             type="text"
+             [ngModel]="cardNumber()"
+             (ngModelChange)="cardNumber.set($event)"
+             [ngModelOptions]="{ standalone: true }"
+             placeholder="Library card number"
+           />
+           <input
+             pInputText
+             type="password"
+             [ngModel]="pin()"
+             (ngModelChange)="pin.set($event)"
+             [ngModelOptions]="{ standalone: true }"
+             placeholder="PIN (if required)"
+             autocomplete="off"
+           />
+           <p-button label="Link card" [loading]="linkingCard()" (onClick)="onLinkCard()" severity="help" />
+         </div>
+       </div>
+
+       <div class="link-card-section">
+         <label>Or paste a Libby identity token</label>
+         <small>From a signed-in browser at libbyapp.com: DevTools → Application → Local Storage → key ending <code>sentry.identity</code> (or copy the <code>Authorization: Bearer</code> value from any request). This is a primary token that can download Adobe-DRM titles; it expires, so re-paste when needed.</small>
+         <div class="link-card-row">
+           <input
+             pInputText
+             type="text"
+             [ngModel]="identityToken()"
+             (ngModelChange)="identityToken.set($event)"
+             [ngModelOptions]="{ standalone: true }"
+             placeholder="eyJhbGciOi..."
+             autocomplete="off"
+           />
+           <p-button label="Link token" [loading]="linkingToken()" (onClick)="onLinkToken()" severity="help" />
+         </div>
+       </div>
+
        <p-card header="Linked Cards" *ngIf="linkedCards().length > 0">
         <ul class="m-0">
           <li *ngFor="let card of linkedCards()">{{ cardLabel(card) }}</li>

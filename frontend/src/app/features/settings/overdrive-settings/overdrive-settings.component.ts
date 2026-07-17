@@ -36,6 +36,18 @@ export class OverdriveSettingsComponent {
   linkedCards = signal<OverDriveCard[]>([]);
   setupError = signal<string | null>(null);
 
+  // Link by card number + PIN (produces a fulfillment-capable primary card).
+  cardNumber = signal('');
+  pin = signal('');
+  linkingCard = signal(false);
+
+  // Link by pasting a Libby identity token from a signed-in browser.
+  identityToken = signal('');
+  linkingToken = signal(false);
+
+  // Whether OVERDRIVE_CREDENTIAL_KEY is set (enables encrypted credential storage + auto-relink).
+  credentialStorageEnabled = signal(false);
+
   // Library-key validation against the Thunder directory.
   resolving = signal(false);
   resolution = signal<OverDriveLibraryResolution | null>(null);
@@ -57,6 +69,10 @@ export class OverdriveSettingsComponent {
     this.overdriveService.cards().subscribe({
       next: (cards) => this.linkedCards.set(cards ?? []),
       error: () => this.linkedCards.set([])
+    });
+    this.overdriveService.capabilities().subscribe({
+      next: (c) => this.credentialStorageEnabled.set(!!c?.credentialStorageEnabled),
+      error: () => this.credentialStorageEnabled.set(false)
     });
   }
 
@@ -116,6 +132,60 @@ export class OverdriveSettingsComponent {
       complete: () => {
         this.connecting.set(false);
       }
+    });
+  }
+
+  /** Link a card by number + PIN using the configured library key. */
+  onLinkCard(): void {
+    const key = this.libraryKey().trim();
+    const card = this.cardNumber().trim();
+    if (!key) {
+      this.setupError.set('Set and save the library key first');
+      return;
+    }
+    if (!card) {
+      this.setupError.set('Card number is required');
+      return;
+    }
+    this.linkingCard.set(true);
+    this.setupError.set(null);
+    this.overdriveService.linkCard(key, card, this.pin().trim()).subscribe({
+      next: (cards) => {
+        this.linkedCards.set(cards ?? []);
+        this.messageService.add({
+          severity: 'success',
+          summary: 'Card linked',
+          detail: `Linked ${cards.length} card(s) by number`
+        });
+        this.cardNumber.set('');
+        this.pin.set('');
+      },
+      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Card link failed'),
+      complete: () => this.linkingCard.set(false)
+    });
+  }
+
+  /** Link by pasting a Libby identity token from a signed-in browser. */
+  onLinkToken(): void {
+    const token = this.identityToken().trim();
+    if (!token) {
+      this.setupError.set('Paste your Libby identity token first');
+      return;
+    }
+    this.linkingToken.set(true);
+    this.setupError.set(null);
+    this.overdriveService.linkToken(token).subscribe({
+      next: (cards) => {
+        this.linkedCards.set(cards ?? []);
+        this.messageService.add({
+          severity: 'success',
+          summary: 'Token linked',
+          detail: `Linked ${cards.length} card(s) from token`
+        });
+        this.identityToken.set('');
+      },
+      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Token link failed'),
+      complete: () => this.linkingToken.set(false)
     });
   }
 

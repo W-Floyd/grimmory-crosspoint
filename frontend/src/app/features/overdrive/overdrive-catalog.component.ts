@@ -56,6 +56,19 @@ export class OverdriveCatalogComponent {
   setupCode = signal('');
   connecting = signal(false);
 
+   // Link by card number + PIN (produces a fulfillment-capable primary card).
+  linkLibraryKey = signal('');
+  linkCardNumber = signal('');
+  linkPin = signal('');
+  linkingCard = signal(false);
+
+   // Link by pasting a Libby identity token from a signed-in browser.
+  identityToken = signal('');
+  linkingToken = signal(false);
+
+   // Whether OVERDRIVE_CREDENTIAL_KEY is set (enables encrypted credential storage + auto-relink).
+  credentialStorageEnabled = signal(false);
+
    // Catalog search + import
   readonly grimmoryLibraries = this.libraryService.libraries;
   searchQuery = signal('');
@@ -65,8 +78,16 @@ export class OverdriveCatalogComponent {
   selectedPath = signal<LibraryPath | null>(null);
   importingTitleId = signal<string | null>(null);
 
+   // Diagnostics: a passive, read-only state snapshot (no live calls, no inputs).
+  diagnosticsJson = signal<string | null>(null);
+  runningDiagnostics = signal(false);
+
    constructor() {
      this.loadCards();
+     this.overdriveService.capabilities().subscribe({
+       next: (c) => this.credentialStorageEnabled.set(!!c?.credentialStorageEnabled),
+       error: () => { /* leave defaults */ }
+     });
    }
 
    cardLabel(card: OverDriveCard | null): string {
@@ -126,6 +147,60 @@ export class OverdriveCatalogComponent {
          this.connecting.set(false);
          }
       });
+     }
+
+   onLinkCard(): void {
+     const key = this.linkLibraryKey().trim();
+     const card = this.linkCardNumber().trim();
+     if (!key || !card) {
+       this.error.set('Library key and card number are required');
+       return;
+       }
+     this.linkingCard.set(true);
+     this.error.set(null);
+     this.overdriveService.linkCard(key, card, this.linkPin().trim()).subscribe({
+       next: (linked) => {
+         this.messageService.add({
+           severity: 'success',
+           summary: 'Card linked',
+           detail: `Linked ${linked.length} card(s) by number`
+          });
+         this.linkCardNumber.set('');
+         this.linkPin.set('');
+         this.linkingCard.set(false);
+         this.loadCards(linked[0]?.cardId);
+         },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Card link failed'));
+         this.linkingCard.set(false);
+         }
+       });
+     }
+
+   onLinkToken(): void {
+     const token = this.identityToken().trim();
+     if (!token) {
+       this.error.set('Paste your Libby identity token first');
+       return;
+       }
+     this.linkingToken.set(true);
+     this.error.set(null);
+     this.overdriveService.linkToken(token).subscribe({
+       next: (linked) => {
+         this.messageService.add({
+           severity: 'success',
+           summary: 'Token linked',
+           detail: `Linked ${linked.length} card(s) from token`
+          });
+         this.identityToken.set('');
+         this.linkingToken.set(false);
+         this.loadCards(linked[0]?.cardId);
+         },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Token link failed'));
+         this.linkingToken.set(false);
+         }
+       });
      }
 
    onLoadLoans(): void {
@@ -317,6 +392,46 @@ export class OverdriveCatalogComponent {
          this.error.set(this.errorMessage(err, 'Fulfill failed'));
          }
       });
+     }
+
+   /** Load the passive diagnostics snapshot (read-only; no live OverDrive calls). */
+   runDiagnostics(): void {
+     this.runningDiagnostics.set(true);
+     this.diagnosticsJson.set(null);
+     this.error.set(null);
+     this.overdriveService.diagnostics().subscribe({
+       next: (report) => {
+         this.diagnosticsJson.set(JSON.stringify(report, null, 2));
+         this.runningDiagnostics.set(false);
+         },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Diagnostics failed'));
+         this.runningDiagnostics.set(false);
+         }
+       });
+     }
+
+   /** Copy the diagnostics JSON to the clipboard. */
+   copyDiagnostics(): void {
+     const json = this.diagnosticsJson();
+     if (!json) return;
+     navigator.clipboard?.writeText(json).then(
+       () => this.messageService.add({ severity: 'success', summary: 'Copied', detail: 'Diagnostics copied to clipboard' }),
+       () => this.error.set('Could not copy to clipboard')
+     );
+     }
+
+   /** Download the diagnostics JSON as a file. */
+   downloadDiagnostics(): void {
+     const json = this.diagnosticsJson();
+     if (!json) return;
+     const blob = new Blob([json], { type: 'application/json' });
+     const url = URL.createObjectURL(blob);
+     const a = document.createElement('a');
+     a.href = url;
+     a.download = 'overdrive-diagnostics.json';
+     a.click();
+     URL.revokeObjectURL(url);
      }
 
    clearError(): void {

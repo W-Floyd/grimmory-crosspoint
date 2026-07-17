@@ -29,6 +29,31 @@
 
      <small class="hint">You can add more than one setup code to link multiple accounts/cards.</small>
 
+     <div class="link-card-section">
+       <label>Or link a card by number + PIN</label>
+       <small>Links a card the same way a signed-in browser does (a <strong>primary</strong> chip). Recommended if setup-code downloads of Adobe-DRM titles fail.</small>
+       <small *ngIf="!credentialStorageEnabled()" class="cred-note">Set <code>OVERDRIVE_CREDENTIAL_KEY</code> to store the card + PIN (encrypted) and auto-relink on expiry. Without it, re-link manually when the token expires.</small>
+       <div class="link-card-row">
+         <input pInputText type="text" [ngModel]="linkLibraryKey()" (ngModelChange)="linkLibraryKey.set($event)"
+           [ngModelOptions]="{ standalone: true }" placeholder="Library key (e.g. lapl)" />
+         <input pInputText type="text" [ngModel]="linkCardNumber()" (ngModelChange)="linkCardNumber.set($event)"
+           [ngModelOptions]="{ standalone: true }" placeholder="Card number" />
+         <input pInputText type="password" [ngModel]="linkPin()" (ngModelChange)="linkPin.set($event)"
+           [ngModelOptions]="{ standalone: true }" placeholder="PIN (if required)" autocomplete="off" />
+         <p-button label="Link card" [loading]="linkingCard()" (onClick)="onLinkCard()" severity="help" />
+       </div>
+     </div>
+
+     <div class="link-card-section">
+       <label>Or paste a Libby identity token</label>
+       <small>From a signed-in browser at libbyapp.com (DevTools → Application → Local Storage → key ending <code>sentry.identity</code>, or an <code>Authorization: Bearer</code> value). Primary token — can download Adobe-DRM titles; expires, so re-paste when needed.</small>
+       <div class="link-card-row">
+         <input pInputText type="text" [ngModel]="identityToken()" (ngModelChange)="identityToken.set($event)"
+           [ngModelOptions]="{ standalone: true }" placeholder="eyJhbGciOi..." autocomplete="off" />
+         <p-button label="Link token" [loading]="linkingToken()" (onClick)="onLinkToken()" severity="help" />
+       </div>
+     </div>
+
      <p-message *ngIf="error()" severity="error">{{ error() }}</p-message>
   </p-card>
 
@@ -141,6 +166,25 @@
          </tr>
        </ng-template>
      </p-table>
+  </p-card>
+
+   <!-- Diagnostics Section -->
+  <p-card header="Diagnostics" styleClass="mb-4" *ngIf="selectedCard()">
+     <p class="subtitle">
+       A read-only snapshot of current state — config, linked cards (incl. whether each chip is a
+       primary that can download DRM titles), and recorded loans. Makes no OverDrive calls.
+     </p>
+     <div class="field diagnostics-row">
+       <p-button label="Load diagnostics" icon="pi pi-refresh" [loading]="runningDiagnostics()" (onClick)="runDiagnostics()" />
+     </div>
+
+     <div *ngIf="diagnosticsJson() as json" class="diagnostics-output">
+       <div class="diagnostics-actions">
+         <p-button label="Copy" icon="pi pi-copy" severity="secondary" size="small" (onClick)="copyDiagnostics()" />
+         <p-button label="Download JSON" icon="pi pi-download" severity="secondary" size="small" (onClick)="downloadDiagnostics()" />
+       </div>
+       <pre class="diagnostics-json">{{ json }}</pre>
+     </div>
   </p-card>
 
    <!-- Loans Section -->

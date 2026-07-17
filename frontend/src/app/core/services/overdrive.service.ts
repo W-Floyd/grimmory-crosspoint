@@ -53,6 +53,8 @@ export interface OverDriveFulfillResult {
 
 export interface OverDriveCapabilities {
   acsmHandlerConfigured: boolean;
+  /** Whether a credential key is configured, enabling encrypted card storage + auto-relink. */
+  credentialStorageEnabled: boolean;
 }
 
 /** Result of validating/resolving an OverDrive library key against the Thunder directory. */
@@ -115,6 +117,22 @@ export class OverDriveService {
     return this.http.post<OverDriveCard[]>(`${this.baseUrl}/setup-code`, { code });
   }
 
+  /**
+   * Link a library card by number + PIN. Produces a fulfillment-capable (primary) card, unlike a
+   * setup code (browse-only). Returns the linked cards.
+   */
+  linkCard(libraryKey: string, cardNumber: string, pin: string): Observable<OverDriveCard[]> {
+    return this.http.post<OverDriveCard[]>(`${this.baseUrl}/link-card`, { libraryKey, cardNumber, pin });
+  }
+
+  /**
+   * Link by pasting a Libby identity token from a signed-in browser (primary chip → can download
+   * Adobe-DRM titles). Returns the linked cards.
+   */
+  linkToken(token: string): Observable<OverDriveCard[]> {
+    return this.http.post<OverDriveCard[]>(`${this.baseUrl}/link-token`, { token });
+  }
+
   /** The current user's linked library cards. */
   cards(): Observable<OverDriveCard[]> {
     return this.http.get<OverDriveCard[]>(`${this.baseUrl}/cards`);
@@ -135,6 +153,14 @@ export class OverDriveService {
     return this.http.get<OverDriveLibraryResolution>(`${this.baseUrl}/resolve-library`, {
       params: { key }
     });
+  }
+
+  /**
+   * Fetch a passive, read-only diagnostics snapshot (config, linked cards, recorded loans). Makes no
+   * live OverDrive calls and takes no input.
+   */
+  diagnostics(): Observable<Record<string, unknown>> {
+    return this.http.get<Record<string, unknown>>(`${this.baseUrl}/diagnostics`);
   }
 
   // Catalog

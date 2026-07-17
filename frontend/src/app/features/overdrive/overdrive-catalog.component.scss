@@ -67,6 +67,74 @@
     color: var(--text-color-secondary);
   }
 
+  .cred-note {
+    color: var(--orange-600, #ea580c);
+    margin-top: 0.35rem;
+  }
+
+  .acsm-upload-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+
+    input[type="text"] { flex: 1 1 200px; }
+  }
+
+  .link-card-section {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--surface-border, #ddd);
+
+    label { display: block; font-weight: 500; margin-bottom: 0.25rem; }
+    small { display: block; color: var(--text-color-secondary); margin-bottom: 0.5rem; }
+
+    .link-card-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+
+      input { flex: 1 1 160px; }
+    }
+  }
+
+  .diagnostics-warning {
+    color: var(--orange-600, #ea580c);
+  }
+
+  .diagnostics-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+
+    input {
+      flex: 1 1 auto;
+    }
+  }
+
+  .diagnostics-output {
+    margin-top: 1rem;
+
+    .diagnostics-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .diagnostics-json {
+      max-height: 420px;
+      overflow: auto;
+      padding: 0.75rem;
+      border-radius: 6px;
+      background: var(--surface-100, #f1f1f1);
+      border: 1px solid var(--surface-border, #ddd);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.8rem;
+      white-space: pre;
+    }
+  }
+
   .field {
     label {
       display: block;

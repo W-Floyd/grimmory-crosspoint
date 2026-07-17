@@ -1,4 +1,5 @@
-import {ChangeDetectorRef, Component, inject, ViewChild, effect, signal} from '@angular/core';
+import {ChangeDetectorRef, Component, inject, ViewChild, effect, signal, computed} from '@angular/core';
+import {OverDriveService} from '../../../core/services/overdrive.service';
 import {FileSelectEvent, FileUpload, FileUploadHandlerEvent} from 'primeng/fileupload';
 import {Button} from 'primeng/button';
 import {FormsModule} from '@angular/forms';
@@ -59,6 +60,13 @@ export class BookUploaderComponent {
   private readonly ref = inject(DynamicDialogRef);
   private readonly t = inject(TranslocoService);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly overdriveService = inject(OverDriveService);
+
+  // Allow uploading .acsm files only when an external ACSM handler is configured (they're converted
+  // to a book on the server). The file picker's accept list adjusts accordingly.
+  acsmSupported = signal(false);
+  private readonly baseAccept = '.pdf,.epub,.cbz,.cbr,.cb7,.fb2,.mobi,.azw,.azw3,.m4b,.m4a,.mp3,.opus';
+  acceptTypes = computed(() => this.acsmSupported() ? `${this.baseAccept},.acsm` : this.baseAccept);
 
   readonly libraries = this.libraryService.libraries;
   maxFileSizeBytes?: number;
@@ -84,6 +92,13 @@ export class BookUploaderComponent {
     this.maxFileSizeBytes = maxSizeMb * 1024 * 1024;
     this.maxFileSizeDisplay = `${maxSizeMb} MB`;
   });
+
+  constructor() {
+    this.overdriveService.capabilities().subscribe({
+      next: (c) => this.acsmSupported.set(!!c?.acsmHandlerConfigured),
+      error: () => this.acsmSupported.set(false)
+    });
+  }
 
   get selectedLibrary(): Library | null {
     return this._selectedLibrary;
