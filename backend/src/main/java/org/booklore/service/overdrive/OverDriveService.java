@@ -416,6 +416,19 @@ public class OverDriveService {
        * updating the stored row. Returns the new token, or null when no usable credentials are stored
        * (no credential key configured, or card linked via setup code). Never throws.
        */
+      /**
+       * Refresh a card's stored token by re-linking from its stored credentials (card+PIN). Throws a
+       * clear error when the card has no usable stored credentials (setup-code / pasted-token links, or
+       * no credential key configured) — those should be cleared and re-linked instead.
+       */
+      public void refreshCard(String identity) {
+        if (relinkCard(identity) == null) {
+            throw new RestClientException("Couldn't refresh this card — it has no stored card+PIN "
+                    + "credentials (set OVERDRIVE_CREDENTIAL_KEY and link by card + PIN), or re-linking "
+                    + "failed. Unlink it and link again.");
+        }
+      }
+
       private String relinkCard(String cardId) {
         if (!credentialCipher.isEnabled()) {
             return null;
@@ -461,7 +474,7 @@ public class OverDriveService {
                         // Prefer the authoritative library name from Thunder; fall back to the sync payload.
                         String resolved = libraryKey != null ? overDriveParser.fetchLibraryName(libraryKey) : null;
                         String name = resolved != null ? resolved : cardDisplayName(card);
-                        cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey));
+                        cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey, false));
                     }
                 }
             }
@@ -1013,10 +1026,16 @@ public class OverDriveService {
             String id = firstMatch(CHIP_ID_PATTERN, payload);
             String pri = firstMatch(java.util.regex.Pattern.compile("\"pri\"\\s*:\\s*\"([^\"]+)\""), payload);
             String ag = firstMatch(java.util.regex.Pattern.compile("\"ag\"\\s*:\\s*(null|\\d+)"), payload);
+            String prbn = firstMatch(java.util.regex.Pattern.compile("\"prbn\"\\s*:\\s*\"([^\"]+)\""), payload);
             m.put("chipId", id);
-            m.put("primary", id != null && id.equals(pri)); // pri==id => primary => can fulfill Adobe DRM
+            m.put("primary", id != null && id.equals(pri));
             m.put("accountGroup", "null".equals(ag) ? null : ag);
             m.put("hasCards", payload.matches("(?s).*\"cards\"\\s*:\\s*\\[\\[.*"));
+            // prbn is the chip provenance: "i" = identity-only (browse/borrow; can hand back an ebook
+            // ACSM but NOT fulfill audiobooks), "v" = bona-fide (mints via the real Libby web app;
+            // fully fulfillment-capable). See docs/OverDrive-Testing.md.
+            m.put("prbn", prbn);
+            m.put("fulfillmentCapable", "v".equals(prbn));
         } catch (Exception e) {
             m.put("error", e.getMessage());
         }
@@ -1315,7 +1334,7 @@ public class OverDriveService {
       /** The current user's linked cards (id + display name + library key). */
       public List<OverDriveCard> listCards() {
         return tokenRepository.findByUserId(currentUserId()).stream()
-                .map(t -> new OverDriveCard(t.getIdentity(), t.getCardName(), t.getLibraryKey()))
+                .map(t -> new OverDriveCard(t.getIdentity(), t.getCardName(), t.getLibraryKey(), t.getCredCard() != null))
                 .toList();
       }
 

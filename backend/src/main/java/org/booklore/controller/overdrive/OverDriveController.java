@@ -452,6 +452,31 @@ public class OverDriveController {
         return ResponseEntity.ok().build();
     }
 
+    /**
+     * POST /api/overdrive/{identity}/refresh — re-link a card from its stored (encrypted) card+PIN
+     * credentials to mint a fresh token. Only works for card+PIN links with a credential key set.
+     */
+    @Operation(summary = "Refresh a card's token",
+               description = "Re-links a card from its stored encrypted card+PIN credentials to obtain a fresh token (for expired/blocked tokens). Fails if the card has no stored credentials.")
+    @ApiResponse(responseCode = "200", description = "Card refreshed")
+    @ApiResponse(responseCode = "400", description = "No stored credentials, or re-link failed")
+    @PostMapping("/{identity}/refresh")
+    public ResponseEntity<Void> refreshCard(
+            @Parameter(description = "Library card id") @PathVariable String identity
+    ) {
+        requireEnabled();
+        try {
+            overDriveService.refreshCard(identity);
+            return ResponseEntity.ok().build();
+        } catch (APIException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("OverDrive card refresh failed: {}", e.getMessage());
+            throw ApiError.GENERIC_BAD_REQUEST.createException(
+                    e.getMessage() != null ? e.getMessage() : "OverDrive card refresh failed");
+        }
+    }
+
     @Operation(summary = "List stored token identities",
                description = "List all library identities that have stored tokens.")
     @ApiResponse(responseCode = "200", description = "Identities listed successfully")
