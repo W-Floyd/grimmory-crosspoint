@@ -319,6 +319,7 @@ export class OverdriveCatalogComponent {
            summary: 'Imported',
            detail: `"${this.fullTitle(item)}" borrowed and imported (book #${book.id})`
           });
+         this.markResultImported(item.titleId, book.id);
          this.importingTitleId.set(null);
          this.onLoadLoans();
          },
@@ -355,6 +356,19 @@ export class OverdriveCatalogComponent {
    /** Allow re-borrowing a title that is already in the library. */
    allowReborrow(item: OverDriveCatalogItem): void {
      this.reborrowOverrides.update((s) => new Set(s).add(item.titleId));
+     }
+
+   /**
+    * Reflect a just-completed import in the search results without re-querying OverDrive: link the
+    * matching result to the new book and clear any re-borrow override so it shows the in-library state.
+    */
+   private markResultImported(titleId: string, bookId: number): void {
+     this.results.update((items) => items.map((r) => (r.titleId === titleId ? { ...r, bookId } : r)));
+     this.reborrowOverrides.update((s) => {
+       const next = new Set(s);
+       next.delete(titleId);
+       return next;
+       });
      }
 
    /** Human-friendly label for an OverDrive format id. */
