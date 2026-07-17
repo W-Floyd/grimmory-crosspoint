@@ -1,10 +1,10 @@
 .overdrive-container {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 1.5rem;
-
-  // The shell (.layout-main) is height:100dvh; overflow:hidden — each page scrolls itself.
+  // Full-width scroller so the page scrolls from anywhere and content fills the width,
+  // matching the app's other list pages. The shell (.layout-main) is height:100dvh;
+  // overflow:hidden — each page scrolls itself.
+  width: 100%;
   height: 100%;
+  padding: 1.5rem;
   overflow-y: auto;
   box-sizing: border-box;
 
