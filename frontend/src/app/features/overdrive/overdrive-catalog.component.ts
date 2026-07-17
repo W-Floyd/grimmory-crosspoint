@@ -277,6 +277,12 @@ export class OverdriveCatalogComponent {
        + ' Borrowing won\'t import it here, but it still places the loan on your Libby account for use in the Libby app.';
      }
 
+   /** Warning shown on the hold button for a title with no importable format. */
+   unsupportedHoldTooltip(): string {
+     return this.unsupportedFormatTooltip()
+       + ' Placing a hold won\'t let you import it here, but it still holds the title on your Libby account for use in the Libby app.';
+     }
+
    /**
     * Whether the Borrow & Import button should be enabled: always for titles not in the library, and for
     * in-library titles only once the user has explicitly chosen to re-borrow (override).

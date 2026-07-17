@@ -166,15 +166,30 @@
                    <span *ngIf="!item.holdable && !isOnHold(item)" class="no-action">—</span>
                  </ng-container>
                </ng-container>
-               <p-button
-                 *ngIf="!hasImportableFormat(item) && item.available"
-                 label="Borrow anyway"
-                 icon="pi pi-exclamation-triangle"
-                 severity="warn"
-                 [pTooltip]="unsupportedBorrowTooltip()"
-                 [disabled]="!item.titleId || importingTitleId() !== null"
-                 [loading]="importingTitleId() === item.titleId"
-                 (onClick)="onBorrowImport(item)" />
+               <!-- No importable format: still allow the action, warning it's for Libby-app use only. -->
+               <ng-container *ngIf="!hasImportableFormat(item)">
+                 <p-button
+                   *ngIf="item.available"
+                   label="Borrow anyway"
+                   icon="pi pi-exclamation-triangle"
+                   severity="warn"
+                   [pTooltip]="unsupportedBorrowTooltip()"
+                   [disabled]="!item.titleId || importingTitleId() !== null"
+                   [loading]="importingTitleId() === item.titleId"
+                   (onClick)="onBorrowImport(item)" />
+                 <ng-container *ngIf="!item.available">
+                   <p-button
+                     *ngIf="item.holdable && !isOnHold(item)"
+                     label="Place Hold anyway"
+                     icon="pi pi-exclamation-triangle"
+                     severity="warn"
+                     [pTooltip]="unsupportedHoldTooltip()"
+                     [disabled]="!item.titleId"
+                     (onClick)="onPlaceHold(item)" />
+                   <span *ngIf="isOnHold(item)" class="no-action on-hold">On hold</span>
+                   <span *ngIf="!item.holdable && !isOnHold(item)" class="no-action">—</span>
+                 </ng-container>
+               </ng-container>
              </div>
            </td>
          </tr>
