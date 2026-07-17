@@ -356,9 +356,9 @@ export class OverdriveCatalogComponent {
      this.selectedFormats.update((m) => ({ ...m, [titleId]: formatId }));
      }
 
-   /** Best cover thumbnail URL for a loan (sync provides `covers`, not a flat coverUrl). */
+   /** Cover thumbnail URL for a loan (server derives it from the sync covers). */
    loanCoverUrl(loan: OverDriveLoan): string | null {
-     return loan.covers?.cover150Wide?.href ?? loan.covers?.cover300Wide?.href ?? null;
+     return loan.coverUrl ?? null;
      }
 
    /** Best author label for a loan (sync provides firstCreatorName, not a creators array). */

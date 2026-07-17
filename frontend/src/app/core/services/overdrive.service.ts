@@ -12,20 +12,15 @@ export interface OverDriveCard {
   credentialsStored?: boolean;
 }
 
-export interface OverDriveCover {
-  cover150Wide?: { href?: string };
-  cover300Wide?: { href?: string };
-  cover510Wide?: { href?: string };
-}
-
 export interface OverDriveLoan {
   id: string;
   title: string;
   expireDate: string;
   /** Flat primary-author name from sync (sync loans omit the `creators` array). */
   firstCreatorName?: string;
+  /** Cover thumbnail URL derived from the sync loan's covers. */
+  coverUrl?: string;
   creators?: OverDriveCreator[];
-  covers?: OverDriveCover;
   formatId?: string;
   formats?: OverDriveFormat[];
 }

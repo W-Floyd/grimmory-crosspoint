@@ -509,10 +509,25 @@ public class OverDriveController {
                 loan.getId(),
                 loan.getTitle(),
                 loan.getExpireDate(),
+                loan.getFirstCreatorName(),
+                loanCoverUrl(loan.getCovers()),
                 loan.getCreators(),
                 loan.getFormat() != null ? loan.getFormat().getId() : null,
                 loan.getFormats()
         );
+    }
+
+    /** Best cover href from a sync loan's covers (150-wide, then 300-wide), or null. */
+    private String loanCoverUrl(OverDriveCover covers) {
+        if (covers == null) {
+            return null;
+        }
+        String href = coverHref(covers.getCover150Wide());
+        return href != null ? href : coverHref(covers.getCover300Wide());
+    }
+
+    private String coverHref(OverDriveCoverDetail detail) {
+        return detail != null && detail.getHref() != null && !detail.getHref().isBlank() ? detail.getHref() : null;
     }
 
     private OverDriveHoldDto holdToDto(OverDriveHold hold) {
@@ -540,6 +555,8 @@ public class OverDriveController {
             String id,
             String title,
             String expireDate,
+            String firstCreatorName,
+            String coverUrl,
             List<OverDriveCreator> creators,
             String formatId,
             List<OverDriveFormat> formats
