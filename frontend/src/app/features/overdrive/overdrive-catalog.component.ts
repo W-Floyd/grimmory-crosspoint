@@ -436,6 +436,11 @@ export class OverdriveCatalogComponent {
        });
      }
 
+   /** Clear the loaded diagnostics snapshot. */
+   clearDiagnostics(): void {
+     this.diagnosticsJson.set(null);
+     }
+
    /** Copy the diagnostics JSON to the clipboard (falls back for non-HTTPS where the async API is unavailable). */
    copyDiagnostics(): void {
      const json = this.diagnosticsJson();

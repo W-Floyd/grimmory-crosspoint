@@ -190,6 +190,7 @@
        <div class="diagnostics-actions">
          <p-button label="Copy" icon="pi pi-copy" severity="secondary" size="small" (onClick)="copyDiagnostics()" />
          <p-button label="Download JSON" icon="pi pi-download" severity="secondary" size="small" (onClick)="downloadDiagnostics()" />
+         <p-button label="Clear" icon="pi pi-times" severity="secondary" size="small" [text]="true" (onClick)="clearDiagnostics()" />
        </div>
        <pre class="diagnostics-json">{{ json }}</pre>
      </div>
