@@ -303,7 +303,7 @@ export class OverdriveCatalogComponent {
        titleId: item.titleId,
        libraryId: library.id,
        pathId: path.id,
-       title: item.title,
+       title: this.fullTitle(item),
        author: item.author,
        coverUrl: item.coverUrl,
        isbn: item.isbn,
@@ -313,7 +313,7 @@ export class OverdriveCatalogComponent {
          this.messageService.add({
            severity: 'success',
            summary: 'Imported',
-           detail: `"${item.title}" borrowed and imported (book #${book.id})`
+           detail: `"${this.fullTitle(item)}" borrowed and imported (book #${book.id})`
           });
          this.importingTitleId.set(null);
          this.onLoadLoans();
@@ -323,6 +323,11 @@ export class OverdriveCatalogComponent {
          this.importingTitleId.set(null);
          }
        });
+     }
+
+   /** Combined title for display/import: "Series: Book" when OverDrive splits the name into a subtitle. */
+   fullTitle(item: OverDriveCatalogItem): string {
+     return item.subtitle ? `${item.title}: ${item.subtitle}` : item.title;
      }
 
    /** Human-friendly label for an OverDrive format id. */
@@ -351,6 +356,16 @@ export class OverdriveCatalogComponent {
      this.selectedFormats.update((m) => ({ ...m, [titleId]: formatId }));
      }
 
+   /** Best cover thumbnail URL for a loan (sync provides `covers`, not a flat coverUrl). */
+   loanCoverUrl(loan: OverDriveLoan): string | null {
+     return loan.covers?.cover150Wide?.href ?? loan.covers?.cover300Wide?.href ?? null;
+     }
+
+   /** Best author label for a loan (sync provides firstCreatorName, not a creators array). */
+   loanAuthor(loan: OverDriveLoan): string {
+     return loan.firstCreatorName ?? loan.creators?.[0]?.name ?? '';
+     }
+
    /**
     * Import an already-borrowed loan into grimmory server-side (borrow-and-import resumes the existing
     * loan). Needs a destination library + path chosen in the Search & Borrow section.
@@ -371,7 +386,8 @@ export class OverdriveCatalogComponent {
        libraryId: library.id,
        pathId: path.id,
        title: loan.title,
-       author: loan.creators?.[0]?.name,
+       author: this.loanAuthor(loan) || undefined,
+       coverUrl: this.loanCoverUrl(loan) || undefined,
        formatId: loan.formatId
      }).subscribe({
        next: (book) => {

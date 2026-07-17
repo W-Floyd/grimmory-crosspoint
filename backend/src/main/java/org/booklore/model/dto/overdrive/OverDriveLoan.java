@@ -15,6 +15,8 @@ public class OverDriveLoan {
     private String title;
     private String expireDate;
     private String publishDate;
+    /** Flat primary-author name from sync (the {@code creators} array isn't included in sync loans). */
+    private String firstCreatorName;
     private List<OverDriveCreator> creators;
     private OverDriveFormat format;
     private String fullDescription;

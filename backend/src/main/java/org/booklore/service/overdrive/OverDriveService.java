@@ -1290,6 +1290,7 @@ public class OverDriveService {
                 item.getId(),
                 formats.isEmpty() ? pickBorrowFormatId(item) : formats.getFirst(),
                 item.getTitle(),
+                item.getSubtitle(),
                 extractPrimaryAuthor(item),
                 extractCoverUrl(item),
                 extractIsbn(item),

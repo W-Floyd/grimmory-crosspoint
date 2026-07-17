@@ -171,3 +171,25 @@
     min-width: 12rem;
   }
 }
+
+/* Loan row: cover thumbnail beside the title. */
+.loan-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+
+  .result-cover {
+    flex: 0 0 auto;
+  }
+}
+
+/* Search result title with subtitle (OverDrive puts the book name in the subtitle). */
+.result-title {
+  display: flex;
+  flex-direction: column;
+
+  .subtitle {
+    color: var(--text-color-secondary);
+    font-size: 0.85rem;
+  }
+}

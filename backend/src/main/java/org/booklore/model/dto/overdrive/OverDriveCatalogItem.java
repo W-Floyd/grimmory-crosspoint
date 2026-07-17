@@ -18,6 +18,7 @@ public record OverDriveCatalogItem(
         String titleId,
         String formatId,
         String title,
+        String subtitle,
         String author,
         String coverUrl,
         String isbn,

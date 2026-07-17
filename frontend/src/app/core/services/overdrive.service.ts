@@ -12,11 +12,20 @@ export interface OverDriveCard {
   credentialsStored?: boolean;
 }
 
+export interface OverDriveCover {
+  cover150Wide?: { href?: string };
+  cover300Wide?: { href?: string };
+  cover510Wide?: { href?: string };
+}
+
 export interface OverDriveLoan {
   id: string;
   title: string;
   expireDate: string;
+  /** Flat primary-author name from sync (sync loans omit the `creators` array). */
+  firstCreatorName?: string;
   creators?: OverDriveCreator[];
+  covers?: OverDriveCover;
   formatId?: string;
   formats?: OverDriveFormat[];
 }
@@ -71,6 +80,8 @@ export interface OverDriveCatalogItem {
   titleId: string;
   formatId: string;
   title: string;
+  /** OverDrive often puts the real book name here (title is the series/franchise). */
+  subtitle?: string | null;
   author?: string | null;
   coverUrl?: string | null;
   isbn?: string | null;

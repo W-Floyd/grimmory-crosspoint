@@ -138,7 +138,12 @@
            <td>
              <img *ngIf="item.coverUrl" [src]="item.coverUrl" alt="cover" class="result-cover" />
            </td>
-           <td>{{ item.title }}</td>
+           <td>
+             <div class="result-title">
+               <span>{{ item.title }}</span>
+               <small *ngIf="item.subtitle" class="subtitle">{{ item.subtitle }}</small>
+             </div>
+           </td>
            <td>{{ item.author }}</td>
            <td>
              <span *ngIf="item.preRelease" class="availability pre-release">Not yet released</span>
@@ -225,8 +230,13 @@
        </ng-template>
        <ng-template pTemplate="body" let-loan>
          <tr>
-           <td>{{ loan.title }}</td>
-           <td>{{ loan.creators?.[0]?.name }}</td>
+           <td>
+             <div class="loan-title">
+               <img *ngIf="loanCoverUrl(loan)" [src]="loanCoverUrl(loan)" alt="cover" class="result-cover" />
+               <span>{{ loan.title }}</span>
+             </div>
+           </td>
+           <td>{{ loanAuthor(loan) }}</td>
            <td>{{ formatDate(loan.expireDate) }}</td>
            <td>
              <p-button icon="pi pi-file-import"
