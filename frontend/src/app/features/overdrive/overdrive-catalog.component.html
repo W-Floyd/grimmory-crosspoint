@@ -123,6 +123,8 @@
                  [disabled]="importingTitleId() !== null"
                  pTooltip="Choose which format to download & import"
                  styleClass="format-select" />
+               <span *ngIf="(item.formats?.length ?? 0) <= 1 && chosenFormat(item)" class="format-single"
+                 pTooltip="Format that will be downloaded">{{ formatLabel(chosenFormat(item)!) }}</span>
                <p-button
                  *ngIf="isInLibrary(item) && !canBorrow(item)"
                  label="Borrow anyway"

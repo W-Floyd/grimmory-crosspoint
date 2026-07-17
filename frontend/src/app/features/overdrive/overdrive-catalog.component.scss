@@ -107,4 +107,10 @@
   .format-select {
     min-width: 12rem;
   }
+
+  .format-single {
+    font-size: 0.85rem;
+    color: var(--text-color-secondary);
+    white-space: nowrap;
+  }
 }
