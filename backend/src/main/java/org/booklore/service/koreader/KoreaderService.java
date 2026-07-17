@@ -26,6 +26,8 @@ import java.util.Map;
 @AllArgsConstructor
 @Service
 public class KoreaderService {
+    private static final String DEFAULT_DEVICE_NAME = "Grimmory";
+    private static final String DEFAULT_DEVICE_ID = "Grimmory";
 
     private final UserBookProgressRepository progressRepository;
     private final UserBookFileProgressRepository fileProgressRepository;
@@ -63,8 +65,8 @@ public class KoreaderService {
                 .document(bookHash)
                 .progress(progress.getKoreaderProgress())
                 .percentage(progress.getKoreaderProgressPercent())
-                .device("BookLore")
-                .device_id("BookLore")
+                .device(DEFAULT_DEVICE_NAME)
+                .device_id(DEFAULT_DEVICE_ID)
                 .build();
     }
 
