@@ -29,5 +29,7 @@ public record OverDriveCatalogItem(
         Integer holdsCount,
         Integer estimatedWaitDays,
         boolean preRelease,
-        java.util.List<String> formats
+        java.util.List<String> formats,
+        /** Id of an existing library book this title matches (by ISBN), or null if not in the library. */
+        Long bookId
 ) {}

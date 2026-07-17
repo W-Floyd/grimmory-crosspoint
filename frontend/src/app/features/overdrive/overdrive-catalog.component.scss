@@ -181,6 +181,12 @@
   .result-cover {
     flex: 0 0 auto;
   }
+
+  .loan-title-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
 }
 
 /* Search result title with subtitle (OverDrive puts the book name in the subtitle). */
@@ -191,5 +197,25 @@
   .subtitle {
     color: var(--text-color-secondary);
     font-size: 0.85rem;
+  }
+}
+
+/* "In your library" badge/link shown when a title/loan matches an existing book (by ISBN). */
+.in-library-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  color: var(--primary-color);
+  text-decoration: none;
+  width: fit-content;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  .pi {
+    font-size: 0.8rem;
   }
 }

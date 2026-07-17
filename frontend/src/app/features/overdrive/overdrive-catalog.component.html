@@ -142,6 +142,10 @@
              <div class="result-title">
                <span>{{ item.title }}</span>
                <small *ngIf="item.subtitle" class="subtitle">{{ item.subtitle }}</small>
+               <a *ngIf="isInLibrary(item)" class="in-library-link" [routerLink]="bookRoute(item.bookId)"
+                  pTooltip="Open this book in your library" tooltipPosition="top">
+                 <i class="pi pi-check-circle"></i> In your library
+               </a>
              </div>
            </td>
            <td>{{ item.author }}</td>
@@ -170,6 +174,15 @@
                  pTooltip="Choose which format to download & import"
                  styleClass="format-select" />
                <p-button
+                 *ngIf="isInLibrary(item) && !canBorrow(item)"
+                 label="Borrow anyway"
+                 icon="pi pi-exclamation-triangle"
+                 severity="secondary"
+                 [outlined]="true"
+                 pTooltip="Already in your library — borrow and import another copy"
+                 (onClick)="allowReborrow(item)" />
+               <p-button
+                 *ngIf="canBorrow(item)"
                  label="Borrow &amp; Import"
                  icon="pi pi-download"
                  pTooltip="Borrow this title and import it into grimmory (server-side)"
@@ -233,7 +246,13 @@
            <td>
              <div class="loan-title">
                <img *ngIf="loanCoverUrl(loan)" [src]="loanCoverUrl(loan)" alt="cover" class="result-cover" />
-               <span>{{ loan.title }}</span>
+               <div class="loan-title-text">
+                 <span>{{ loan.title }}</span>
+                 <a *ngIf="loan.bookId" class="in-library-link" [routerLink]="bookRoute(loan.bookId)"
+                    pTooltip="Open this book in your library" tooltipPosition="top">
+                   <i class="pi pi-check-circle"></i> In your library
+                 </a>
+               </div>
              </div>
            </td>
            <td>{{ loanAuthor(loan) }}</td>

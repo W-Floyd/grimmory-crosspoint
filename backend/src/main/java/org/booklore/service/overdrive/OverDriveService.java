@@ -12,6 +12,7 @@ import org.booklore.model.enums.BookFileType;
 import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.model.dto.BookLoreUser;
 import org.booklore.model.dto.settings.MetadataProviderSettings;
+import org.booklore.repository.BookRepository;
 import org.booklore.repository.OverDriveLoanRepository;
 import org.booklore.repository.OverDriveTokenRepository;
 import org.booklore.service.acsm.AcsmHandler;
@@ -58,6 +59,7 @@ import java.util.stream.Collectors;
 public class OverDriveService {
 
     private final OverDriveLoanRepository loanRepository;
+    private final BookRepository bookRepository;
     private final AcsmHandler acsmHandler;
 
      @Value("${app.overdrive.sentry-base-url:https://sentry.libbyapp.com}")
@@ -1292,6 +1294,7 @@ public class OverDriveService {
 
       private OverDriveCatalogItem toCatalogItem(OverDriveApiResponse.Item item) {
         List<String> formats = importableFormats(item);
+        String isbn = extractIsbn(item);
         return new OverDriveCatalogItem(
                 item.getId(),
                 formats.isEmpty() ? pickBorrowFormatId(item) : formats.getFirst(),
@@ -1299,7 +1302,7 @@ public class OverDriveService {
                 item.getSubtitle(),
                 extractPrimaryAuthor(item),
                 extractCoverUrl(item),
-                extractIsbn(item),
+                isbn,
                 Boolean.TRUE.equals(item.getAvailable()),
                 Boolean.TRUE.equals(item.getHoldable()),
                 item.getAvailableCopies(),
@@ -1307,7 +1310,47 @@ public class OverDriveService {
                 item.getHoldsCount(),
                 item.getEstimatedWaitDays(),
                 Boolean.TRUE.equals(item.getPreRelease()),
-                formats);
+                formats,
+                resolveLinkedBookId(isbn));
+      }
+
+      /**
+       * Find an existing library book that matches an OverDrive title by ISBN, so the UI can link to it
+       * (and discourage re-borrowing a title already in the library). Matches ISBN-13 first, then ISBN-10.
+       *
+       * @return the matching book id, or null if none / no usable ISBN
+       */
+      public Long resolveLinkedBookId(String isbn) {
+        if (isbn == null || isbn.isBlank()) {
+            return null;
+        }
+        String cleaned = isbn.replaceAll("[^0-9Xx]", "");
+        if (cleaned.length() == 13) {
+            return bookRepository.findIdsByIsbn13(cleaned).stream().findFirst().orElse(null);
+        }
+        if (cleaned.length() == 10) {
+            return bookRepository.findIdsByIsbn10(cleaned).stream().findFirst().orElse(null);
+        }
+        return null;
+      }
+
+      /**
+       * Resolve the library book id for a loan: prefer the exact id recorded when this loan was imported
+       * (stored on the loan), falling back to an ISBN match so loans borrowed elsewhere still link.
+       *
+       * @return the matching book id, or null if none
+       */
+      public Long resolveLoanBookId(String loanId, String isbn) {
+        if (loanId != null && !loanId.isBlank()) {
+            Long userId = currentUserId();
+            Long stored = loanRepository.findByUserIdAndOverdriveLoanId(userId, loanId)
+                    .map(OverDriveLoanEntity::getBookId)
+                    .orElse(null);
+            if (stored != null) {
+                return stored;
+            }
+        }
+        return resolveLinkedBookId(isbn);
       }
 
       /**

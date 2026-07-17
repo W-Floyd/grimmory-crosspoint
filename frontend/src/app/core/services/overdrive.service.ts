@@ -23,6 +23,8 @@ export interface OverDriveLoan {
   creators?: OverDriveCreator[];
   formatId?: string;
   formats?: OverDriveFormat[];
+  /** Id of the existing library book this loan is linked to (by prior import or ISBN), if any. */
+  bookId?: number | null;
 }
 
 export interface OverDriveHold {
@@ -92,6 +94,8 @@ export interface OverDriveCatalogItem {
   formats?: string[];
   /** Not yet released; neither borrowable nor holdable. */
   preRelease: boolean;
+  /** Id of an existing library book this title matches (by ISBN), or null if not in the library. */
+  bookId?: number | null;
 }
 
 export interface OverDriveBorrowImportRequest {

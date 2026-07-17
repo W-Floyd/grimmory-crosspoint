@@ -28,6 +28,7 @@ import static org.mockito.Mockito.when;
 class OverDriveServiceTest {
 
     @Mock private OverDriveLoanRepository loanRepository;
+    @Mock private org.booklore.repository.BookRepository bookRepository;
     @Mock private AcsmHandler acsmHandler;
     @Mock private RestClient restClient;
     @Mock private OverDriveImportService overDriveImportService;
@@ -42,7 +43,7 @@ class OverDriveServiceTest {
     void setUp() {
         // Credential cipher with no key configured -> disabled (token-only), matching default deploys.
         OverDriveCredentialCipher cipher = new OverDriveCredentialCipher("");
-        service = new OverDriveService(loanRepository, acsmHandler, restClient,
+        service = new OverDriveService(loanRepository, bookRepository, acsmHandler, restClient,
                 overDriveImportService, overDriveParser, tokenRepository, authenticationService, appSettingService,
                 cipher);
     }

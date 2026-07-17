@@ -1,4 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { OverDriveService, OverDriveCard, OverDriveCatalogItem, OverDriveHold, OverDriveLibrary, OverDriveLoan, OverDriveSyncResult } from '../../core/services/overdrive.service';
@@ -21,6 +22,7 @@ import { Library, LibraryPath } from '../../features/book/model/library.model';
   standalone: true,
   imports: [
     CommonModule,
+    RouterLink,
     FormsModule,
     ButtonModule,
     MessageModule,
@@ -79,6 +81,8 @@ export class OverdriveCatalogComponent {
   importingTitleId = signal<string | null>(null);
   // Per-title chosen download format (titleId → formatId); defaults to the title's top preference.
   selectedFormats = signal<Record<string, string>>({});
+  // Title ids the user has explicitly chosen to re-borrow despite already being in the library.
+  reborrowOverrides = signal<Set<string>>(new Set());
 
    // Diagnostics: a passive, read-only state snapshot (no live calls, no inputs).
   diagnosticsJson = signal<string | null>(null);
@@ -328,6 +332,29 @@ export class OverdriveCatalogComponent {
    /** Combined title for display/import: "Series: Book" when OverDrive splits the name into a subtitle. */
    fullTitle(item: OverDriveCatalogItem): string {
      return item.subtitle ? `${item.title}: ${item.subtitle}` : item.title;
+     }
+
+   /** Router link to an existing library book's detail page (guarded by an in-library check in the template). */
+   bookRoute(bookId: number | null | undefined): (string | number | null | undefined)[] {
+     return ['/book', bookId];
+     }
+
+   /** True when a search result already matches a book in the library (by ISBN). */
+   isInLibrary(item: OverDriveCatalogItem): boolean {
+     return item.bookId != null;
+     }
+
+   /**
+    * Whether the Borrow & Import button should be enabled: always for titles not in the library, and for
+    * in-library titles only once the user has explicitly chosen to re-borrow (override).
+    */
+   canBorrow(item: OverDriveCatalogItem): boolean {
+     return !this.isInLibrary(item) || this.reborrowOverrides().has(item.titleId);
+     }
+
+   /** Allow re-borrowing a title that is already in the library. */
+   allowReborrow(item: OverDriveCatalogItem): void {
+     this.reborrowOverrides.update((s) => new Set(s).add(item.titleId));
      }
 
    /** Human-friendly label for an OverDrive format id. */

@@ -513,8 +513,24 @@ public class OverDriveController {
                 loanCoverUrl(loan.getCovers()),
                 loan.getCreators(),
                 loan.getFormat() != null ? loan.getFormat().getId() : null,
-                loan.getFormats()
+                loan.getFormats(),
+                overDriveService.resolveLoanBookId(loan.getId(), loanIsbn(loan))
         );
+    }
+
+    /** First usable ISBN a loan carries (single format, then the format list), or null. */
+    private String loanIsbn(OverDriveLoan loan) {
+        if (loan.getFormat() != null && loan.getFormat().getIsbn() != null && !loan.getFormat().getIsbn().isBlank()) {
+            return loan.getFormat().getIsbn();
+        }
+        if (loan.getFormats() != null) {
+            return loan.getFormats().stream()
+                    .map(OverDriveFormat::getIsbn)
+                    .filter(s -> s != null && !s.isBlank())
+                    .findFirst()
+                    .orElse(null);
+        }
+        return null;
     }
 
     /** Best cover href from a sync loan's covers (150-wide, then 300-wide), or null. */
@@ -559,7 +575,8 @@ public class OverDriveController {
             String coverUrl,
             List<OverDriveCreator> creators,
             String formatId,
-            List<OverDriveFormat> formats
+            List<OverDriveFormat> formats,
+            Long bookId
     ) {}
 
     record OverDriveHoldDto(
