@@ -65,9 +65,16 @@ export class OverdriveCatalogComponent {
   selectedFormats = signal<Record<string, string>>({});
   // Title ids the user has explicitly chosen to re-borrow despite already being in the library.
   reborrowOverrides = signal<Set<string>>(new Set());
+  // Whether an ACSM handler is configured (enables importing Adobe-DRM formats). Shapes the
+  // "No supported format" tooltip: no point suggesting ACSM setup when it's already enabled.
+  acsmConfigured = signal(false);
 
    constructor() {
      this.loadCards();
+     this.overdriveService.capabilities().subscribe({
+       next: (c) => this.acsmConfigured.set(!!c?.acsmHandlerConfigured),
+       error: () => { /* leave default (assume not configured) */ }
+     });
    }
 
    cardLabel(card: OverDriveCard | null): string {
@@ -252,6 +259,13 @@ export class OverdriveCatalogComponent {
     */
    hasImportableFormat(item: OverDriveCatalogItem): boolean {
      return (item.formats?.length ?? 0) > 0;
+     }
+
+   /** Why a title has no importable format — only mentions ACSM setup when it isn't already configured. */
+   unsupportedFormatTooltip(): string {
+     return this.acsmConfigured()
+       ? 'This title isn\'t offered in a format Grimmory can import.'
+       : 'This title isn\'t offered in a DRM-free format. Configure an ACSM handler to also import Adobe-DRM formats.';
      }
 
    /**

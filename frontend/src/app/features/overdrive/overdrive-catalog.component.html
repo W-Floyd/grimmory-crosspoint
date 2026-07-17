@@ -126,7 +126,7 @@
                <span *ngIf="hasImportableFormat(item) && (item.formats?.length ?? 0) <= 1 && chosenFormat(item)" class="format-single"
                  pTooltip="Format that will be downloaded">{{ formatLabel(chosenFormat(item)!) }}</span>
                <span *ngIf="!hasImportableFormat(item)" class="format-single unsupported"
-                 pTooltip="This title isn't offered in a format Grimmory can import (a DRM-free format, or an Adobe format with an ACSM handler configured)">No supported format</span>
+                 [pTooltip]="unsupportedFormatTooltip()">No supported format</span>
                <ng-container *ngIf="hasImportableFormat(item)">
                  <p-button
                    *ngIf="isInLibrary(item) && !canBorrow(item)"
@@ -150,7 +150,7 @@
                  label="Borrow &amp; Import"
                  icon="pi pi-download"
                  [disabled]="true"
-                 pTooltip="This title isn't offered in a format Grimmory can import" />
+                 [pTooltip]="unsupportedFormatTooltip()" />
              </div>
              <p-button
                *ngIf="!item.available && item.holdable && !isOnHold(item)"
