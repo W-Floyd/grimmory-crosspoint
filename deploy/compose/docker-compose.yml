@@ -52,10 +52,14 @@ services:
       - ./books:/books
       - ./bookdrop:/bookdrop
       # Operator-supplied ACSM handler tool for OverDrive borrow & import (see the ACSM_* env
-      # vars above). Read-only mount; put a self-contained tool here. Note the image is
+      # vars above). Put a self-contained tool + its Adobe account dir here. Note the image is
       # Alpine/musl — a native binary must be musl-compatible or statically linked, and there
       # is no python runtime in the image, so mount a self-contained executable.
-      # - ./acsm:/opt/acsm:ro
+      # Mount READ-WRITE (not :ro): the account must be a fully ACTIVATED ADE account, and the
+      # tool updates activation.xml at fulfill time (it caches each operator's license-service
+      # certificate there and reads it back to build rights.xml). Ensure ./acsm — especially
+      # ./acsm/account — is writable by and owned by the container user (USER_ID:GROUP_ID, 1000).
+      # - ./acsm:/opt/acsm
     # Uncomment the block below if you need to override the defaults:
     #healthcheck:
     #  test: wget -q --spider http://localhost:6060/api/v1/healthcheck
