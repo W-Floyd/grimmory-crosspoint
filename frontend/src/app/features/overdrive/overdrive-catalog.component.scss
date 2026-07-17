@@ -112,5 +112,10 @@
     font-size: 0.85rem;
     color: var(--text-color-secondary);
     white-space: nowrap;
+
+    &.unsupported {
+      font-style: italic;
+      opacity: 0.75;
+    }
   }
 }

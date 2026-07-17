@@ -246,6 +246,15 @@ export class OverdriveCatalogComponent {
      }
 
    /**
+    * Whether the title offers a format Grimmory can import (open formats, plus Adobe/ACSM formats when
+    * an ACSM handler is configured). The backend leaves {@code formats} empty when none apply, so we
+    * grey out Borrow & Import rather than let it fail at fulfillment.
+    */
+   hasImportableFormat(item: OverDriveCatalogItem): boolean {
+     return (item.formats?.length ?? 0) > 0;
+     }
+
+   /**
     * Whether the Borrow & Import button should be enabled: always for titles not in the library, and for
     * in-library titles only once the user has explicitly chosen to re-borrow (override).
     */
