@@ -112,56 +112,67 @@
              </ng-container>
            </td>
            <td>
-             <div *ngIf="item.available" class="borrow-action">
-               <p-select
-                 *ngIf="(item.formats?.length ?? 0) > 1"
-                 [options]="formatOptions(item)"
-                 optionLabel="label"
-                 optionValue="value"
-                 [ngModel]="chosenFormat(item)"
-                 (ngModelChange)="setFormat(item.titleId, $event)"
-                 [disabled]="importingTitleId() !== null"
-                 pTooltip="Choose which format to download & import"
-                 styleClass="format-select" />
-               <span *ngIf="hasImportableFormat(item) && (item.formats?.length ?? 0) <= 1 && chosenFormat(item)" class="format-single"
-                 pTooltip="Format that will be downloaded">{{ formatLabel(chosenFormat(item)!) }}</span>
-               <span *ngIf="!hasImportableFormat(item)" class="format-single unsupported"
-                 [pTooltip]="unsupportedFormatTooltip()">No supported format</span>
+             <div class="borrow-action">
+               <!-- Format display: a picker when borrowable with a choice, otherwise a read-only
+                    summary of the importable formats (shown even for hold-required titles). -->
+               <ng-container *ngIf="hasImportableFormat(item); else noFormat">
+                 <p-select
+                   *ngIf="item.available && (item.formats?.length ?? 0) > 1"
+                   [options]="formatOptions(item)"
+                   optionLabel="label"
+                   optionValue="value"
+                   [ngModel]="chosenFormat(item)"
+                   (ngModelChange)="setFormat(item.titleId, $event)"
+                   [disabled]="importingTitleId() !== null"
+                   pTooltip="Choose which format to download & import"
+                   styleClass="format-select" />
+                 <span *ngIf="item.available && (item.formats?.length ?? 0) <= 1 && chosenFormat(item)" class="format-single"
+                   pTooltip="Format that will be downloaded">{{ formatLabel(chosenFormat(item)!) }}</span>
+                 <span *ngIf="!item.available" class="format-single" pTooltip="Available in these formats">{{ formatSummary(item) }}</span>
+               </ng-container>
+               <ng-template #noFormat>
+                 <span class="format-single unsupported" [pTooltip]="unsupportedFormatTooltip()">No supported format</span>
+               </ng-template>
+
+               <!-- Action: borrow when available, hold when not, disabled when no importable format. -->
                <ng-container *ngIf="hasImportableFormat(item)">
-                 <p-button
-                   *ngIf="isInLibrary(item) && !canBorrow(item)"
-                   label="Borrow anyway"
-                   icon="pi pi-exclamation-triangle"
-                   severity="secondary"
-                   [outlined]="true"
-                   pTooltip="Already in your library — borrow and import another copy"
-                   (onClick)="allowReborrow(item)" />
-                 <p-button
-                   *ngIf="canBorrow(item)"
-                   label="Borrow &amp; Import"
-                   icon="pi pi-download"
-                   pTooltip="Borrow this title and import it (server-side) into the selected library, or into Bookdrop if none is selected"
-                   [disabled]="!item.titleId || importingTitleId() !== null"
-                   [loading]="importingTitleId() === item.titleId"
-                   (onClick)="onBorrowImport(item)" />
+                 <ng-container *ngIf="item.available">
+                   <p-button
+                     *ngIf="isInLibrary(item) && !canBorrow(item)"
+                     label="Borrow anyway"
+                     icon="pi pi-exclamation-triangle"
+                     severity="secondary"
+                     [outlined]="true"
+                     pTooltip="Already in your library — borrow and import another copy"
+                     (onClick)="allowReborrow(item)" />
+                   <p-button
+                     *ngIf="canBorrow(item)"
+                     label="Borrow &amp; Import"
+                     icon="pi pi-download"
+                     pTooltip="Borrow this title and import it (server-side) into the selected library, or into Bookdrop if none is selected"
+                     [disabled]="!item.titleId || importingTitleId() !== null"
+                     [loading]="importingTitleId() === item.titleId"
+                     (onClick)="onBorrowImport(item)" />
+                 </ng-container>
+                 <ng-container *ngIf="!item.available">
+                   <p-button
+                     *ngIf="item.holdable && !isOnHold(item)"
+                     label="Place Hold"
+                     icon="pi pi-clock"
+                     severity="secondary"
+                     [disabled]="!item.titleId"
+                     (onClick)="onPlaceHold(item)" />
+                   <span *ngIf="isOnHold(item)" class="no-action on-hold">On hold</span>
+                   <span *ngIf="!item.holdable && !isOnHold(item)" class="no-action">—</span>
+                 </ng-container>
                </ng-container>
                <p-button
-                 *ngIf="!hasImportableFormat(item)"
+                 *ngIf="!hasImportableFormat(item) && item.available"
                  label="Borrow &amp; Import"
                  icon="pi pi-download"
                  [disabled]="true"
                  [pTooltip]="unsupportedFormatTooltip()" />
              </div>
-             <p-button
-               *ngIf="!item.available && item.holdable && !isOnHold(item)"
-               label="Place Hold"
-               icon="pi pi-clock"
-               severity="secondary"
-               [disabled]="!item.titleId"
-               (onClick)="onPlaceHold(item)"
-             />
-             <span *ngIf="!item.available && isOnHold(item)" class="no-action on-hold">On hold</span>
-             <span *ngIf="!item.available && !item.holdable && !isOnHold(item)" class="no-action">—</span>
            </td>
          </tr>
        </ng-template>

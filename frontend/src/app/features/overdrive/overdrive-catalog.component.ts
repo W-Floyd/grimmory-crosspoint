@@ -310,6 +310,11 @@ export class OverdriveCatalogComponent {
      return (item.formats ?? []).map((f) => ({ label: this.formatLabel(f), value: f }));
      }
 
+   /** Comma-joined friendly labels of a title's importable formats, for read-only display. */
+   formatSummary(item: OverDriveCatalogItem): string {
+     return (item.formats ?? []).map((f) => this.formatLabel(f)).join(', ');
+     }
+
    /** The currently chosen format for a title (user selection, else the default/top preference). */
    chosenFormat(item: OverDriveCatalogItem): string | null {
      return this.selectedFormats()[item.titleId] ?? item.formatId ?? item.formats?.[0] ?? null;
