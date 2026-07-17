@@ -85,9 +85,11 @@ public class OverDriveService {
 
     // Mirror the Libby web client exactly (verified against a working browser HAR): a normal desktop
     // browser UA, plus Accept: application/json and Origin on API calls. The fulfill endpoint returns
-    // JSON ({"fulfill":{"href":...}}), 403 {"result":"missing_chip"} until the chip is registered, and
-    // 403 {"result":"whoa"} when the server refuses the fulfillment (exact cause not pinned down — the
-    // whoa response is logged with full headers so a Retry-After, if present, confirms rate-limiting).
+    // JSON ({"fulfill":{"href":...}}), 403 {"result":"missing_chip"} until the chip is re-minted for
+    // this loan (recover by re-minting and retrying), and 403 {"result":"whoa"} which is a transient
+    // per-title fulfillment throttle — evaluated only once the chip is current, provoked by repeated
+    // borrow/return/fulfill churn on a title, and clears on its own after a cooldown. The web client
+    // whoas on the same titles and does not retry; we fail fast and tell the user to wait.
     private static final String USER_AGENT =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0";
     private static final String REFERER = "https://libbyapp.com/";
@@ -194,9 +196,17 @@ public class OverDriveService {
                 uri += "&v=" + chipId.split("-")[0];
             }
             String finalUri = uri;
+            // The web client's obf/shib.js smuggles a "shibboleth" into Accept-Language on the /chip
+            // re-mint: 2 chars of the identity token (stripped to [a-z], reversed) at offset = the
+            // request path length ("chip" → 4). The server validates it against the bearer identity;
+            // without it, the re-mint returns an identity stamped prbn=v and fulfillment is refused
+            // ("whoa"). With it, the re-mint returns a prbn-absent identity that fulfills. (Verified
+            // end-to-end; see docs/OverDrive-Testing.md.)
+            String shibboleth = chipShibboleth(token, "chip".length());
             ResponseEntity<OverDriveChipResponse> resp = restClient.post()
                     .uri(finalUri)
                     .headers(h -> h.addAll(libbyHeaders(token)))
+                    .header(HttpHeaders.ACCEPT_LANGUAGE, shibboleth)
                     .retrieve()
                     .toEntity(OverDriveChipResponse.class);
             OverDriveChipResponse body = resp.getBody();
@@ -206,6 +216,26 @@ public class OverDriveService {
             log.warn("OverDrive: identity refresh failed, using existing token: {}", e.getMessage());
             return token;
         }
+      }
+
+      /**
+       * Compute the {@code Accept-Language} "shibboleth" the Libby web client sends on the {@code /chip}
+       * re-mint (reverse-engineered from its obfuscated {@code obf/shib.js}): strip the identity JWT to
+       * lowercase letters only, reverse it, and take the 2 characters at {@code pathLen} (the request
+       * path length; {@code "chip"} = 4). The sentry server validates this against the bearer identity;
+       * a correct value yields a fulfillment-ready ({@code prbn}-absent) identity, a wrong/absent one
+       * yields {@code prbn=v} and a {@code "whoa"} on fulfill. Returns "eng" only as a safe fallback
+       * when the token is too short to slice.
+       */
+      private static String chipShibboleth(String token, int pathLen) {
+        if (token == null) {
+            return "eng";
+        }
+        String reversed = new StringBuilder(token.replaceAll("[^a-z]", "")).reverse().toString();
+        if (reversed.length() < pathLen + 2) {
+            return "eng";
+        }
+        return reversed.substring(pathLen, pathLen + 2);
       }
 
       /** Extract the chip id from an identity JWT's payload ({@code chip.id}), or null. */
@@ -227,6 +257,31 @@ public class OverDriveService {
       private static String padBase64(String s) {
         int pad = (4 - s.length() % 4) % 4;
         return s + "=".repeat(pad);
+      }
+
+      /**
+       * The identity JWT's {@code exp} claim (epoch seconds) so a stored token records its <b>real</b>
+       * lifetime and gets reused for as long as it's valid — rather than a fixed guess that would make
+       * us re-mint prematurely (re-mint velocity is what trips OverDrive's "whoa" throttle). Falls back
+       * to ~1h from now if the token can't be decoded.
+       */
+      private static long tokenExpiryEpoch(String token) {
+        if (token != null && !token.isBlank()) {
+            try {
+                String[] parts = token.split("\\.");
+                if (parts.length >= 2) {
+                    String payload = new String(Base64.getUrlDecoder().decode(padBase64(parts[1])),
+                            StandardCharsets.UTF_8);
+                    String exp = firstMatch(java.util.regex.Pattern.compile("\"exp\"\\s*:\\s*(\\d+)"), payload);
+                    if (exp != null) {
+                        return Long.parseLong(exp);
+                    }
+                }
+            } catch (Exception ignored) {
+                // fall through to the default below
+            }
+        }
+        return Instant.now().getEpochSecond() + 3600;
       }
 
       /**
@@ -448,13 +503,33 @@ public class OverDriveService {
             submitLocalAuthentication(row.getWebsiteId(), row.getIlsName(), cn, pin, token);
             token = refreshIdentity(token);
             row.setToken(token);
-            row.setExpiresAt(Instant.now().getEpochSecond() + 3600);
+            row.setExpiresAt(tokenExpiryEpoch(token));
             tokenRepository.save(row);
             log.info("OverDrive: re-linked card {} from stored credentials", cardId);
             return token;
         } catch (Exception e) {
             log.warn("OverDrive: auto-relink failed for card {}: {}", cardId, e.getMessage());
             return null;
+        }
+      }
+
+      /**
+       * Persist a reactively re-minted token onto the stored card row so subsequent fulfillments reuse
+       * it rather than re-minting again. Keeping re-mint velocity low is what avoids the {@code prbn=v}
+       * state OverDrive refuses with {@code "whoa"}. Best-effort; never throws.
+       */
+      private void persistReMintedToken(String identity, String token) {
+        if (token == null || token.isBlank()) {
+            return;
+        }
+        try {
+            tokenRepository.findByUserIdAndIdentity(currentUserId(), identity).ifPresent(row -> {
+                row.setToken(token);
+                row.setExpiresAt(tokenExpiryEpoch(token));
+                tokenRepository.save(row);
+            });
+        } catch (Exception e) {
+            log.debug("OverDrive: could not persist re-minted token for card {}: {}", identity, e.getMessage());
         }
       }
 
@@ -599,7 +674,10 @@ public class OverDriveService {
        * Returns the ACSM fulfillment token content as base64.
        */
       public String fulfill(String identity, String authToken, String loanId) {
-        authToken = refreshIdentity(resolveToken(identity, authToken));
+        // Fulfill with the stored identity as-is. Don't pre-mint: the web client fulfills with its
+        // stored identity and re-mints only reactively when the endpoint returns missing_chip, which
+        // fetchFulfillment already handles. Minting up front adds needless chip churn.
+        authToken = resolveToken(identity, authToken);
         byte[] body = fetchFulfillment(identity, authToken, loanId, FORMAT_EPUB_ADOBE);
         if (body == null || body.length == 0) {
             log.warn("OverDrive fulfill returned empty body for loan {}", loanId);
@@ -654,7 +732,15 @@ public class OverDriveService {
             if (bodyMap == null || bodyMap.get("id") == null) {
                 throw new RestClientException("OverDrive borrow failed: no loan id returned");
              }
-            log.info("OverDrive title borrowed: {} (title {})", bodyMap.get("id"), titleId);
+            // Log the discriminators that tell a genuine new checkout from an idempotent re-borrow of an
+            // already-existing loan (borrow is idempotent — re-borrowing a held title returns the
+            // existing loan). A fresh checkout returns isFormatLockedIn=false and a checkoutDate ≈ now;
+            // a re-borrow returns the original (older) checkoutDate. Handy when diagnosing a "whoa":
+            // it lets us distinguish loan state from the transient per-title fulfillment throttle.
+            log.info("OverDrive title borrowed: {} (title {}) — checkoutId={}, checkoutDate={}, "
+                    + "isFormatLockedIn={}, formats={}",
+                    bodyMap.get("id"), titleId, bodyMap.get("checkoutId"), bodyMap.get("checkoutDate"),
+                    bodyMap.get("isFormatLockedIn"), loanFormatIds(bodyMap));
             return bodyMap;
          } catch (Exception e) {
             log.error("OverDrive borrow failed: {}", e.getMessage());
@@ -773,7 +859,13 @@ public class OverDriveService {
 
             if ("missing_chip".equals(result)) {
                 // Chip not yet registered for fulfillment — re-mint and retry once (as the web client does).
+                // Persist the re-minted token so later fulfillments REUSE it instead of re-minting every
+                // time. Re-mint velocity matters: each POST /chip advances the chip's provenance, and after
+                // a few re-mints OverDrive marks it (prbn=v) and refuses fulfillment with "whoa". The web
+                // client re-mints once and keeps the result; persisting here mirrors that.
                 String refreshed = refreshIdentity(authToken);
+                persistReMintedToken(cardId, refreshed);
+                authToken = refreshed;
                 resp = FULFILL_CLIENT_FOLLOW.send(
                         apiRequest(url, refreshed).build(), HttpResponse.BodyHandlers.ofByteArray());
                 body = resp.body() != null ? new String(resp.body(), StandardCharsets.UTF_8) : "";
@@ -796,18 +888,24 @@ public class OverDriveService {
                 }
             }
 
+            // "whoa" is a transient OverDrive fulfillment throttle, checked AFTER the chip-currency
+            // gate (a stale chip yields missing_chip first; a current chip that trips the throttle
+            // yields whoa). It is provoked by repeated borrow/return/fulfill churn on a title — not by
+            // our request shape, chip provenance, or headers — and it clears on its own after a cooldown
+            // (minutes). Verified against the Libby web client: it whoas on the same titles and does not
+            // retry. So we fail fast (no in-request backoff — a whoa never clears within seconds) and
+            // tell the user to wait; retrying only adds load. See docs/OverDrive-Testing.md.
             if ("whoa".equals(result)) {
-                // Capture the response detail so we can tell what "whoa" actually is: a Retry-After
-                // header would confirm rate-limiting; its absence points elsewhere (loan state, etc.).
                 String retryAfter = resp.headers().firstValue("retry-after").orElse(null);
                 String reqId = resp.headers().firstValue("x-request-id").orElse(null);
                 String date = resp.headers().firstValue("date").orElse(null);
-                log.warn("OverDrive fulfill \"whoa\" — loan {}, format {}, status {}; retry-after={}, "
-                        + "x-request-id={}, date={}; body={}; headers={}",
-                        loanId, formatId, resp.statusCode(), retryAfter, reqId, date, body, resp.headers().map());
-                throw new RestClientException("OverDrive refused this fulfillment (\"whoa\") for loan " + loanId
-                        + (retryAfter != null ? " (Retry-After: " + retryAfter + ")" : "")
-                        + ". Wait and retry, or try a freshly-borrowed title; see the server log for details.");
+                log.warn("OverDrive fulfill \"whoa\" (transient throttle) — loan {}, format {}, status {}; "
+                        + "retry-after={}, x-request-id={}, date={}; body={}; headers={}",
+                        loanId, formatId, resp.statusCode(), retryAfter, reqId, date, body,
+                        resp.headers().map());
+                throw new RestClientException("OverDrive is temporarily rate-limiting fulfillment for this "
+                        + "title (loan " + loanId + "). This clears on its own — wait a few minutes and "
+                        + "retry. It usually follows repeated borrow/fulfill attempts on the same title.");
             }
 
             String href = firstMatch(HREF_PATTERN, body);
@@ -1042,11 +1140,16 @@ public class OverDriveService {
             m.put("primary", id != null && id.equals(pri));
             m.put("accountGroup", "null".equals(ag) ? null : ag);
             m.put("hasCards", payload.matches("(?s).*\"cards\"\\s*:\\s*\\[\\[.*"));
-            // prbn is the chip provenance: "i" = identity-only (browse/borrow; can hand back an ebook
-            // ACSM but NOT fulfill audiobooks), "v" = bona-fide (mints via the real Libby web app;
-            // fully fulfillment-capable). See docs/OverDrive-Testing.md.
+            // prbn = chip re-mint/provenance state, verified empirically against the Libby web client
+            // (see docs/OverDrive-Testing.md):
+            //   absent (null) -> fulfillment-ready — this is what a SUCCESSFUL fulfill uses
+            //   "i"           -> freshly linked/minted; fulfill returns missing_chip until ONE re-mint clears it
+            //   "v"           -> over-re-minted; OverDrive REFUSES fulfillment with "whoa". Caused by re-minting
+            //                    the same chip repeatedly; decays when the chip is left alone.
+            // (Earlier note had this inverted — "v" is the refused state, not the good one.)
             m.put("prbn", prbn);
-            m.put("fulfillmentCapable", "v".equals(prbn));
+            m.put("fulfillmentReady", prbn == null);
+            m.put("remintRefused", "v".equals(prbn));
         } catch (Exception e) {
             m.put("error", e.getMessage());
         }
@@ -1076,8 +1179,10 @@ public class OverDriveService {
        */
       public Book borrowAndImport(String identity, String authToken, String titleId, long libraryId, long pathId,
                                   String title, String author, String coverUrl, String isbn) {
-        // Re-mint to a card-bound identity so the fulfill step is authorized (see refreshIdentity).
-        authToken = refreshIdentity(resolveToken(identity, authToken));
+        // Borrow and fulfill with the stored identity as-is, mirroring the web client: it does not
+        // pre-mint, and fetchFulfillment re-mints reactively on missing_chip. Pre-minting here only
+        // added chip churn without avoiding the missing_chip round-trip.
+        authToken = resolveToken(identity, authToken);
 
         // Resume an already-borrowed title rather than borrowing again: a prior attempt may have
         // borrowed the title but failed at fulfill/import, leaving the loan (and a consumed checkout
@@ -1322,7 +1427,7 @@ public class OverDriveService {
         entity.setCardName(cardName);
         entity.setLibraryKey(libraryKey);
         entity.setToken(token);
-        entity.setExpiresAt(Instant.now().getEpochSecond() + 3600);
+        entity.setExpiresAt(tokenExpiryEpoch(token));
         if (entity.getCreatedAt() == null) {
             entity.setCreatedAt(Instant.now());
         }
