@@ -2,6 +2,10 @@
   max-width: 960px;
   margin: 0 auto;
   padding: 1.5rem;
+  // The shell (.layout-main) is height:100dvh; overflow:hidden — each page scrolls itself.
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
 
   h2 {
     margin-bottom: 0.5rem;
@@ -133,8 +137,9 @@
       overflow: auto;
       padding: 0.75rem;
       border-radius: 6px;
-      background: var(--surface-100, #f1f1f1);
-      border: 1px solid var(--surface-border, #ddd);
+      background: var(--surface-card);
+      color: var(--text-color);
+      border: 1px solid var(--surface-border);
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 0.8rem;
       white-space: pre;

@@ -436,14 +436,49 @@ export class OverdriveCatalogComponent {
        });
      }
 
-   /** Copy the diagnostics JSON to the clipboard. */
+   /** Copy the diagnostics JSON to the clipboard (falls back for non-HTTPS where the async API is unavailable). */
    copyDiagnostics(): void {
      const json = this.diagnosticsJson();
      if (!json) return;
-     navigator.clipboard?.writeText(json).then(
-       () => this.messageService.add({ severity: 'success', summary: 'Copied', detail: 'Diagnostics copied to clipboard' }),
-       () => this.error.set('Could not copy to clipboard')
-     );
+     const done = () => this.messageService.add({ severity: 'success', summary: 'Copied', detail: 'Diagnostics copied to clipboard' });
+     if (navigator.clipboard?.writeText) {
+       navigator.clipboard.writeText(json).then(done, () => this.fallbackCopy(json, done));
+     } else {
+       this.fallbackCopy(json, done);
+     }
+     }
+
+   /** Clipboard fallback for insecure (http://) contexts where navigator.clipboard is unavailable. */
+   private fallbackCopy(text: string, onSuccess: () => void): void {
+     try {
+       const ta = document.createElement('textarea');
+       ta.value = text;
+       ta.style.position = 'fixed';
+       ta.style.opacity = '0';
+       document.body.appendChild(ta);
+       ta.focus();
+       ta.select();
+       const ok = document.execCommand('copy');
+       document.body.removeChild(ta);
+       if (ok) { onSuccess(); return; }
+     } catch { /* fall through to selecting the visible text */ }
+     this.selectDiagnosticsText();
+     }
+
+   /** Select the visible diagnostics JSON so the user can copy it manually (Cmd/Ctrl+C). */
+   private selectDiagnosticsText(): void {
+     const el = document.querySelector('.diagnostics-json');
+     const sel = window.getSelection();
+     if (el && sel) {
+       const range = document.createRange();
+       range.selectNodeContents(el);
+       sel.removeAllRanges();
+       sel.addRange(range);
+       this.messageService.add({ severity: 'info', summary: 'Copy manually',
+         detail: 'Clipboard access is blocked (non-HTTPS) — the text is selected; press Cmd/Ctrl+C.' });
+     } else {
+       this.error.set('Could not copy — select the text and copy it manually.');
+     }
      }
 
    /** Download the diagnostics JSON as a file. */
