@@ -47,6 +47,7 @@ class OverDriveImportServiceTest {
     @Mock private MetadataRefreshService metadataRefreshService;
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private BookFileProcessor processor;
+    @Mock private org.booklore.mapper.BookMapper bookMapper;
 
     private OverDriveImportService service;
 
@@ -56,7 +57,7 @@ class OverDriveImportServiceTest {
     @BeforeEach
     void setUp() {
         service = new OverDriveImportService(libraryRepository, bookRepository, fileMovingHelper,
-                processorRegistry, monitoringRegistrationService, metadataRefreshService, eventPublisher);
+                processorRegistry, monitoringRegistrationService, metadataRefreshService, eventPublisher, bookMapper);
     }
 
     private LibraryEntity libraryWithPath() {

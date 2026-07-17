@@ -182,6 +182,43 @@ public class OverDriveParser implements BookParser {
         }
     }
 
+    /**
+     * Resolve a library's OverDrive {@code websiteId} from its preferred/advantage key via the Thunder
+     * library directory. Needed for the authenticated card-link endpoints. Returns null on any failure.
+     */
+    public String fetchWebsiteId(String libraryKey) {
+        if (libraryKey == null || libraryKey.isBlank()) {
+            return null;
+        }
+        try {
+            waitForRateLimit();
+            URI uri = UriComponentsBuilder.fromUriString(THUNDER_BASE_URL)
+                    .pathSegment(libraryKey)
+                    .build()
+                    .encode()
+                    .toUri();
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(uri)
+                    .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                return null;
+            }
+            var node = objectMapper.readTree(response.body());
+            var websiteId = node.get("websiteId");
+            return websiteId != null && !websiteId.asString().isBlank() ? websiteId.asString() : null;
+        } catch (IOException e) {
+            log.warn("OverDrive: failed to resolve websiteId for {}: {}", libraryKey, e.getMessage());
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
     private List<OverDriveApiResponse.Item> fetchItems(String libraryKey, String query) {
         try {
             waitForRateLimit();

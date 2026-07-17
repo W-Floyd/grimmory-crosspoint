@@ -52,6 +52,7 @@ public class OverDriveImportService {
     private final MonitoringRegistrationService monitoringRegistrationService;
     private final MetadataRefreshService metadataRefreshService;
     private final ApplicationEventPublisher eventPublisher;
+    private final org.booklore.mapper.BookMapper bookMapper;
 
     /**
      * Write the given book bytes into the target library/path, process them into a persisted book, and
@@ -98,9 +99,14 @@ public class OverDriveImportService {
 
             Book book = processFileInLibrary(targetFile.getName(), library, path, targetFile, fileType);
             applyOverDriveMetadata(book, metadata);
-            eventPublisher.publishEvent(new BookAddedEvent(book));
-            log.info("OverDrive import: created book id={}", book.getId());
-            return book;
+            // Re-fetch the fully-persisted book (with libraryId + applied cover/metadata) so the live
+            // "book added" push carries a complete payload the UI can place — matching the file
+            // watcher's notification. Without this the broadcast sends a pre-metadata snapshot and the
+            // book only appears after a manual library reload.
+            Book completeBook = reloadCompleteBook(book);
+            eventPublisher.publishEvent(new BookAddedEvent(completeBook));
+            log.info("OverDrive import: created book id={}", completeBook.getId());
+            return completeBook;
         } catch (IOException e) {
             cleanupTargetFile(target);
             throw ApiError.GENERIC_BAD_REQUEST.createException("Failed to write imported book: " + e.getMessage());
@@ -110,6 +116,13 @@ public class OverDriveImportService {
         } finally {
             reregister(libraryId);
         }
+    }
+
+    /** Re-fetch and map the fully-persisted book so the add-notification carries a complete payload. */
+    private Book reloadCompleteBook(Book book) {
+        return bookRepository.findByIdWithBookFiles(book.getId())
+                .map(entity -> bookMapper.toBookWithDescription(entity, false))
+                .orElse(book);
     }
 
     /** Layer the OverDrive catalog metadata (cover, ISBN, series, ...) over the EPUB-extracted metadata. */

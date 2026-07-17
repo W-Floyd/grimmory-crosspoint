@@ -47,6 +47,22 @@ public class OverDriveTokenEntity {
     @Column(name = "expires_at")
     private Long expiresAt;
 
+    /** OverDrive websiteId for the card's library (for the card-link/auth endpoints). Card+PIN links only. */
+    @Column(name = "website_id", length = 32)
+    private String websiteId;
+
+    /** ILS name for the card's library (e.g. "jocolibks"), used when re-linking. Card+PIN links only. */
+    @Column(name = "ils_name", length = 128)
+    private String ilsName;
+
+    /** AES-GCM encrypted library card number, for silent re-link when the token expires (opt-in). */
+    @Column(name = "cred_card", length = 512)
+    private String credCard;
+
+    /** AES-GCM encrypted library card PIN, for silent re-link when the token expires (opt-in). */
+    @Column(name = "cred_pin", length = 512)
+    private String credPin;
+
     @Column(name = "created_at")
     @Builder.Default
     private Instant createdAt = Instant.now();

@@ -40,8 +40,11 @@ class OverDriveServiceTest {
 
     @BeforeEach
     void setUp() {
+        // Credential cipher with no key configured -> disabled (token-only), matching default deploys.
+        OverDriveCredentialCipher cipher = new OverDriveCredentialCipher("");
         service = new OverDriveService(loanRepository, acsmHandler, restClient,
-                overDriveImportService, overDriveParser, tokenRepository, authenticationService, appSettingService);
+                overDriveImportService, overDriveParser, tokenRepository, authenticationService, appSettingService,
+                cipher);
     }
 
     private void authAs(long userId) {

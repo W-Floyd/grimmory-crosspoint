@@ -26,8 +26,15 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.Duration;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -65,6 +72,7 @@ public class OverDriveService {
     private final OverDriveTokenRepository tokenRepository;
     private final AuthenticationService authenticationService;
     private final AppSettingService appSettingService;
+    private final OverDriveCredentialCipher credentialCipher;
 
     /** The authenticated Grimmory user's id, or throws if there is no authenticated user. */
     private Long currentUserId() {
@@ -75,10 +83,24 @@ public class OverDriveService {
         return user.getId();
     }
 
-    /** Libby's private API rejects non-browser agents; mirror the web client. */
-    private static final String USER_AGENT = "Mozilla/5.0 (compatible; Grimmory)";
+    // Mirror the Libby web client exactly (verified against a working browser HAR): a normal desktop
+    // browser UA, plus Accept: application/json and Origin on API calls. The fulfill endpoint returns
+    // JSON ({"fulfill":{"href":...}}), 403 {"result":"missing_chip"} until the chip is registered, and
+    // 403 {"result":"whoa"} when rate-limited.
+    private static final String USER_AGENT =
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0";
     private static final String REFERER = "https://libbyapp.com/";
+    private static final String ORIGIN = "https://libbyapp.com";
+    /** Dewey (Libby) client version sent to the chip endpoint (c=d:<version>), per the web client. */
+    private static final String DEWEY_VERSION = "22.0.2";
     private static final int LOAN_PERIOD_DAYS = 21;
+
+    private static final java.util.regex.Pattern RESULT_PATTERN =
+            java.util.regex.Pattern.compile("\"result\"\\s*:\\s*\"([^\"]+)\"");
+    private static final java.util.regex.Pattern HREF_PATTERN =
+            java.util.regex.Pattern.compile("\"href\"\\s*:\\s*\"([^\"]+)\"");
+    private static final java.util.regex.Pattern CHIP_ID_PATTERN =
+            java.util.regex.Pattern.compile("\"chip\"\\s*:\\s*\\{\\s*\"id\"\\s*:\\s*\"([^\"]+)\"");
 
     // OverDrive ebook fulfillment format ids. "-open" variants are DRM-free (fulfilled directly);
     // "-adobe" variants yield an ACSM that requires the external ACSM handler tool.
@@ -113,6 +135,9 @@ public class OverDriveService {
         headers.set(HttpHeaders.USER_AGENT, USER_AGENT);
         headers.set(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
         headers.set(HttpHeaders.REFERER, REFERER);
+        headers.set(HttpHeaders.ORIGIN, ORIGIN);
+        headers.set(HttpHeaders.CACHE_CONTROL, "no-cache");
+        headers.set(HttpHeaders.PRAGMA, "no-cache");
         if (bearerToken != null && !bearerToken.isBlank()) {
             headers.setBearerAuth(bearerToken);
         }
@@ -149,6 +174,61 @@ public class OverDriveService {
       }
 
       /**
+       * Re-mint the chip identity by POSTing {@code /chip} <b>with the current identity as the bearer</b>.
+       * Libby returns a fresh {@code identity} JWT that reflects the chip's linked cards. This is
+       * required before fulfillment: the original anonymous identity (its {@code cards} claim is null)
+       * is accepted by sync/borrow but rejected with a 403 by the fulfill endpoint. Falls back to the
+       * supplied token on any failure.
+       */
+      private String refreshIdentity(String token) {
+        if (token == null || token.isBlank()) {
+            return token;
+        }
+        try {
+            // Mirror the web client's acquireChip: POST /chip?c=d:<ver>&s=0&v=<chip-id-prefix> with the
+            // current identity as the bearer. Libby re-mints the identity registered for fulfillment.
+            String uri = sentryBaseUrl + "/chip?c=d:" + DEWEY_VERSION + "&s=0";
+            String chipId = chipIdOf(token);
+            if (chipId != null) {
+                uri += "&v=" + chipId.split("-")[0];
+            }
+            String finalUri = uri;
+            ResponseEntity<OverDriveChipResponse> resp = restClient.post()
+                    .uri(finalUri)
+                    .headers(h -> h.addAll(libbyHeaders(token)))
+                    .retrieve()
+                    .toEntity(OverDriveChipResponse.class);
+            OverDriveChipResponse body = resp.getBody();
+            String refreshed = body != null ? body.getIdentity() : null;
+            return refreshed != null && !refreshed.isBlank() ? refreshed : token;
+        } catch (Exception e) {
+            log.warn("OverDrive: identity refresh failed, using existing token: {}", e.getMessage());
+            return token;
+        }
+      }
+
+      /** Extract the chip id from an identity JWT's payload ({@code chip.id}), or null. */
+      private static String chipIdOf(String jwt) {
+        try {
+            String[] parts = jwt.split("\\.");
+            if (parts.length < 2) {
+                return null;
+            }
+            String payload = new String(Base64.getUrlDecoder().decode(padBase64(parts[1])),
+                    StandardCharsets.UTF_8);
+            var m = CHIP_ID_PATTERN.matcher(payload);
+            return m.find() ? m.group(1) : null;
+        } catch (Exception e) {
+            return null;
+        }
+      }
+
+      private static String padBase64(String s) {
+        int pad = (4 - s.length() % 4) % 4;
+        return s + "=".repeat(pad);
+      }
+
+      /**
        * Link a Libby account to a fresh chip identity using an 8-digit setup code
        * (libbyapp.com → Settings → "Copy to another device"). All cards on that identity are linked and
        * stored for the current user (each with the shared token); a user may redeem several codes to
@@ -180,6 +260,10 @@ public class OverDriveService {
             throw new RestClientException("OverDrive setup-code registration failed: " + e.getMessage());
          }
 
+        // 2b. Re-mint the identity now that cards are linked, so the stored token is card-bound
+        // (the pre-clone identity is rejected by the fulfill endpoint — see refreshIdentity).
+        token = refreshIdentity(token);
+
         // 3. Enumerate all cards on this identity and persist a token row per card for the user.
         List<OverDriveCard> cards = fetchCards(token);
         if (cards.isEmpty()) {
@@ -190,6 +274,174 @@ public class OverDriveService {
         }
         log.info("Libby account linked for user {}: {} card(s)", currentUserId(), cards.size());
         return cards;
+      }
+
+      /**
+       * Link by pasting a Libby <b>identity token</b> copied from a signed-in browser (localStorage key
+       * {@code …:sentry.identity}, or any request's {@code Authorization: Bearer} value). This is the
+       * account's primary chip, so it can fulfill Adobe-DRM titles. Tolerates a leading {@code Bearer }
+       * and surrounding quotes. The token is validated via sync and stored per card. No credentials are
+       * stored, so it can't be auto-re-linked — when it expires, paste a fresh one.
+       */
+      public List<OverDriveCard> linkToken(String token) {
+        String t = token != null ? token.trim() : "";
+        if (t.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            t = t.substring(7).trim();
+        }
+        if (t.length() > 1 && t.startsWith("\"") && t.endsWith("\"")) {
+            t = t.substring(1, t.length() - 1).trim();
+        }
+        if (t.isEmpty()) {
+            throw new RestClientException("A Libby identity token is required.");
+        }
+        List<OverDriveCard> cards = fetchCards(t);
+        if (cards.isEmpty()) {
+            throw new RestClientException("That token linked no library cards; it may be expired or invalid.");
+        }
+        for (OverDriveCard card : cards) {
+            storeToken(card.cardId(), card.name(), card.libraryKey(), t);
+        }
+        log.info("Libby identity token linked for user {}: {} card(s)", currentUserId(), cards.size());
+        return cards;
+      }
+
+      /**
+       * Link a library card directly by card number + PIN (the Libby "add a library card" flow). Unlike
+       * a setup-code clone — which yields a secondary chip that OverDrive refuses to fulfill Adobe DRM
+       * for — this produces a <b>primary</b> chip that can fulfill. Steps mirror the web client:
+       * anonymous chip → {@code POST /auth/link/{websiteId}} with the credentials → re-mint → sync.
+       *
+       * <p>When a credential key is configured the card number/PIN are stored (encrypted) so the token
+       * can be silently re-linked on expiry; otherwise only the token is kept.
+       *
+       * @param libraryKey the OverDrive advantage key (e.g. "jocolibrary")
+       * @return the linked cards
+       */
+      public List<OverDriveCard> linkCard(String libraryKey, String cardNumber, String pin) {
+        String key = libraryKey != null ? libraryKey.trim() : "";
+        String cn = cardNumber != null ? cardNumber.trim() : "";
+        if (key.isEmpty() || cn.isEmpty()) {
+            throw new RestClientException("Library and card number are required to link a card.");
+        }
+        String websiteId = overDriveParser.fetchWebsiteId(key);
+        if (websiteId == null) {
+            throw new RestClientException("Could not resolve OverDrive library '" + key + "'. Check the library key.");
+        }
+        String ilsName = fetchIlsName(websiteId);
+        if (ilsName == null) {
+            throw new RestClientException("Could not read the sign-in form for this library; card+PIN link unsupported.");
+        }
+
+        String token = requestChip().token();
+        submitLocalAuthentication(websiteId, ilsName, cn, pin, token);
+        token = refreshIdentity(token);
+
+        List<OverDriveCard> cards = fetchCards(token);
+        if (cards.isEmpty()) {
+            throw new RestClientException("Card linked but no library card was returned; check the number and PIN.");
+        }
+        String encCard = credentialCipher.encrypt(cn);
+        String encPin = credentialCipher.encrypt(pin);
+        for (OverDriveCard card : cards) {
+            storeToken(card.cardId(), card.name(), card.libraryKey(), token);
+            storeCardCredentials(card.cardId(), websiteId, ilsName, encCard, encPin);
+        }
+        log.info("Libby card linked by number for user {}: {} card(s){}", currentUserId(), cards.size(),
+                credentialCipher.isEnabled() ? " (credentials stored for auto-relink)" : "");
+        return cards;
+      }
+
+      /** Read the library's local-auth ILS name from {@code GET /auth/forms/{websiteId}}, or null. */
+      private String fetchIlsName(String websiteId) {
+        try {
+            String body = restClient.get()
+                    .uri(sentryBaseUrl + "/auth/forms/" + websiteId)
+                    .headers(h -> h.addAll(libbyHeaders(null)))
+                    .retrieve()
+                    .body(String.class);
+            if (body == null) {
+                return null;
+            }
+            // Pick the first non-ghost ilsName (the local sign-in form).
+            var m = java.util.regex.Pattern.compile("\"ilsName\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
+            while (m.find()) {
+                if (!"_ghost".equals(m.group(1))) {
+                    return m.group(1);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("OverDrive: could not fetch auth forms for websiteId {}: {}", websiteId, e.getMessage());
+        }
+        return null;
+      }
+
+      /** POST /auth/link/{websiteId} with {ils, username, password} to link a card to the chip. */
+      private void submitLocalAuthentication(String websiteId, String ilsName, String cardNumber, String pin,
+                                             String token) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("ils", ilsName);
+        body.put("username", cardNumber);
+        body.put("password", pin);
+        HttpHeaders headers = libbyHeaders(token);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        try {
+            restClient.post()
+                    .uri(sentryBaseUrl + "/auth/link/" + websiteId)
+                    .headers(h -> h.addAll(headers))
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (Exception e) {
+            log.error("OverDrive card link failed for websiteId {}: {}", websiteId, e.getMessage());
+            throw new RestClientException("OverDrive card link failed (check the card number and PIN): "
+                    + e.getMessage());
+        }
+      }
+
+      /** Persist the library ids + encrypted credentials onto the stored token row for a card. */
+      @Transactional
+      public void storeCardCredentials(String identity, String websiteId, String ilsName, String encCard,
+                                       String encPin) {
+        tokenRepository.findByUserIdAndIdentity(currentUserId(), identity).ifPresent(entity -> {
+            entity.setWebsiteId(websiteId);
+            entity.setIlsName(ilsName);
+            entity.setCredCard(encCard);
+            entity.setCredPin(encPin);
+            tokenRepository.save(entity);
+        });
+      }
+
+      /**
+       * Silently re-link a card from its stored (encrypted) credentials to mint a fresh primary token,
+       * updating the stored row. Returns the new token, or null when no usable credentials are stored
+       * (no credential key configured, or card linked via setup code). Never throws.
+       */
+      private String relinkCard(String cardId) {
+        if (!credentialCipher.isEnabled()) {
+            return null;
+        }
+        var row = tokenRepository.findByUserIdAndIdentity(currentUserId(), cardId).orElse(null);
+        if (row == null || row.getCredCard() == null || row.getWebsiteId() == null || row.getIlsName() == null) {
+            return null;
+        }
+        String cn = credentialCipher.decrypt(row.getCredCard());
+        String pin = credentialCipher.decrypt(row.getCredPin());
+        if (cn == null) {
+            return null;
+        }
+        try {
+            String token = requestChip().token();
+            submitLocalAuthentication(row.getWebsiteId(), row.getIlsName(), cn, pin, token);
+            token = refreshIdentity(token);
+            row.setToken(token);
+            row.setExpiresAt(Instant.now().getEpochSecond() + 3600);
+            tokenRepository.save(row);
+            log.info("OverDrive: re-linked card {} from stored credentials", cardId);
+            return token;
+        } catch (Exception e) {
+            log.warn("OverDrive: auto-relink failed for card {}: {}", cardId, e.getMessage());
+            return null;
+        }
       }
 
       /** Read all library cards from a sync as {@link OverDriveCard}s (id + best-effort display name). */
@@ -333,36 +585,22 @@ public class OverDriveService {
        * Returns the ACSM fulfillment token content as base64.
        */
       public String fulfill(String identity, String authToken, String loanId) {
-        authToken = resolveToken(identity, authToken);
-        String url = sentryBaseUrl + "/card/" + identity + "/loan/" + loanId + "/fulfill/" + FORMAT_EPUB_ADOBE;
-        HttpHeaders headers = libbyHeaders(authToken);
-        headers.set(HttpHeaders.ACCEPT, MediaType.APPLICATION_OCTET_STREAM_VALUE);
+        authToken = refreshIdentity(resolveToken(identity, authToken));
+        byte[] body = fetchFulfillment(identity, authToken, loanId, FORMAT_EPUB_ADOBE);
+        if (body == null || body.length == 0) {
+            log.warn("OverDrive fulfill returned empty body for loan {}", loanId);
+            return null;
+        }
 
-        try {
-            ResponseEntity<byte[]> resp = restClient.get()
-                    .uri(url)
-                    .headers(h -> h.addAll(headers))
-                    .retrieve()
-                    .toEntity(byte[].class);
+        // Mark loan as fulfilled
+        loanRepository.findByOverdriveLoanIdAndIdentity(loanId, identity)
+                .ifPresent(entity -> {
+                    entity.setFulfilled(true);
+                    loanRepository.save(entity);
+                });
 
-            if (resp.getBody() == null) {
-                log.warn("OverDrive fulfill returned empty body for loan {}", loanId);
-                return null;
-             }
-
-             // Mark loan as fulfilled
-            loanRepository.findByOverdriveLoanIdAndIdentity(loanId, identity)
-                    .ifPresent(entity -> {
-                        entity.setFulfilled(true);
-                        loanRepository.save(entity);
-                     });
-
-            log.info("OverDrive loan fulfilled: {} bytes for loan {}", resp.getBody().length, loanId);
-            return Base64.getEncoder().encodeToString(resp.getBody());
-         } catch (Exception e) {
-            log.error("OverDrive fulfill failed for loan {}: {}", loanId, e.getMessage());
-            throw new RestClientException("OverDrive fulfill failed: " + e.getMessage());
-         }
+        log.info("OverDrive loan fulfilled: {} bytes for loan {}", body.length, loanId);
+        return Base64.getEncoder().encodeToString(body);
       }
 
       /**
@@ -388,7 +626,11 @@ public class OverDriveService {
         try {
             Object raw = restClient.post()
                     .uri(url)
-                    .body(new HttpEntity<>(body, headers))
+                    // Apply headers via .headers(): RestClient does not unwrap an HttpEntity passed to
+                    // .body(), so the bearer token / browser UA / Referer would otherwise be dropped
+                    // and Sentry 403s the request.
+                    .headers(h -> h.addAll(headers))
+                    .body(body)
                     .retrieve()
                     .toEntity(Map.class)
                     .getBody();
@@ -420,20 +662,192 @@ public class OverDriveService {
       }
 
       /**
-       * Fulfill a DRM-free open format (EPUB or PDF). The fulfill endpoint 302s to a fulfillment URL
-       * that redirects again to the open-content CDN; the RestClient follows the chain and returns the
-       * file bytes.
+       * Fulfill a DRM-free open format (EPUB or PDF). Delegates to {@link #fetchFulfillment}, which
+       * follows the fulfill → CDN redirect chain the way the endpoint requires.
        */
       private byte[] fulfillOpen(String cardId, String authToken, String loanId, String formatId) {
+        return fetchFulfillment(cardId, authToken, loanId, formatId);
+      }
+
+      /** A resolved loan: the id to fulfill against and the fulfillment format ids it advertises. */
+      private record LoanRef(String loanId, List<String> formatIds) {}
+
+      /**
+       * Look for a title already on loan for this card (via sync) so borrow-and-import can resume
+       * without borrowing again — a prior attempt may have borrowed it but failed later. Returns null
+       * when there is no matching active loan, or when it advertises no usable formats (the caller then
+       * borrows normally). Never throws.
+       */
+      private LoanRef findActiveLoan(String cardId, String authToken, String titleId) {
+        if (titleId == null || titleId.isBlank()) {
+            return null;
+        }
+        try {
+            OverDriveSyncResponse synced = sync(cardId, authToken);
+            if (synced == null || synced.getLoans() == null) {
+                return null;
+            }
+            for (OverDriveLoan l : synced.getLoans()) {
+                if (!titleId.equals(l.getId())) {
+                    continue;
+                }
+                List<String> fmts = new ArrayList<>();
+                if (l.getFormats() != null) {
+                    for (OverDriveFormat f : l.getFormats()) {
+                        if (f.getId() != null && !fmts.contains(f.getId())) {
+                            fmts.add(f.getId());
+                        }
+                    }
+                }
+                if (l.getFormat() != null && l.getFormat().getId() != null && !fmts.contains(l.getFormat().getId())) {
+                    fmts.add(l.getFormat().getId());
+                }
+                // Found the loan but can't tell which format to fulfill — let the caller borrow instead.
+                return fmts.isEmpty() ? null : new LoanRef(l.getId(), fmts);
+            }
+        } catch (Exception e) {
+            log.warn("OverDrive: could not check for an existing loan on title {}: {}", titleId, e.getMessage());
+        }
+        return null;
+      }
+
+      // Plain JDK clients for the fulfill hop (Spring's RestClient trips the fulfillment WAF/redirects).
+      private static final HttpClient FULFILL_CLIENT_FOLLOW = HttpClient.newBuilder()
+              .followRedirects(HttpClient.Redirect.NORMAL)
+              .connectTimeout(Duration.ofSeconds(30))
+              .build();
+
+      /** Browser-like Libby API request (Accept: application/json + Origin), optional bearer. */
+      private static HttpRequest.Builder apiRequest(String url, String bearerToken) {
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", REFERER)
+                .header("Origin", ORIGIN)
+                .header("Accept", "application/json")
+                .header("Cache-Control", "no-cache")
+                .header("Pragma", "no-cache")
+                .GET();
+        if (bearerToken != null && !bearerToken.isBlank()) {
+            b.header("Authorization", "Bearer " + bearerToken);
+        }
+        return b;
+      }
+
+      /**
+       * Fetch a loan's fulfillment content (ACSM for Adobe, or the file for open formats), following
+       * the Libby web client's contract verified against a live browser capture:
+       * <ol>
+       *   <li>{@code GET card/{card}/loan/{loan}/fulfill/{format}} with {@code Accept: application/json}
+       *       + {@code Origin}.</li>
+       *   <li>A {@code 403 {"result":"missing_chip"}} means the chip isn't registered yet: re-mint it
+       *       ({@link #refreshIdentity}) and retry once.</li>
+       *   <li>A {@code 403 {"result":"whoa"}} is OverDrive rate-limiting: fail fast, no retry.</li>
+       *   <li>On success the JSON body carries {@code fulfill.href} — a pre-signed content URL we then
+       *       GET (without auth) to obtain the bytes.</li>
+       * </ol>
+       */
+      private byte[] fetchFulfillment(String cardId, String authToken, String loanId, String formatId) {
         String url = sentryBaseUrl + "/card/" + cardId + "/loan/" + loanId + "/fulfill/" + formatId;
-        HttpHeaders headers = libbyHeaders(authToken);
-        headers.set(HttpHeaders.ACCEPT, "*/*");
-        ResponseEntity<byte[]> resp = restClient.get()
-                .uri(url)
-                .headers(h -> h.addAll(headers))
-                .retrieve()
-                .toEntity(byte[].class);
-        return resp.getBody();
+        try {
+            HttpResponse<byte[]> resp = FULFILL_CLIENT_FOLLOW.send(
+                    apiRequest(url, authToken).build(), HttpResponse.BodyHandlers.ofByteArray());
+            String body = resp.body() != null ? new String(resp.body(), StandardCharsets.UTF_8) : "";
+            String result = firstMatch(RESULT_PATTERN, body);
+            log.info("OverDrive fulfill {} loan {}: status {}{}", formatId, loanId, resp.statusCode(),
+                    result != null ? " result=" + result : "");
+
+            if ("missing_chip".equals(result)) {
+                // Chip not yet registered for fulfillment — re-mint and retry once (as the web client does).
+                String refreshed = refreshIdentity(authToken);
+                resp = FULFILL_CLIENT_FOLLOW.send(
+                        apiRequest(url, refreshed).build(), HttpResponse.BodyHandlers.ofByteArray());
+                body = resp.body() != null ? new String(resp.body(), StandardCharsets.UTF_8) : "";
+                result = firstMatch(RESULT_PATTERN, body);
+                log.info("OverDrive fulfill {} loan {} (retry): status {}{}", formatId, loanId, resp.statusCode(),
+                        result != null ? " result=" + result : "");
+            }
+
+            if ("missing_chip".equals(result)) {
+                // Still unregistered — the stored token/chip is likely dead. Re-link from stored
+                // credentials (if available) to mint a fresh primary token, then retry once more.
+                String relinked = relinkCard(cardId);
+                if (relinked != null) {
+                    resp = FULFILL_CLIENT_FOLLOW.send(
+                            apiRequest(url, relinked).build(), HttpResponse.BodyHandlers.ofByteArray());
+                    body = resp.body() != null ? new String(resp.body(), StandardCharsets.UTF_8) : "";
+                    result = firstMatch(RESULT_PATTERN, body);
+                    log.info("OverDrive fulfill {} loan {} (post-relink): status {}{}", formatId, loanId,
+                            resp.statusCode(), result != null ? " result=" + result : "");
+                }
+            }
+
+            if ("whoa".equals(result)) {
+                throw new RestClientException("OverDrive is rate-limiting fulfillment (\"whoa\") for loan "
+                        + loanId + " — wait a while before trying again.");
+            }
+
+            String href = firstMatch(HREF_PATTERN, body);
+            if (href != null && !href.isBlank()) {
+                return downloadContent(href, loanId);
+            }
+            // Some formats may return the bytes directly rather than a JSON href.
+            if (resp.statusCode() < 300 && resp.body() != null && resp.body().length > 0 && !body.startsWith("{")) {
+                return resp.body();
+            }
+            throw new RestClientException("OverDrive fulfill failed (status " + resp.statusCode()
+                    + (result != null ? ", result=" + result : "") + ") for loan " + loanId + bodySnippet(resp.body()));
+        } catch (IOException e) {
+            log.error("OverDrive fulfill IO error for loan {}: {}", loanId, e.getMessage());
+            throw new RestClientException("OverDrive fulfill failed for loan " + loanId + ": " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RestClientException("OverDrive fulfill interrupted for loan " + loanId);
+        }
+      }
+
+      /** GET a pre-signed fulfillment content URL (ACSM/open file) without auth; returns the bytes. */
+      private byte[] downloadContent(String href, String loanId) throws IOException, InterruptedException {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(href))
+                .header("User-Agent", USER_AGENT)
+                .header("Referer", REFERER)
+                .header("Accept", "*/*")
+                .GET()
+                .build();
+        HttpResponse<byte[]> resp = FULFILL_CLIENT_FOLLOW.send(req, HttpResponse.BodyHandlers.ofByteArray());
+        log.info("OverDrive content download ({}): status {}", safeHost(href), resp.statusCode());
+        if (resp.statusCode() >= 400 || resp.body() == null || resp.body().length == 0) {
+            throw new RestClientException("OverDrive content download failed (" + resp.statusCode()
+                    + ") for loan " + loanId);
+        }
+        return resp.body();
+      }
+
+      private static String firstMatch(java.util.regex.Pattern p, String s) {
+        if (s == null || s.isEmpty()) {
+            return null;
+        }
+        var m = p.matcher(s);
+        return m.find() ? m.group(1) : null;
+      }
+
+      /** A short, single-line snippet of a response body for error messages (empty string if blank). */
+      private static String bodySnippet(byte[] body) {
+        if (body == null || body.length == 0) {
+            return "";
+        }
+        String text = new String(body, StandardCharsets.UTF_8).replaceAll("\\s+", " ").strip();
+        if (text.isBlank()) {
+            return "";
+        }
+        return ": " + (text.length() > 300 ? text.substring(0, 300) + "…" : text);
+      }
+
+      private static String safeHost(String url) {
+        try {
+            return URI.create(url).getHost();
+        } catch (Exception e) {
+            return "?";
+        }
       }
 
       /**
@@ -527,6 +941,93 @@ public class OverDriveService {
         return new OverDriveLibraryResolution(name != null, key, name);
       }
 
+      /**
+       * A passive, read-only diagnostics snapshot of what has already happened: configuration/feature
+       * flags, the current user's linked cards (with the chip identity decoded from the stored token —
+       * primary vs secondary, account group, credential storage), and the locally-recorded loans. It
+       * makes <b>no</b> live Libby calls and takes no input, so it never triggers fulfillment or
+       * re-minting (and can't contribute to rate-limiting). Never throws.
+       */
+      public Map<String, Object> diagnose() {
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("sentryBaseUrl", sentryBaseUrl);
+        r.put("clientId", clientId);
+        r.put("adminLibraryKey", adminLibraryKey());
+        r.put("formatPreference", formatPreference());
+        r.put("acsmHandlerConfigured", acsmHandler.isConfigured());
+        r.put("credentialStorageEnabled", credentialCipher.isEnabled());
+
+        Long userId = currentUserId();
+
+        List<Map<String, Object>> cards = new ArrayList<>();
+        for (OverDriveTokenEntity t : tokenRepository.findByUserId(userId)) {
+            Map<String, Object> cm = new LinkedHashMap<>();
+            cm.put("cardId", t.getIdentity());
+            cm.put("name", t.getCardName());
+            cm.put("libraryKey", t.getLibraryKey());
+            cm.put("websiteId", t.getWebsiteId());
+            cm.put("ilsName", t.getIlsName());
+            cm.put("hasToken", t.getToken() != null && !t.getToken().isBlank());
+            cm.put("tokenLength", t.getToken() != null ? t.getToken().length() : 0);
+            cm.put("expiresAt", t.getExpiresAt());
+            cm.put("credentialsStored", t.getCredCard() != null);
+            cm.put("chip", chipSummary(t.getToken()));
+            cards.add(cm);
+        }
+        r.put("cards", cards);
+
+        List<Map<String, Object>> loans = new ArrayList<>();
+        for (OverDriveLoanEntity l : loanRepository.findByUserId(userId)) {
+            Map<String, Object> lm = new LinkedHashMap<>();
+            lm.put("loanId", l.getOverdriveLoanId());
+            lm.put("title", l.getTitle());
+            lm.put("author", l.getAuthor());
+            lm.put("state", l.getState());
+            lm.put("formatId", l.getFormatId());
+            lm.put("fulfilled", l.getFulfilled());
+            lm.put("bookId", l.getBookId());
+            lm.put("expireDate", l.getExpireDate() != null ? l.getExpireDate().toString() : null);
+            lm.put("lastSync", l.getLastSync() != null ? l.getLastSync().toString() : null);
+            loans.add(lm);
+        }
+        r.put("loans", loans);
+        return r;
+      }
+
+      /**
+       * Decode the chip identity from a stored JWT (no network): whether it's a primary chip
+       * ({@code pri == id}, fulfillment-capable) vs a secondary, its account group, and whether the
+       * token carries cards. Purely reports the token's current state.
+       */
+      private Map<String, Object> chipSummary(String token) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        if (token == null || token.isBlank()) {
+            return m;
+        }
+        try {
+            String[] parts = token.split("\\.");
+            if (parts.length < 2) {
+                return m;
+            }
+            String payload = new String(Base64.getUrlDecoder().decode(padBase64(parts[1])), StandardCharsets.UTF_8);
+            String id = firstMatch(CHIP_ID_PATTERN, payload);
+            String pri = firstMatch(java.util.regex.Pattern.compile("\"pri\"\\s*:\\s*\"([^\"]+)\""), payload);
+            String ag = firstMatch(java.util.regex.Pattern.compile("\"ag\"\\s*:\\s*(null|\\d+)"), payload);
+            m.put("chipId", id);
+            m.put("primary", id != null && id.equals(pri)); // pri==id => primary => can fulfill Adobe DRM
+            m.put("accountGroup", "null".equals(ag) ? null : ag);
+            m.put("hasCards", payload.matches("(?s).*\"cards\"\\s*:\\s*\\[\\[.*"));
+        } catch (Exception e) {
+            m.put("error", e.getMessage());
+        }
+        return m;
+      }
+
+      /** Whether card credentials can be stored (auto-relink); false unless a credential key is set. */
+      public boolean credentialStorageEnabled() {
+        return credentialCipher.isEnabled();
+      }
+
       /** The admin-configured OverDrive library key from metadata provider settings, or null. */
       private String adminLibraryKey() {
         var appSettings = appSettingService.getAppSettings();
@@ -545,10 +1046,21 @@ public class OverDriveService {
        */
       public Book borrowAndImport(String identity, String authToken, String titleId, long libraryId, long pathId,
                                   String title, String author, String coverUrl, String isbn) {
-        authToken = resolveToken(identity, authToken);
-        Map<String, Object> loan = borrowLoan(identity, authToken, titleId);
-        String loanId = loan.get("id").toString();
-        List<String> formats = loanFormatIds(loan);
+        // Re-mint to a card-bound identity so the fulfill step is authorized (see refreshIdentity).
+        authToken = refreshIdentity(resolveToken(identity, authToken));
+
+        // Resume an already-borrowed title rather than borrowing again: a prior attempt may have
+        // borrowed the title but failed at fulfill/import, leaving the loan (and a consumed checkout
+        // slot) in place. Borrowing is not automatically retried; we only pick up the existing loan.
+        LoanRef loan = findActiveLoan(identity, authToken, titleId);
+        if (loan != null) {
+            log.info("OverDrive: resuming existing loan {} for title {} (skipping re-borrow)", loan.loanId(), titleId);
+        } else {
+            Map<String, Object> borrowed = borrowLoan(identity, authToken, titleId);
+            loan = new LoanRef(borrowed.get("id").toString(), loanFormatIds(borrowed));
+        }
+        String loanId = loan.loanId();
+        List<String> formats = loan.formatIds();
 
         String chosenFormat = chooseFormat(formats);
         if (chosenFormat == null) {
@@ -719,22 +1231,7 @@ public class OverDriveService {
            }
 
             private byte[] getAcsm(String identity, String authToken, String loanId, String formatId) {
-               String url = sentryBaseUrl + "/card/" + identity + "/loan/" + loanId + "/fulfill/" + formatId;
-               HttpHeaders headers = libbyHeaders(authToken);
-               headers.set(HttpHeaders.ACCEPT, MediaType.APPLICATION_OCTET_STREAM_VALUE);
-
-               try {
-                   ResponseEntity<byte[]> resp = restClient.get()
-                            .uri(url)
-                            .headers(h -> h.addAll(headers))
-                            .retrieve()
-                            .toEntity(byte[].class);
-
-                   return (resp.getBody() != null) ? resp.getBody() : new byte[0];
-                 } catch (Exception e) {
-                   log.error("Failed to get ACSM for loan {}: {}", loanId, e.getMessage());
-                   return null;
-                 }
+               return fetchFulfillment(identity, authToken, loanId, formatId);
              }
 
             // ── Persistence Helpers ──────────────────────────────────────────────

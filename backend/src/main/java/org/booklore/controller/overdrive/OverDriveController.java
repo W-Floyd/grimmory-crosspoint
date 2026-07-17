@@ -78,6 +78,63 @@ public class OverDriveController {
     }
 
     /**
+     * POST /api/overdrive/link-token — link by pasting a Libby identity token from a signed-in browser.
+     * That token is the account's primary chip, so it can fulfill Adobe-DRM titles.
+     */
+    @Operation(summary = "Link by pasting a Libby identity token",
+               description = "Links the cards on a Libby identity token copied from a signed-in browser (localStorage …:sentry.identity, or an Authorization: Bearer value). Primary chip → can fulfill Adobe-DRM titles.")
+    @ApiResponse(responseCode = "200", description = "Token accepted; linked cards returned")
+    @ApiResponse(responseCode = "400", description = "Token missing, expired, or linked no cards")
+    @PostMapping("/link-token")
+    public ResponseEntity<List<OverDriveCard>> linkToken(
+            @RequestBody Map<String, String> body
+    ) {
+        requireEnabled();
+        String token = body != null ? body.get("token") : null;
+        if (token == null || token.isBlank()) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("token is required");
+        }
+        try {
+            return ResponseEntity.ok(overDriveService.linkToken(token));
+        } catch (APIException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("OverDrive token link failed: {}", e.getMessage());
+            throw ApiError.GENERIC_BAD_REQUEST.createException(
+                    e.getMessage() != null ? e.getMessage() : "OverDrive token link failed");
+        }
+    }
+
+    /**
+     * POST /api/overdrive/link-card — link a library card directly by number + PIN. Produces a
+     * fulfillment-capable primary chip (unlike a setup code, which yields a browse-only secondary).
+     */
+    @Operation(summary = "Link a library card by number + PIN",
+               description = "Links a card via the library's local sign-in (card number + PIN), yielding a primary chip that can fulfill Adobe-DRM titles. Optionally stores the credentials (encrypted) for silent re-link when the token expires.")
+    @ApiResponse(responseCode = "200", description = "Card linked; linked cards returned")
+    @ApiResponse(responseCode = "400", description = "Invalid credentials or unsupported library")
+    @PostMapping("/link-card")
+    public ResponseEntity<List<OverDriveCard>> linkCard(
+            @RequestBody OverDriveLinkCardRequest request
+    ) {
+        requireEnabled();
+        if (request == null || request.getLibraryKey() == null || request.getLibraryKey().isBlank()
+                || request.getCardNumber() == null || request.getCardNumber().isBlank()) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("libraryKey and cardNumber are required");
+        }
+        try {
+            return ResponseEntity.ok(overDriveService.linkCard(
+                    request.getLibraryKey(), request.getCardNumber(), request.getPin()));
+        } catch (APIException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("OverDrive card link failed: {}", e.getMessage());
+            throw ApiError.GENERIC_BAD_REQUEST.createException(
+                    e.getMessage() != null ? e.getMessage() : "OverDrive card link failed");
+        }
+    }
+
+    /**
      * GET /api/overdrive/cards — the current user's linked library cards.
      */
     @Operation(summary = "List the current user's linked Libby cards",
@@ -139,7 +196,35 @@ public class OverDriveController {
     @ApiResponse(responseCode = "200", description = "Capabilities returned")
     @GetMapping("/capabilities")
     public ResponseEntity<OverDriveCapabilities> capabilities() {
-        return ResponseEntity.ok(new OverDriveCapabilities(acsmHandler.isConfigured()));
+        return ResponseEntity.ok(new OverDriveCapabilities(
+                acsmHandler.isConfigured(), overDriveService.credentialStorageEnabled()));
+    }
+
+    /**
+     * GET /api/overdrive/diagnostics — a passive, read-only snapshot of current state (config, linked
+     * cards with decoded chip identity, and locally-recorded loans). Makes no live Libby calls and
+     * takes no input, so it never triggers fulfillment/borrow or affects rate-limiting.
+     */
+    @Operation(summary = "OverDrive diagnostics snapshot",
+               description = "Reports current state only — feature flags, linked cards (chip primary/secondary, credential storage), and locally recorded loans. Read-only: no live OverDrive calls, no inputs.")
+    @ApiResponse(responseCode = "200", description = "Diagnostics report returned")
+    @GetMapping("/diagnostics")
+    public ResponseEntity<Map<String, Object>> diagnostics() {
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("generatedAt", java.time.Instant.now().toString());
+        report.put("enabled", overdriveProperties.isEnabled());
+        Map<String, Object> acsm = new LinkedHashMap<>();
+        acsm.put("enabled", acsmHandlerConfig.isEnabled());
+        acsm.put("toolPathPresent", acsmHandlerConfig.getToolPath() != null && !acsmHandlerConfig.getToolPath().isBlank());
+        acsm.put("toolArgs", acsmHandlerConfig.getToolArgs());
+        acsm.put("timeoutSeconds", acsmHandlerConfig.getTimeoutSeconds());
+        report.put("acsm", acsm);
+        try {
+            report.putAll(overDriveService.diagnose());
+        } catch (Exception e) {
+            report.put("error", e.getMessage());
+        }
+        return ResponseEntity.ok(report);
     }
 
     /**
@@ -224,8 +309,18 @@ public class OverDriveController {
             @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
             @Parameter(description = "Loan ID to fulfill") @PathVariable String loanId
     ) {
-        String acsmBase64 = overDriveService.fulfill(identity, token, loanId);
-        return ResponseEntity.ok(new OverDriveFulfillResult(acsmBase64));
+        requireEnabled();
+        try {
+            String acsmBase64 = overDriveService.fulfill(identity, token, loanId);
+            return ResponseEntity.ok(new OverDriveFulfillResult(acsmBase64));
+        } catch (APIException e) {
+            throw e;
+        } catch (Exception e) {
+            // Surface fulfill failures as a readable 400 rather than an opaque 500.
+            log.warn("OverDrive fulfill failed: {}", e.getMessage());
+            throw ApiError.GENERIC_BAD_REQUEST.createException(
+                    e.getMessage() != null ? e.getMessage() : "OverDrive fulfill failed");
+        }
          }
 
              /**
@@ -405,7 +500,7 @@ public class OverDriveController {
 
     // ── Response DTOs ────────────────────────────────────────────────────
 
-    record OverDriveCapabilities(boolean acsmHandlerConfigured) {}
+    record OverDriveCapabilities(boolean acsmHandlerConfigured, boolean credentialStorageEnabled) {}
 
     record OverDriveChipResult(String identity, String token) {}
 
