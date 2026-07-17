@@ -127,4 +127,23 @@
      class="mt-4"
     />
   </div>
+
+  <div class="settings-card">
+    <h3 class="diagnostics-title">Diagnostics</h3>
+    <p class="settings-description">
+      A read-only snapshot of current state — config, linked cards (including whether each chip is a
+      primary that can download DRM titles), and recorded loans. Makes no OverDrive calls.
+    </p>
+    <div>
+      <p-button label="Load diagnostics" icon="pi pi-refresh" [loading]="runningDiagnostics()" (onClick)="runDiagnostics()" />
+    </div>
+    <div *ngIf="diagnosticsJson() as json" class="diagnostics-output">
+      <div class="diagnostics-actions">
+        <p-button label="Copy" icon="pi pi-copy" severity="secondary" size="small" (onClick)="copyDiagnostics()" />
+        <p-button label="Download JSON" icon="pi pi-download" severity="secondary" size="small" (onClick)="downloadDiagnostics()" />
+        <p-button label="Clear" icon="pi pi-times" severity="secondary" size="small" [text]="true" (onClick)="clearDiagnostics()" />
+      </div>
+      <pre class="diagnostics-json">{{ json }}</pre>
+    </div>
+  </div>
 </div>

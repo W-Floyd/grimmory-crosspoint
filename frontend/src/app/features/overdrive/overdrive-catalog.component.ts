@@ -8,7 +8,6 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
-import { ProgressSpinnerModule } from 'primeng/progressspinner';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { TooltipModule } from 'primeng/tooltip';
@@ -29,7 +28,6 @@ import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
     CardModule,
     TableModule,
     SelectModule,
-    ProgressSpinnerModule,
     ToastModule,
     TooltipModule,
     InputTextModule
@@ -50,26 +48,10 @@ export class OverdriveCatalogComponent {
   holds = signal<OverDriveHold[]>([]);
   libraries = signal<OverDriveLibrary[]>([]);
 
-   // Linked Libby cards (per user); the selected card drives sync/borrow/return.
+   // Linked Libby cards (per user); the selected card drives sync/borrow/return. Linking/unlinking and
+   // diagnostics live on the OverDrive settings page — this page is browse/borrow only.
   cards = signal<OverDriveCard[]>([]);
   selectedCard = signal<OverDriveCard | null>(null);
-
-   // Setup code input
-  setupCode = signal('');
-  connecting = signal(false);
-
-   // Link by card number + PIN (produces a fulfillment-capable primary card).
-  linkLibraryKey = signal('');
-  linkCardNumber = signal('');
-  linkPin = signal('');
-  linkingCard = signal(false);
-
-   // Link by pasting a Libby identity token from a signed-in browser.
-  identityToken = signal('');
-  linkingToken = signal(false);
-
-   // Whether OVERDRIVE_CREDENTIAL_KEY is set (enables encrypted credential storage + auto-relink).
-  credentialStorageEnabled = signal(false);
 
    // Catalog search + import
   readonly grimmoryLibraries = this.libraryService.libraries;
@@ -84,16 +66,8 @@ export class OverdriveCatalogComponent {
   // Title ids the user has explicitly chosen to re-borrow despite already being in the library.
   reborrowOverrides = signal<Set<string>>(new Set());
 
-   // Diagnostics: a passive, read-only state snapshot (no live calls, no inputs).
-  diagnosticsJson = signal<string | null>(null);
-  runningDiagnostics = signal(false);
-
    constructor() {
      this.loadCards();
-     this.overdriveService.capabilities().subscribe({
-       next: (c) => this.credentialStorageEnabled.set(!!c?.credentialStorageEnabled),
-       error: () => { /* leave defaults */ }
-     });
    }
 
    cardLabel(card: OverDriveCard | null): string {
@@ -110,7 +84,9 @@ export class OverdriveCatalogComponent {
            const preferred = preferCardId ? cards.find(c => c.cardId === preferCardId) : undefined;
            const current = this.selectedCard();
            const stillPresent = current ? cards.find(c => c.cardId === current.cardId) : undefined;
-           this.selectedCard.set(preferred ?? stillPresent ?? cards[0]);
+           const selected = preferred ?? stillPresent ?? cards[0];
+           this.selectedCard.set(selected);
+           this.applyCardDefault(selected);
            this.onLoadLoans();
          } else {
            this.selectedCard.set(null);
@@ -123,116 +99,35 @@ export class OverdriveCatalogComponent {
    onCardChange(card: OverDriveCard | null): void {
      this.selectedCard.set(card);
      if (card) {
+       this.applyCardDefault(card);
        this.onLoadLoans();
      }
    }
 
-   onConnect(): void {
-     const code = this.setupCode().trim();
-     if (!code) {
-       this.error.set('Setup code is required');
-       return;
-       }
+   /** Pre-select the destination from the card's remembered default (resolved against known libraries). */
+   private applyCardDefault(card: OverDriveCard): void {
+     const libs = this.grimmoryLibraries();
+     const library = card.defaultLibraryId != null ? libs.find(l => l.id === card.defaultLibraryId) ?? null : null;
+     this.selectedLibrary.set(library);
+     const path = (library && card.defaultPathId != null)
+       ? library.paths?.find(p => p.id === card.defaultPathId) ?? null
+       : null;
+     this.selectedPath.set(path);
+   }
 
-     this.connecting.set(true);
-     this.error.set(null);
-
-     this.overdriveService.redeemSetupCode(code).subscribe({
-       next: (linked) => {
-         this.setupCode.set('');
-         this.messageService.add({
-           severity: 'success',
-           summary: 'Connected',
-           detail: `Linked ${linked.length} card(s)`
-          });
-         this.connecting.set(false);
-         this.loadCards(linked[0]?.cardId);
-         },
-       error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Connection failed'));
-         this.connecting.set(false);
-         }
-      });
-     }
-
-   onLinkCard(): void {
-     const key = this.linkLibraryKey().trim();
-     const card = this.linkCardNumber().trim();
-     if (!key || !card) {
-       this.error.set('Library key and card number are required');
-       return;
-       }
-     this.linkingCard.set(true);
-     this.error.set(null);
-     this.overdriveService.linkCard(key, card, this.linkPin().trim()).subscribe({
-       next: (linked) => {
-         this.messageService.add({
-           severity: 'success',
-           summary: 'Card linked',
-           detail: `Linked ${linked.length} card(s) by number`
-          });
-         this.linkCardNumber.set('');
-         this.linkPin.set('');
-         this.linkingCard.set(false);
-         this.loadCards(linked[0]?.cardId);
-         },
-       error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Card link failed'));
-         this.linkingCard.set(false);
-         }
-       });
-     }
-
-   onLinkToken(): void {
-     const token = this.identityToken().trim();
-     if (!token) {
-       this.error.set('Paste your Libby identity token first');
-       return;
-       }
-     this.linkingToken.set(true);
-     this.error.set(null);
-     this.overdriveService.linkToken(token).subscribe({
-       next: (linked) => {
-         this.messageService.add({
-           severity: 'success',
-           summary: 'Token linked',
-           detail: `Linked ${linked.length} card(s) from token`
-          });
-         this.identityToken.set('');
-         this.linkingToken.set(false);
-         this.loadCards(linked[0]?.cardId);
-         },
-       error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Token link failed'));
-         this.linkingToken.set(false);
-         }
-       });
-     }
-
-   /** Unlink a card (clear its stored token/credentials) and refresh the picker. */
-   onUnlinkCard(card: OverDriveCard): void {
-     this.overdriveService.removeCard(card.cardId).subscribe({
-       next: () => {
-         this.messageService.add({ severity: 'success', summary: 'Unlinked', detail: `Removed ${this.cardLabel(card)}` });
-         if (this.selectedCard()?.cardId === card.cardId) {
-           this.selectedCard.set(null);
-         }
-         this.loadCards();
-         },
-       error: (err: unknown) => this.error.set(this.errorMessage(err, 'Unlink failed'))
-       });
-     }
-
-   /** Refresh a card+PIN card's token by re-linking from its stored credentials. */
-   onRefreshCard(card: OverDriveCard): void {
-     this.overdriveService.refreshCard(card.cardId).subscribe({
-       next: () => {
-         this.messageService.add({ severity: 'success', summary: 'Refreshed', detail: `Re-linked ${this.cardLabel(card)}` });
-         this.onLoadLoans();
-         },
-       error: (err: unknown) => this.error.set(this.errorMessage(err, 'Refresh failed'))
-       });
-     }
+   /** Persist the current destination as the selected card's default (fire-and-forget) and keep it locally. */
+   private persistCardDefault(): void {
+     const card = this.selectedCard();
+     if (!card) return;
+     const libraryId = this.selectedLibrary()?.id ?? null;
+     const pathId = this.selectedPath()?.id ?? null;
+     this.overdriveService.setDefaultLibrary(card.cardId, libraryId, pathId).subscribe({
+       error: (err: unknown) => this.error.set(this.errorMessage(err, 'Failed to save default library'))
+     });
+     const updated = { ...card, defaultLibraryId: libraryId, defaultPathId: pathId };
+     this.selectedCard.set(updated);
+     this.cards.update(cs => cs.map(c => c.cardId === card.cardId ? updated : c));
+   }
 
    onLoadLoans(): void {
      const card = this.selectedCard();
@@ -262,6 +157,12 @@ export class OverdriveCatalogComponent {
      this.selectedLibrary.set(library);
      // Auto-select the only path, otherwise clear.
      this.selectedPath.set(library?.paths?.length === 1 ? library.paths[0] : null);
+     this.persistCardDefault();
+   }
+
+   onPathChange(path: LibraryPath | null): void {
+     this.selectedPath.set(path);
+     this.persistCardDefault();
    }
 
    onSearch(): void {
@@ -296,17 +197,13 @@ export class OverdriveCatalogComponent {
        this.error.set('This title is not borrowable');
        return;
        }
-     if (!library?.id || !path?.id) {
-       this.error.set('Select a destination library and path');
-       return;
-       }
 
      this.importingTitleId.set(item.titleId);
      this.error.set(null);
      this.overdriveService.borrowAndImport(card.cardId, {
        titleId: item.titleId,
-       libraryId: library.id,
-       pathId: path.id,
+       libraryId: library?.id ?? null,
+       pathId: path?.id ?? null,
        title: this.fullTitle(item),
        author: item.author,
        coverUrl: item.coverUrl,
@@ -314,12 +211,20 @@ export class OverdriveCatalogComponent {
        formatId: this.chosenFormat(item)
      }).subscribe({
        next: (book) => {
-         this.messageService.add({
-           severity: 'success',
-           summary: 'Imported',
-           detail: `"${this.fullTitle(item)}" borrowed and imported (book #${book.id})`
-          });
-         this.markResultImported(item.titleId, book.id);
+         if (book?.id != null) {
+           this.messageService.add({
+             severity: 'success',
+             summary: 'Imported',
+             detail: `"${this.fullTitle(item)}" borrowed and imported (book #${book.id})`
+            });
+           this.markResultImported(item.titleId, book.id);
+         } else {
+           this.messageService.add({
+             severity: 'success',
+             summary: 'Sent to Bookdrop',
+             detail: `"${this.fullTitle(item)}" borrowed and dropped into Bookdrop for review`
+            });
+         }
          this.importingTitleId.set(null);
          this.onLoadLoans();
          },
@@ -415,30 +320,29 @@ export class OverdriveCatalogComponent {
 
    /**
     * Import an already-borrowed loan into grimmory server-side (borrow-and-import resumes the existing
-    * loan). Needs a destination library + path chosen in the Search & Borrow section.
+    * loan). Uses the destination chosen in Search & Borrow, or drops into Bookdrop when none is set.
     */
    onImportLoan(loan: OverDriveLoan): void {
      const card = this.selectedCard();
      if (!card) return;
      const library = this.selectedLibrary();
      const path = this.selectedPath();
-     if (!library?.id || !path?.id) {
-       this.error.set('Choose a destination library and path in the "Search & Borrow" section first.');
-       return;
-       }
      this.importingTitleId.set(loan.id);
      this.error.set(null);
      this.overdriveService.borrowAndImport(card.cardId, {
        titleId: loan.id,
-       libraryId: library.id,
-       pathId: path.id,
+       libraryId: library?.id ?? null,
+       pathId: path?.id ?? null,
        title: loan.title,
        author: this.creatorName(loan) || undefined,
        coverUrl: loan.coverUrl || undefined,
        formatId: loan.formatId
      }).subscribe({
        next: (book) => {
-         this.messageService.add({ severity: 'success', summary: 'Imported', detail: `"${loan.title}" imported (book #${book.id})` });
+         const detail = book?.id != null
+           ? `"${loan.title}" imported (book #${book.id})`
+           : `"${loan.title}" dropped into Bookdrop for review`;
+         this.messageService.add({ severity: 'success', summary: book?.id != null ? 'Imported' : 'Sent to Bookdrop', detail });
          this.importingTitleId.set(null);
          },
        error: (err: unknown) => {
@@ -543,86 +447,6 @@ export class OverdriveCatalogComponent {
          this.error.set(this.errorMessage(err, 'Fulfill failed'));
          }
       });
-     }
-
-   /** Load the passive diagnostics snapshot (read-only; no live OverDrive calls). */
-   runDiagnostics(): void {
-     this.runningDiagnostics.set(true);
-     this.diagnosticsJson.set(null);
-     this.error.set(null);
-     this.overdriveService.diagnostics().subscribe({
-       next: (report) => {
-         this.diagnosticsJson.set(JSON.stringify(report, null, 2));
-         this.runningDiagnostics.set(false);
-         },
-       error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Diagnostics failed'));
-         this.runningDiagnostics.set(false);
-         }
-       });
-     }
-
-   /** Clear the loaded diagnostics snapshot. */
-   clearDiagnostics(): void {
-     this.diagnosticsJson.set(null);
-     }
-
-   /** Copy the diagnostics JSON to the clipboard (falls back for non-HTTPS where the async API is unavailable). */
-   copyDiagnostics(): void {
-     const json = this.diagnosticsJson();
-     if (!json) return;
-     const done = () => this.messageService.add({ severity: 'success', summary: 'Copied', detail: 'Diagnostics copied to clipboard' });
-     if (navigator.clipboard?.writeText) {
-       navigator.clipboard.writeText(json).then(done, () => this.fallbackCopy(json, done));
-     } else {
-       this.fallbackCopy(json, done);
-     }
-     }
-
-   /** Clipboard fallback for insecure (http://) contexts where navigator.clipboard is unavailable. */
-   private fallbackCopy(text: string, onSuccess: () => void): void {
-     try {
-       const ta = document.createElement('textarea');
-       ta.value = text;
-       ta.style.position = 'fixed';
-       ta.style.opacity = '0';
-       document.body.appendChild(ta);
-       ta.focus();
-       ta.select();
-       const ok = document.execCommand('copy');
-       document.body.removeChild(ta);
-       if (ok) { onSuccess(); return; }
-     } catch { /* fall through to selecting the visible text */ }
-     this.selectDiagnosticsText();
-     }
-
-   /** Select the visible diagnostics JSON so the user can copy it manually (Cmd/Ctrl+C). */
-   private selectDiagnosticsText(): void {
-     const el = document.querySelector('.diagnostics-json');
-     const sel = window.getSelection();
-     if (el && sel) {
-       const range = document.createRange();
-       range.selectNodeContents(el);
-       sel.removeAllRanges();
-       sel.addRange(range);
-       this.messageService.add({ severity: 'info', summary: 'Copy manually',
-         detail: 'Clipboard access is blocked (non-HTTPS) — the text is selected; press Cmd/Ctrl+C.' });
-     } else {
-       this.error.set('Could not copy — select the text and copy it manually.');
-     }
-     }
-
-   /** Download the diagnostics JSON as a file. */
-   downloadDiagnostics(): void {
-     const json = this.diagnosticsJson();
-     if (!json) return;
-     const blob = new Blob([json], { type: 'application/json' });
-     const url = URL.createObjectURL(blob);
-     const a = document.createElement('a');
-     a.href = url;
-     a.download = 'overdrive-diagnostics.json';
-     a.click();
-     URL.revokeObjectURL(url);
      }
 
    clearError(): void {

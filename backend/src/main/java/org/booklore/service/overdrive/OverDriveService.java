@@ -555,7 +555,7 @@ public class OverDriveService {
                         // Prefer the authoritative library name from Thunder; fall back to the sync payload.
                         String resolved = libraryKey != null ? overDriveParser.fetchLibraryName(libraryKey) : null;
                         String name = resolved != null ? resolved : cardDisplayName(card);
-                        cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey, false));
+                        cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey, false, null, null));
                     }
                 }
             }
@@ -1186,7 +1186,7 @@ public class OverDriveService {
        * @param titleId the OverDrive title id to borrow
        * @return the persisted {@link Book}
        */
-      public Book borrowAndImport(String identity, String authToken, String titleId, long libraryId, long pathId,
+      public Book borrowAndImport(String identity, String authToken, String titleId, Long libraryId, Long pathId,
                                   String title, String author, String coverUrl, String isbn, String preferredFormat) {
         // Borrow and fulfill with the stored identity as-is, mirroring the web client: it does not
         // pre-mint, and fetchFulfillment re-mints reactively on missing_chip. Pre-minting here only
@@ -1249,8 +1249,17 @@ public class OverDriveService {
         if (metadata == null) {
             metadata = buildImportMetadata(title, author, coverUrl, isbn);
         }
-        Book book = overDriveImportService.importBook(
-                content, buildFileName(title, loanId, fileExtension(chosenFormat)), libraryId, pathId, metadata, fileType);
+        String fileName = buildFileName(title, loanId, fileExtension(chosenFormat));
+
+        // With a destination library + path, import straight into the library. Without one, drop the
+        // fulfilled file into the Bookdrop folder for the operator to review and finalize there.
+        Book book;
+        if (libraryId != null && pathId != null) {
+            book = overDriveImportService.importBook(content, fileName, libraryId, pathId, metadata, fileType);
+        } else {
+            overDriveImportService.dropToBookdrop(content, fileName);
+            book = null;
+        }
 
         Long userId = currentUserId();
         OverDriveLoanEntity entity = loanRepository.findByUserIdAndOverdriveLoanId(userId, loanId)
@@ -1266,11 +1275,12 @@ public class OverDriveService {
         entity.setFormatId(chosenFormat);
         entity.setState("ACTIVE");
         entity.setFulfilled(true);
-        entity.setBookId(book.getId());
+        entity.setBookId(book != null ? book.getId() : null);
         entity.setLastSync(Instant.now());
         loanRepository.save(entity);
 
-        log.info("OverDrive borrow-and-import complete: loan {} ({}) -> book {}", loanId, chosenFormat, book.getId());
+        log.info("OverDrive borrow-and-import complete: loan {} ({}) -> {}", loanId, chosenFormat,
+                book != null ? "book " + book.getId() : "Bookdrop");
         return book;
       }
 
@@ -1505,8 +1515,21 @@ public class OverDriveService {
       /** The current user's linked cards (id + display name + library key). */
       public List<OverDriveCard> listCards() {
         return tokenRepository.findByUserId(currentUserId()).stream()
-                .map(t -> new OverDriveCard(t.getIdentity(), t.getCardName(), t.getLibraryKey(), t.getCredCard() != null))
+                .map(t -> new OverDriveCard(t.getIdentity(), t.getCardName(), t.getLibraryKey(),
+                        t.getCredCard() != null, t.getDefaultLibraryId(), t.getDefaultPathId()))
                 .toList();
+      }
+
+      /**
+       * Set (or clear) the default destination library + path for a card, remembered for next time.
+       * Passing nulls clears the default so imports fall back to the Bookdrop folder.
+       */
+      public void setDefaultLibrary(String identity, Long libraryId, Long pathId) {
+        OverDriveTokenEntity entity = tokenRepository.findByUserIdAndIdentity(currentUserId(), identity)
+                .orElseThrow(() -> new RestClientException("No such card: " + identity));
+        entity.setDefaultLibraryId(libraryId);
+        entity.setDefaultPathId(pathId);
+        tokenRepository.save(entity);
       }
 
       /** Distinct OverDrive library keys for the current user's linked cards. */

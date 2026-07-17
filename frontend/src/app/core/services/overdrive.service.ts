@@ -10,6 +10,10 @@ export interface OverDriveCard {
   libraryKey?: string | null;
   /** True only for card+PIN links with a credential key set — those can be refreshed/re-linked. */
   credentialsStored?: boolean;
+  /** Remembered default destination library for borrow & import on this card (null → Bookdrop). */
+  defaultLibraryId?: number | null;
+  /** Remembered default destination library path within defaultLibraryId. */
+  defaultPathId?: number | null;
 }
 
 export interface OverDriveLoan {
@@ -108,8 +112,10 @@ export interface OverDriveCatalogItem {
 
 export interface OverDriveBorrowImportRequest {
   titleId: string;
-  libraryId: number;
-  pathId: number;
+  /** Destination library; null/omitted drops the fulfilled book into Bookdrop instead. */
+  libraryId?: number | null;
+  /** Destination library path; null/omitted drops the fulfilled book into Bookdrop instead. */
+  pathId?: number | null;
   title?: string | null;
   author?: string | null;
   coverUrl?: string | null;
@@ -171,6 +177,18 @@ export class OverDriveService {
   /** Refresh a card+PIN card's token by re-linking from its stored credentials. */
   refreshCard(cardId: string): Observable<void> {
     return this.http.post<void>(`${this.baseUrl}/${cardId}/refresh`, null);
+  }
+
+  /** Remember a card's default destination library + path (omit both to clear → Bookdrop). */
+  setDefaultLibrary(cardId: string, libraryId: number | null, pathId: number | null): Observable<void> {
+    const params: Record<string, string> = {};
+    if (libraryId != null) {
+      params['libraryId'] = String(libraryId);
+    }
+    if (pathId != null) {
+      params['pathId'] = String(pathId);
+    }
+    return this.http.put<void>(`${this.baseUrl}/${cardId}/default-library`, null, { params });
   }
 
   /** Report which OverDrive features are available (e.g. whether an ACSM handler is configured). */

@@ -146,6 +146,23 @@ public class OverDriveController {
         return ResponseEntity.ok(overDriveService.listCards());
     }
 
+    /**
+     * PUT /api/overdrive/{identity}/default-library — remember a card's default destination library +
+     * path for borrow &amp; import. Omit both params to clear it (imports then fall back to Bookdrop).
+     */
+    @Operation(summary = "Set a card's default import library",
+               description = "Stores the default destination library + path for the card; omit both to clear.")
+    @ApiResponse(responseCode = "204", description = "Default library saved")
+    @PutMapping("/{identity}/default-library")
+    public ResponseEntity<Void> setDefaultLibrary(
+            @Parameter(description = "Library card id") @PathVariable String identity,
+            @RequestParam(required = false) Long libraryId,
+            @RequestParam(required = false) Long pathId) {
+        requireEnabled();
+        overDriveService.setDefaultLibrary(identity, libraryId, pathId);
+        return ResponseEntity.noContent().build();
+    }
+
     // ── Sync ────────────────────────────────────────────────────────────
 
     /**

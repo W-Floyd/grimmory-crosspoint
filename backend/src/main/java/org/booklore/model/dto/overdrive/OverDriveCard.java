@@ -6,4 +6,5 @@ package org.booklore.model.dto.overdrive;
  * stored for it ({@code true} only for card+PIN links with a credential key configured — those can be
  * refreshed/re-linked without re-entering the PIN).
  */
-public record OverDriveCard(String cardId, String name, String libraryKey, boolean credentialsStored) {}
+public record OverDriveCard(String cardId, String name, String libraryKey, boolean credentialsStored,
+                            Long defaultLibraryId, Long defaultPathId) {}

@@ -63,6 +63,14 @@ public class OverDriveTokenEntity {
     @Column(name = "cred_pin", length = 512)
     private String credPin;
 
+    /** Default destination library for borrow &amp; import on this card; null falls back to Bookdrop. */
+    @Column(name = "default_library_id")
+    private Long defaultLibraryId;
+
+    /** Default destination library path within {@link #defaultLibraryId}. */
+    @Column(name = "default_path_id")
+    private Long defaultPathId;
+
     @Column(name = "created_at")
     @Builder.Default
     private Instant createdAt = Instant.now();

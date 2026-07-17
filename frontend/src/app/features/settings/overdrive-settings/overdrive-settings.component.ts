@@ -50,6 +50,10 @@ export class OverdriveSettingsComponent {
   // Whether OVERDRIVE_CREDENTIAL_KEY is set (enables encrypted credential storage + auto-relink).
   credentialStorageEnabled = signal(false);
 
+  // Diagnostics: a passive, read-only state snapshot (no live OverDrive calls, no inputs).
+  diagnosticsJson = signal<string | null>(null);
+  runningDiagnostics = signal(false);
+
   // Library-key validation against the Thunder directory.
   resolving = signal(false);
   resolution = signal<OverDriveLibraryResolution | null>(null);
@@ -208,6 +212,86 @@ export class OverdriveSettingsComponent {
       error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Token link failed'),
       complete: () => this.linkingToken.set(false)
     });
+  }
+
+  /** Load the passive diagnostics snapshot (read-only; no live OverDrive calls). */
+  runDiagnostics(): void {
+    this.runningDiagnostics.set(true);
+    this.diagnosticsJson.set(null);
+    this.setupError.set(null);
+    this.overdriveService.diagnostics().subscribe({
+      next: (report) => {
+        this.diagnosticsJson.set(JSON.stringify(report, null, 2));
+        this.runningDiagnostics.set(false);
+      },
+      error: (err) => {
+        this.setupError.set(err?.error?.message || err?.message || 'Diagnostics failed');
+        this.runningDiagnostics.set(false);
+      }
+    });
+  }
+
+  /** Clear the loaded diagnostics snapshot. */
+  clearDiagnostics(): void {
+    this.diagnosticsJson.set(null);
+  }
+
+  /** Copy the diagnostics JSON to the clipboard (falls back for non-HTTPS where the async API is unavailable). */
+  copyDiagnostics(): void {
+    const json = this.diagnosticsJson();
+    if (!json) return;
+    const done = () => this.messageService.add({ severity: 'success', summary: 'Copied', detail: 'Diagnostics copied to clipboard' });
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(json).then(done, () => this.fallbackCopy(json, done));
+    } else {
+      this.fallbackCopy(json, done);
+    }
+  }
+
+  /** Clipboard fallback for insecure (http://) contexts where navigator.clipboard is unavailable. */
+  private fallbackCopy(text: string, onSuccess: () => void): void {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (ok) { onSuccess(); return; }
+    } catch { /* fall through to selecting the visible text */ }
+    this.selectDiagnosticsText();
+  }
+
+  /** Select the visible diagnostics JSON so the user can copy it manually (Cmd/Ctrl+C). */
+  private selectDiagnosticsText(): void {
+    const el = document.querySelector('.diagnostics-json');
+    const sel = window.getSelection();
+    if (el && sel) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      this.messageService.add({ severity: 'info', summary: 'Copy manually',
+        detail: 'Clipboard access is blocked (non-HTTPS) — the text is selected; press Cmd/Ctrl+C.' });
+    } else {
+      this.setupError.set('Could not copy — select the text and copy it manually.');
+    }
+  }
+
+  /** Download the diagnostics JSON as a file. */
+  downloadDiagnostics(): void {
+    const json = this.diagnosticsJson();
+    if (!json) return;
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'overdrive-diagnostics.json';
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   onSave(): void {

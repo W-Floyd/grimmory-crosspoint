@@ -2,6 +2,7 @@ package org.booklore.service.overdrive;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.booklore.config.AppProperties;
 import org.booklore.exception.ApiError;
 import org.booklore.model.FileProcessResult;
 import org.booklore.model.MetadataUpdateContext;
@@ -31,6 +32,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
 /**
  * Imports an EPUB obtained from OverDrive (borrowed and fulfilled) into a Grimmory
@@ -54,6 +56,7 @@ public class OverDriveImportService {
     private final MetadataRefreshService metadataRefreshService;
     private final ApplicationEventPublisher eventPublisher;
     private final org.booklore.mapper.BookMapper bookMapper;
+    private final AppProperties appProperties;
 
     /**
      * Write the given book bytes into the target library/path, process them into a persisted book, and
@@ -121,6 +124,51 @@ public class OverDriveImportService {
             throw e;
         } finally {
             reregister(libraryId);
+        }
+    }
+
+    /**
+     * Write a fulfilled OverDrive book into the Bookdrop folder for the operator to review and finalize,
+     * used when no destination library/path was chosen. Writes to a temporary {@code .part} file first
+     * (ignored by the Bookdrop watcher, which ingests only known book extensions) then atomically moves
+     * it to its final name, so the watcher never sees a partially written file.
+     */
+    public void dropToBookdrop(byte[] bookBytes, String suggestedFileName) {
+        if (bookBytes == null || bookBytes.length == 0) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("No book content to import");
+        }
+        try {
+            Path dropFolder = Path.of(appProperties.getBookdropFolder()).toAbsolutePath().normalize();
+            Files.createDirectories(dropFolder);
+            Path target = uniqueBookdropTarget(dropFolder, suggestedFileName);
+            Path temp = Files.createTempFile(dropFolder, "overdrive-", ".part");
+            Files.write(temp, bookBytes);
+            Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE);
+            log.info("OverDrive import: dropped {} bytes into Bookdrop at {}", bookBytes.length, target);
+        } catch (IOException e) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Failed to write imported book to Bookdrop: " + e.getMessage());
+        }
+    }
+
+    /** A non-colliding target path in the bookdrop folder for the given (already sanitized) file name. */
+    private Path uniqueBookdropTarget(Path dropFolder, String fileName) {
+        String safe = (fileName == null || fileName.isBlank()) ? "overdrive-book.epub" : fileName;
+        Path target = dropFolder.resolve(safe);
+        if (!Files.exists(target)) {
+            return target;
+        }
+        String base = safe;
+        String ext = "";
+        int dot = safe.lastIndexOf('.');
+        if (dot > 0) {
+            base = safe.substring(0, dot);
+            ext = safe.substring(dot);
+        }
+        for (int i = 2; ; i++) {
+            Path candidate = dropFolder.resolve(base + " (" + i + ")" + ext);
+            if (!Files.exists(candidate)) {
+                return candidate;
+            }
         }
     }
 
