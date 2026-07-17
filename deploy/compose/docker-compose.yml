@@ -29,6 +29,10 @@ services:
       # - OVERDRIVE_AUTO_RETURN=true                    # auto-return expired loans in the background
       # - OVERDRIVE_CLIENT_ID=dewey                     # rarely needs changing
       # - OVERDRIVE_SENTRY_BASE_URL=https://sentry.libbyapp.com
+      # Optional: enable encrypted storage of card number + PIN (for card+PIN linking) so an expired
+      # token can be re-linked automatically. base64-encoded 16/24/32 bytes, e.g. `openssl rand -base64 32`.
+      # Unset = token-only (re-link manually on expiry); no plaintext credentials are ever stored.
+      # - OVERDRIVE_CREDENTIAL_KEY=<base64-32-bytes>
       #
       # Most Libby titles offer a DRM-free "open" EPUB and import with no extra setup.
       # For titles that only offer the Adobe/ACSM format, Grimmory can hand the ACSM to an
