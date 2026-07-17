@@ -407,6 +407,29 @@ export class OverdriveCatalogComponent {
      return loan.firstCreatorName ?? loan.creators?.[0]?.name ?? '';
      }
 
+   /** Cover thumbnail URL for a hold (server derives it from the sync covers). */
+   holdCoverUrl(hold: OverDriveHold): string | null {
+     return hold.coverUrl ?? null;
+     }
+
+   /** Best author label for a hold (sync provides firstCreatorName, not a creators array). */
+   holdAuthor(hold: OverDriveHold): string {
+     return hold.firstCreatorName ?? hold.creators?.[0]?.name ?? '';
+     }
+
+   /**
+    * Whether the user already holds this search-result title. A held title takes precedence over the
+    * "not available / no copies" state — we surface the hold rather than offering to place another.
+    */
+   isOnHold(item: OverDriveCatalogItem): boolean {
+     return this.holds().some((h) => h.id === item.titleId);
+     }
+
+   /** Estimated wait (days) for the user's hold on a title, or null. */
+   holdWaitDays(item: OverDriveCatalogItem): string | null {
+     return this.holds().find((h) => h.id === item.titleId)?.estimatedWaitDays ?? null;
+     }
+
    /**
     * Import an already-borrowed loan into grimmory server-side (borrow-and-import resumes the existing
     * loan). Needs a destination library + path chosen in the Search & Borrow section.

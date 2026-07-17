@@ -508,6 +508,7 @@ public class OverDriveController {
         return new OverDriveLoanDto(
                 loan.getId(),
                 loan.getTitle(),
+                loan.getSubtitle(),
                 loan.getExpireDate(),
                 loan.getFirstCreatorName(),
                 loanCoverUrl(loan.getCovers()),
@@ -550,6 +551,9 @@ public class OverDriveController {
         return new OverDriveHoldDto(
                 hold.getId(),
                 hold.getTitle(),
+                hold.getSubtitle(),
+                hold.getFirstCreatorName(),
+                loanCoverUrl(hold.getCovers()),
                 hold.getCreators(),
                 hold.getEstimatedWaitDays()
         );
@@ -570,6 +574,7 @@ public class OverDriveController {
     record OverDriveLoanDto(
             String id,
             String title,
+            String subtitle,
             String expireDate,
             String firstCreatorName,
             String coverUrl,
@@ -582,6 +587,9 @@ public class OverDriveController {
     record OverDriveHoldDto(
             String id,
             String title,
+            String subtitle,
+            String firstCreatorName,
+            String coverUrl,
             List<OverDriveCreator> creators,
             String estimatedWaitDays
     ) {}

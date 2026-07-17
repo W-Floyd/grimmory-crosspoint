@@ -13,6 +13,8 @@ import java.util.List;
 public class OverDriveLoan {
     private String id;
     private String title;
+    /** OverDrive often puts the real book name here (title is the series/franchise, e.g. "Star Wars"). */
+    private String subtitle;
     private String expireDate;
     private String publishDate;
     /** Flat primary-author name from sync (the {@code creators} array isn't included in sync loans). */

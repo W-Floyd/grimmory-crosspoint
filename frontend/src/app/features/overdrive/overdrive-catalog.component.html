@@ -151,15 +151,23 @@
            <td>{{ item.author }}</td>
            <td>
              <span *ngIf="item.preRelease" class="availability pre-release">Not yet released</span>
-             <span *ngIf="!item.preRelease && item.available" class="availability available">
-               Available<ng-container *ngIf="item.availableCopies != null"> ({{ item.availableCopies }} copies)</ng-container>
-             </span>
-             <span *ngIf="!item.preRelease && !item.available" class="availability waitlisted">
-               <ng-container *ngIf="item.holdable">Wait list</ng-container>
-               <ng-container *ngIf="!item.holdable">Unavailable</ng-container>
-               <ng-container *ngIf="item.estimatedWaitDays != null"> · ~{{ item.estimatedWaitDays }} day wait</ng-container>
-               <ng-container *ngIf="item.holdsCount != null"> · {{ item.holdsCount }} holds</ng-container>
-             </span>
+             <ng-container *ngIf="!item.preRelease">
+               <!-- A hold you already have takes precedence over the catalog availability. -->
+               <span *ngIf="isOnHold(item)" class="availability on-hold">
+                 On hold<ng-container *ngIf="holdWaitDays(item) != null"> · ~{{ holdWaitDays(item) }} day wait</ng-container>
+               </span>
+               <ng-container *ngIf="!isOnHold(item)">
+                 <span *ngIf="item.available" class="availability available">
+                   Available<ng-container *ngIf="item.availableCopies != null"> ({{ item.availableCopies }} copies)</ng-container>
+                 </span>
+                 <span *ngIf="!item.available" class="availability waitlisted">
+                   <ng-container *ngIf="item.holdable">Wait list</ng-container>
+                   <ng-container *ngIf="!item.holdable">Unavailable</ng-container>
+                   <ng-container *ngIf="item.estimatedWaitDays != null"> · ~{{ item.estimatedWaitDays }} day wait</ng-container>
+                   <ng-container *ngIf="item.holdsCount != null"> · {{ item.holdsCount }} holds</ng-container>
+                 </span>
+               </ng-container>
+             </ng-container>
            </td>
            <td>
              <div *ngIf="item.available" class="borrow-action">
@@ -191,14 +199,15 @@
                  (onClick)="onBorrowImport(item)" />
              </div>
              <p-button
-               *ngIf="!item.available && item.holdable"
+               *ngIf="!item.available && item.holdable && !isOnHold(item)"
                label="Place Hold"
                icon="pi pi-clock"
                severity="secondary"
                [disabled]="!item.titleId"
                (onClick)="onPlaceHold(item)"
              />
-             <span *ngIf="!item.available && !item.holdable" class="no-action">—</span>
+             <span *ngIf="!item.available && isOnHold(item)" class="no-action on-hold">On hold</span>
+             <span *ngIf="!item.available && !item.holdable && !isOnHold(item)" class="no-action">—</span>
            </td>
          </tr>
        </ng-template>
@@ -248,6 +257,7 @@
                <img *ngIf="loanCoverUrl(loan)" [src]="loanCoverUrl(loan)" alt="cover" class="result-cover" />
                <div class="loan-title-text">
                  <span>{{ loan.title }}</span>
+                 <small *ngIf="loan.subtitle" class="subtitle">{{ loan.subtitle }}</small>
                  <a *ngIf="loan.bookId" class="in-library-link" [routerLink]="bookRoute(loan.bookId)"
                     pTooltip="Open this book in your library" tooltipPosition="top">
                    <i class="pi pi-check-circle"></i> In your library
@@ -288,17 +298,28 @@
        <ng-template pTemplate="header">
          <tr>
            <th>Title</th>
+           <th>Author</th>
            <th>Est. Wait</th>
            <th>Actions</th>
          </tr>
        </ng-template>
        <ng-template pTemplate="body" let-hold>
          <tr>
-           <td>{{ hold.title }}</td>
+           <td>
+             <div class="loan-title">
+               <img *ngIf="holdCoverUrl(hold)" [src]="holdCoverUrl(hold)" alt="cover" class="result-cover" />
+               <div class="loan-title-text">
+                 <span>{{ hold.title }}</span>
+                 <small *ngIf="hold.subtitle" class="subtitle">{{ hold.subtitle }}</small>
+               </div>
+             </div>
+           </td>
+           <td>{{ holdAuthor(hold) }}</td>
            <td>{{ hold.estimatedWaitDays }} days</td>
            <td>
              <p-button icon="pi pi-times" severity="danger"
-               tooltip="Cancel hold"
+               pTooltip="Cancel hold"
+               tooltipPosition="top"
                (onClick)="onCancelHold(hold)" />
            </td>
          </tr>

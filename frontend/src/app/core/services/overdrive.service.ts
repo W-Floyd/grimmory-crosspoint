@@ -15,6 +15,8 @@ export interface OverDriveCard {
 export interface OverDriveLoan {
   id: string;
   title: string;
+  /** OverDrive often puts the real book name here (title is the series/franchise). */
+  subtitle?: string | null;
   expireDate: string;
   /** Flat primary-author name from sync (sync loans omit the `creators` array). */
   firstCreatorName?: string;
@@ -30,6 +32,12 @@ export interface OverDriveLoan {
 export interface OverDriveHold {
   id: string;
   title: string;
+  /** OverDrive often puts the real book name here (title is the series/franchise). */
+  subtitle?: string | null;
+  /** Flat primary-author name from sync (sync omits the `creators` array). */
+  firstCreatorName?: string;
+  /** Cover thumbnail URL derived from the sync hold's covers. */
+  coverUrl?: string;
   creators?: OverDriveCreator[];
   estimatedWaitDays?: string;
 }
