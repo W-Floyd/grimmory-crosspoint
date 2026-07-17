@@ -131,7 +131,11 @@ public class OverDriveImportService {
                 .orElse(book);
     }
 
-    /** Layer the OverDrive catalog metadata (cover, ISBN, series, ...) over the EPUB-extracted metadata. */
+    /**
+     * Layer the OverDrive catalog metadata over the EPUB-extracted metadata: {@code REPLACE_WHEN_PROVIDED}
+     * lets the OverDrive title/author/ISBN win, but {@code updateThumbnail=false} means the <b>cover is
+     * never replaced</b> — the EPUB's embedded cover always wins.
+     */
     private void applyOverDriveMetadata(Book book, BookMetadata metadata) {
         if (metadata == null) {
             return;
@@ -145,7 +149,7 @@ public class OverDriveImportService {
                 .metadataUpdateWrapper(MetadataUpdateWrapper.builder()
                         .metadata(metadata)
                         .build())
-                .updateThumbnail(metadata.getThumbnailUrl() != null)
+                .updateThumbnail(false)
                 .mergeCategories(false)
                 .replaceMode(MetadataReplaceMode.REPLACE_WHEN_PROVIDED)
                 .mergeMoods(true)
