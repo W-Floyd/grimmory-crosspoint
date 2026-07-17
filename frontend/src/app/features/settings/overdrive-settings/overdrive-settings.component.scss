@@ -1,73 +1,105 @@
-.overdrive-settings {
+@use '../../../shared/styles/settings-shared' as settings;
+
+.main-container {
+  @include settings.settings-page-container;
+}
+
+@include settings.settings-page-header;
+
+.settings-title {
+  @include settings.settings-page-title;
+}
+
+.settings-description {
+  @include settings.settings-page-description;
+}
+
+.settings-card {
+  @include settings.settings-card;
+
   max-width: 600px;
+}
 
-   h3 {
+.field {
+  margin-bottom: 1rem;
+
+  label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 500;
+  }
+
+  small {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--text-color-secondary);
+  }
+}
+
+.library-key-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+
+  input {
+    flex: 1 1 auto;
+  }
+}
+
+.setup-section {
+  border-top: 1px solid var(--border-color);
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+
+.cred-note {
+  color: var(--orange-600, #ea580c);
+  margin-top: 0.35rem;
+}
+
+.linked-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+
+  .linked-card-name {
+    overflow-wrap: anywhere;
+  }
+
+  .linked-card-actions {
+    display: flex;
+    gap: 0.25rem;
+    flex-shrink: 0;
+  }
+}
+
+.link-card-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+
+  label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+  }
+
+  small {
+    display: block;
+    color: var(--text-color-secondary);
     margin-bottom: 0.5rem;
-   }
+  }
 
-   .field {
-    margin-bottom: 1rem;
-
-    label {
-      display: block;
-      margin-bottom: 0.25rem;
-      font-weight: 500;
-    }
-
-    small {
-      display: block;
-      margin-top: 0.25rem;
-      color: var(--text-color-secondary);
-    }
-   }
-
-   .library-key-row {
+  .link-card-row {
     display: flex;
     gap: 0.5rem;
     align-items: center;
+    flex-wrap: wrap;
 
     input {
-      flex: 1 1 auto;
+      flex: 1 1 160px;
     }
-   }
-
-   .setup-section {
-    border-top: 1px solid var(--border-color);
-    padding-top: 1rem;
-    margin-top: 1rem;
-   }
-
-   .cred-note {
-    color: var(--orange-600, #ea580c);
-    margin-top: 0.35rem;
-   }
-
-   .linked-card-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.25rem 0;
-
-    .linked-card-name { overflow-wrap: anywhere; }
-    .linked-card-actions { display: flex; gap: 0.25rem; flex-shrink: 0; }
-   }
-
-   .link-card-section {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border-color);
-
-    label { display: block; font-weight: 500; margin-bottom: 0.25rem; }
-    small { display: block; color: var(--text-color-secondary); margin-bottom: 0.5rem; }
-
-    .link-card-row {
-      display: flex;
-      gap: 0.5rem;
-      align-items: center;
-      flex-wrap: wrap;
-
-      input { flex: 1 1 160px; }
-    }
-   }
+  }
 }
