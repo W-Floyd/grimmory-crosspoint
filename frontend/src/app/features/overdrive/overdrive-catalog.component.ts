@@ -238,6 +238,9 @@ export class OverdriveCatalogComponent {
        error: (err: unknown) => {
          this.error.set(this.errorMessage(err, 'Borrow & import failed'));
          this.importingTitleId.set(null);
+         // The borrow may have placed the loan even when the import step failed (e.g. no importable
+         // format) — resync so the placed loan appears in Your Loans (usable in the Libby app).
+         this.onLoadLoans();
          }
        });
      }
@@ -266,6 +269,12 @@ export class OverdriveCatalogComponent {
      return this.acsmConfigured()
        ? 'This title isn\'t offered in a format Grimmory can import.'
        : 'This title isn\'t offered in a DRM-free format. Configure an ACSM handler to also import Adobe-DRM formats.';
+     }
+
+   /** Warning shown on the borrow button for a title with no importable format. */
+   unsupportedBorrowTooltip(): string {
+     return this.unsupportedFormatTooltip()
+       + ' Borrowing won\'t import it here, but it still places the loan on your Libby account for use in the Libby app.';
      }
 
    /**

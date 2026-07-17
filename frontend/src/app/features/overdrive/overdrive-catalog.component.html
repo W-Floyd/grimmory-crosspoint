@@ -168,10 +168,13 @@
                </ng-container>
                <p-button
                  *ngIf="!hasImportableFormat(item) && item.available"
-                 label="Borrow &amp; Import"
-                 icon="pi pi-download"
-                 [disabled]="true"
-                 [pTooltip]="unsupportedFormatTooltip()" />
+                 label="Borrow anyway"
+                 icon="pi pi-exclamation-triangle"
+                 severity="warn"
+                 [pTooltip]="unsupportedBorrowTooltip()"
+                 [disabled]="!item.titleId || importingTitleId() !== null"
+                 [loading]="importingTitleId() === item.titleId"
+                 (onClick)="onBorrowImport(item)" />
              </div>
            </td>
          </tr>
