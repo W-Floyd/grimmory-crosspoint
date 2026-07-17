@@ -353,12 +353,27 @@ export class OverdriveCatalogComponent {
     * "not available / no copies" state — we surface the hold rather than offering to place another.
     */
    isOnHold(item: OverDriveCatalogItem): boolean {
-     return this.holds().some((h) => h.id === item.titleId);
+     return this.heldHold(item) != null;
+     }
+
+   /** The user's hold on this title, if any. */
+   private heldHold(item: OverDriveCatalogItem): OverDriveHold | undefined {
+     return this.holds().find((h) => h.id === item.titleId);
+     }
+
+   /** True when the user's hold on this title is ready to borrow now. */
+   isHoldReady(item: OverDriveCatalogItem): boolean {
+     return this.heldHold(item)?.ready === true;
+     }
+
+   /** Borrowable right now: catalog-available, or a ready hold reserved for the user. */
+   borrowableNow(item: OverDriveCatalogItem): boolean {
+     return item.available || this.isHoldReady(item);
      }
 
    /** Estimated wait (days) for the user's hold on a title, or null. */
    holdWaitDays(item: OverDriveCatalogItem): string | null {
-     return this.holds().find((h) => h.id === item.titleId)?.estimatedWaitDays ?? null;
+     return this.heldHold(item)?.estimatedWaitDays ?? null;
      }
 
    /**
@@ -391,6 +406,38 @@ export class OverdriveCatalogComponent {
        error: (err: unknown) => {
          this.error.set(this.errorMessage(err, 'Import failed'));
          this.importingTitleId.set(null);
+         }
+       });
+     }
+
+   /** Borrow a ready hold: redeems it into a loan and imports it (or drops to Bookdrop). */
+   onBorrowHold(hold: OverDriveHold): void {
+     const card = this.selectedCard();
+     if (!card) return;
+     const library = this.selectedLibrary();
+     const path = this.selectedPath();
+     this.importingTitleId.set(hold.id);
+     this.error.set(null);
+     this.overdriveService.borrowAndImport(card.cardId, {
+       titleId: hold.id,
+       libraryId: library?.id ?? null,
+       pathId: path?.id ?? null,
+       title: hold.subtitle ? `${hold.title}: ${hold.subtitle}` : hold.title,
+       author: this.creatorName(hold) || undefined,
+       coverUrl: hold.coverUrl || undefined
+     }).subscribe({
+       next: (book) => {
+         const detail = book?.id != null
+           ? `"${hold.title}" borrowed and imported (book #${book.id})`
+           : `"${hold.title}" borrowed and dropped into Bookdrop for review`;
+         this.messageService.add({ severity: 'success', summary: book?.id != null ? 'Imported' : 'Sent to Bookdrop', detail });
+         this.importingTitleId.set(null);
+         this.onLoadLoans();
+         },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Borrow failed'));
+         this.importingTitleId.set(null);
+         this.onLoadLoans();
          }
        });
      }

@@ -588,7 +588,9 @@ public class OverDriveController {
                 hold.getFirstCreatorName(),
                 loanCoverUrl(hold.getCovers()),
                 hold.getCreators(),
-                hold.getEstimatedWaitDays()
+                hold.getEstimatedWaitDays(),
+                Boolean.TRUE.equals(hold.getAvailable()),
+                hold.getExpireDate()
         );
     }
 
@@ -624,7 +626,9 @@ public class OverDriveController {
             String firstCreatorName,
             String coverUrl,
             List<OverDriveCreator> creators,
-            String estimatedWaitDays
+            String estimatedWaitDays,
+            boolean ready,
+            String expireDate
     ) {}
 
     record OverDriveBorrowResult(String loanId) {}

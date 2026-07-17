@@ -44,6 +44,10 @@ export interface OverDriveHold {
   coverUrl?: string;
   creators?: OverDriveCreator[];
   estimatedWaitDays?: string;
+  /** True when the hold is ready to borrow now (a copy is reserved for you). */
+  ready?: boolean;
+  /** For a ready hold, the deadline to borrow it before the hold is released. */
+  expireDate?: string;
 }
 
 export interface OverDriveCreator {

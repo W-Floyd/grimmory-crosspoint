@@ -94,20 +94,24 @@
            <td>
              <span *ngIf="item.preRelease" class="availability pre-release">Not yet released</span>
              <ng-container *ngIf="!item.preRelease">
-               <!-- A hold you already have takes precedence over the catalog availability. -->
-               <span *ngIf="isOnHold(item)" class="availability on-hold">
-                 On hold<ng-container *ngIf="holdWaitDays(item) != null"> · ~{{ holdWaitDays(item) }} day wait</ng-container>
-               </span>
-               <ng-container *ngIf="!isOnHold(item)">
-                 <span *ngIf="item.available" class="availability available">
-                   Available<ng-container *ngIf="item.availableCopies != null"> ({{ item.availableCopies }} copies)</ng-container>
+               <!-- A ready hold (a copy reserved for you) borrows now; a pending hold takes
+                    precedence over the library-wide availability. -->
+               <span *ngIf="isHoldReady(item)" class="availability available">Ready to borrow</span>
+               <ng-container *ngIf="!isHoldReady(item)">
+                 <span *ngIf="isOnHold(item)" class="availability on-hold">
+                   On hold<ng-container *ngIf="holdWaitDays(item) != null"> · ~{{ holdWaitDays(item) }} day wait</ng-container>
                  </span>
-                 <span *ngIf="!item.available" class="availability waitlisted">
-                   <ng-container *ngIf="item.holdable">Wait list</ng-container>
-                   <ng-container *ngIf="!item.holdable">Unavailable</ng-container>
-                   <ng-container *ngIf="item.estimatedWaitDays != null"> · ~{{ item.estimatedWaitDays }} day wait</ng-container>
-                   <ng-container *ngIf="item.holdsCount != null"> · {{ item.holdsCount }} holds</ng-container>
-                 </span>
+                 <ng-container *ngIf="!isOnHold(item)">
+                   <span *ngIf="item.available" class="availability available">
+                     Available<ng-container *ngIf="item.availableCopies != null"> ({{ item.availableCopies }} copies)</ng-container>
+                   </span>
+                   <span *ngIf="!item.available" class="availability waitlisted">
+                     <ng-container *ngIf="item.holdable">Wait list</ng-container>
+                     <ng-container *ngIf="!item.holdable">Unavailable</ng-container>
+                     <ng-container *ngIf="item.estimatedWaitDays != null"> · ~{{ item.estimatedWaitDays }} day wait</ng-container>
+                     <ng-container *ngIf="item.holdsCount != null"> · {{ item.holdsCount }} holds</ng-container>
+                   </span>
+                 </ng-container>
                </ng-container>
              </ng-container>
            </td>
@@ -117,7 +121,7 @@
                     summary of the importable formats (shown even for hold-required titles). -->
                <ng-container *ngIf="hasImportableFormat(item); else noFormat">
                  <p-select
-                   *ngIf="item.available && (item.formats?.length ?? 0) > 1"
+                   *ngIf="borrowableNow(item) && (item.formats?.length ?? 0) > 1"
                    [options]="formatOptions(item)"
                    optionLabel="label"
                    optionValue="value"
@@ -126,9 +130,9 @@
                    [disabled]="importingTitleId() !== null"
                    pTooltip="Choose which format to download & import"
                    styleClass="format-select" />
-                 <span *ngIf="item.available && (item.formats?.length ?? 0) <= 1 && chosenFormat(item)" class="format-single"
+                 <span *ngIf="borrowableNow(item) && (item.formats?.length ?? 0) <= 1 && chosenFormat(item)" class="format-single"
                    pTooltip="Format that will be downloaded">{{ formatLabel(chosenFormat(item)!) }}</span>
-                 <span *ngIf="!item.available" class="format-single" pTooltip="Available in these formats">{{ formatSummary(item) }}</span>
+                 <span *ngIf="!borrowableNow(item)" class="format-single" pTooltip="Available in these formats">{{ formatSummary(item) }}</span>
                </ng-container>
                <ng-template #noFormat>
                  <span class="format-single unsupported" [pTooltip]="unsupportedFormatTooltip()">No supported format</span>
@@ -136,7 +140,7 @@
 
                <!-- Action: borrow when available, hold when not, disabled when no importable format. -->
                <ng-container *ngIf="hasImportableFormat(item)">
-                 <ng-container *ngIf="item.available">
+                 <ng-container *ngIf="borrowableNow(item)">
                    <p-button
                      *ngIf="isInLibrary(item) && !canBorrow(item)"
                      label="Borrow anyway"
@@ -154,7 +158,7 @@
                      [loading]="importingTitleId() === item.titleId"
                      (onClick)="onBorrowImport(item)" />
                  </ng-container>
-                 <ng-container *ngIf="!item.available">
+                 <ng-container *ngIf="!borrowableNow(item)">
                    <p-button
                      *ngIf="item.holdable && !isOnHold(item)"
                      label="Place Hold"
@@ -169,7 +173,7 @@
                <!-- No importable format: still allow the action, warning it's for Libby-app use only. -->
                <ng-container *ngIf="!hasImportableFormat(item)">
                  <p-button
-                   *ngIf="item.available"
+                   *ngIf="borrowableNow(item)"
                    label="Borrow anyway"
                    icon="pi pi-exclamation-triangle"
                    severity="warn"
@@ -177,7 +181,7 @@
                    [disabled]="!item.titleId || importingTitleId() !== null"
                    [loading]="importingTitleId() === item.titleId"
                    (onClick)="onBorrowImport(item)" />
-                 <ng-container *ngIf="!item.available">
+                 <ng-container *ngIf="!borrowableNow(item)">
                    <p-button
                      *ngIf="item.holdable && !isOnHold(item)"
                      label="Place Hold anyway"
@@ -276,8 +280,18 @@
                [subtitle]="hold.subtitle" />
            </td>
            <td>{{ creatorName(hold) }}</td>
-           <td>{{ hold.estimatedWaitDays }} days</td>
            <td>
+             <span *ngIf="hold.ready" class="availability available">Ready to borrow</span>
+             <span *ngIf="!hold.ready">{{ hold.estimatedWaitDays }} days</span>
+           </td>
+           <td>
+             <p-button *ngIf="hold.ready" icon="pi pi-download" severity="success"
+               pTooltip="Borrow this ready hold and import it (or drop to Bookdrop)"
+               tooltipPosition="top"
+               [disabled]="importingTitleId() !== null"
+               [loading]="importingTitleId() === hold.id"
+               (onClick)="onBorrowHold(hold)"
+               class="mr-2" />
              <p-button icon="pi pi-times" severity="danger"
                pTooltip="Cancel hold"
                tooltipPosition="top"
