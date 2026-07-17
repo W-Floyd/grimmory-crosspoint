@@ -74,11 +74,19 @@ The `.acsm` option only appears in the upload dialog when `acsmHandlerConfigured
 
 ## Known caveats / open questions
 
-- **`whoa` = rate limit.** Repeated fulfill attempts (esp. during debugging) trip it; back off (hours).
-- **Primary vs secondary chip.** Whether Adobe fulfillment *requires* a primary (card+PIN / pasted
-  token) chip vs a setup-code (secondary) chip is **unverified** — every "secondary fails" data point
-  during development was confounded by rate limiting. Worth a clean, un-throttled test: fulfill with a
-  plain setup-code token. If it works, card+PIN/token are conveniences, not requirements.
+- **`whoa` = rate limit** (distinct from `missing_chip`). Repeated fulfill attempts (esp. during
+  debugging) trip it; back off (hours).
+- **Chip provenance (`prbn`) governs fulfillment**, not the `pri==id` "primary" heuristic. A chip's
+  identity JWT carries `chip.prbn`:
+  - `"i"` = **identity-only** — from `POST /chip` + setup-code clone (client `dewey`). Browses/borrows,
+    and Libby will still hand back an **ebook ACSM** to it (Adobe binds the DRM later, via the ACSM
+    handler) — so **Grimmory's ebook borrow-and-import works with an identity chip**.
+  - `"v"` = **bona-fide / fulfillment-capable** — minted by the real Libby web app (client `d:22.0.2`,
+    host `sentry.libbyapp.com`). Required for endpoints that fulfill *directly* (e.g. audiobook
+    `open`), which return `403 {"result":"missing_chip"}` for an identity chip.
+  Diagnostics reports `chip.prbn` + `fulfillmentCapable` per card. Pasting a token from a signed-in
+  browser is the reliable way to get a `prbn:"v"` chip. (Corroborated by a parallel integration's
+  reverse-engineering: `missing_chip` = identity-only chip, not a rate limit.)
 - **One-shot ACSM.** An `.acsm` can only be fulfilled once, bound to the first Adobe identity; a burned
   token returns `E_LIC_ALREADY_FULFILLED_BY_ANOTHER_USER`. Return + re-borrow for a fresh one.
 - **Account consistency (go-degourou).** `activation.xml` and `adobekey.der` must come from the *same*
