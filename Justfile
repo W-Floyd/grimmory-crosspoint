@@ -87,6 +87,26 @@ image-run tag=local_image_tag db_url=local_db_url db_user=local_db_user db_passw
       -p 6060:6060 \
       "{{ tag }}"
 
+# Build the amd64 image locally and ship it to a remote Docker host over SSH (no registry).
+# Usage: just image-deploy user@host /path/to/docker-compose.yml [image] [platform]
+# The remote compose file's image line must reference {{ image }} for --pull never to pick it up.
+image-deploy remote compose image='ghcr.io/w-floyd/grimmory-crosspoint:main' platform='linux/amd64':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    sha="$(git rev-parse --short HEAD)"
+    echo "Building {{ image }} ({{ platform }}) at ${sha}…"
+    docker buildx build --platform "{{ platform }}" --load \
+      -t "{{ image }}" \
+      --build-arg APP_VERSION="local-${sha}" \
+      --build-arg APP_REVISION="$(git rev-parse HEAD)" \
+      .
+    echo "Shipping to {{ remote }} and recreating via {{ compose }}…"
+    docker save "{{ image }}" \
+      | { command -v pigz >/dev/null 2>&1 && pigz || gzip; } \
+      | ssh "{{ remote }}" "{ command -v unpigz >/dev/null 2>&1 && unpigz || gunzip; } | docker load \
+          && docker compose -f {{ compose }} up -d --pull never --force-recreate"
+    echo "Done. Deployed local-${sha} to {{ remote }}."
+
 # Show the resolved tool versions that the local commands expect to find.
 doctor:
     @echo "just: $(just --version)"
