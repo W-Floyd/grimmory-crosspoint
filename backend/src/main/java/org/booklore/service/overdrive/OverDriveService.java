@@ -86,7 +86,8 @@ public class OverDriveService {
     // Mirror the Libby web client exactly (verified against a working browser HAR): a normal desktop
     // browser UA, plus Accept: application/json and Origin on API calls. The fulfill endpoint returns
     // JSON ({"fulfill":{"href":...}}), 403 {"result":"missing_chip"} until the chip is registered, and
-    // 403 {"result":"whoa"} when rate-limited.
+    // 403 {"result":"whoa"} when the server refuses the fulfillment (exact cause not pinned down — the
+    // whoa response is logged with full headers so a Retry-After, if present, confirms rate-limiting).
     private static final String USER_AGENT =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0";
     private static final String REFERER = "https://libbyapp.com/";
@@ -754,7 +755,8 @@ public class OverDriveService {
        *       + {@code Origin}.</li>
        *   <li>A {@code 403 {"result":"missing_chip"}} means the chip isn't registered yet: re-mint it
        *       ({@link #refreshIdentity}) and retry once.</li>
-       *   <li>A {@code 403 {"result":"whoa"}} is OverDrive rate-limiting: fail fast, no retry.</li>
+       *   <li>A {@code 403 {"result":"whoa"}} = the server refused fulfillment: fail fast (no retry) and
+       *       log the full response (a {@code Retry-After} header, if present, would confirm rate-limiting).</li>
        *   <li>On success the JSON body carries {@code fulfill.href} — a pre-signed content URL we then
        *       GET (without auth) to obtain the bytes.</li>
        * </ol>
@@ -795,8 +797,17 @@ public class OverDriveService {
             }
 
             if ("whoa".equals(result)) {
-                throw new RestClientException("OverDrive is rate-limiting fulfillment (\"whoa\") for loan "
-                        + loanId + " — wait a while before trying again.");
+                // Capture the response detail so we can tell what "whoa" actually is: a Retry-After
+                // header would confirm rate-limiting; its absence points elsewhere (loan state, etc.).
+                String retryAfter = resp.headers().firstValue("retry-after").orElse(null);
+                String reqId = resp.headers().firstValue("x-request-id").orElse(null);
+                String date = resp.headers().firstValue("date").orElse(null);
+                log.warn("OverDrive fulfill \"whoa\" — loan {}, format {}, status {}; retry-after={}, "
+                        + "x-request-id={}, date={}; body={}; headers={}",
+                        loanId, formatId, resp.statusCode(), retryAfter, reqId, date, body, resp.headers().map());
+                throw new RestClientException("OverDrive refused this fulfillment (\"whoa\") for loan " + loanId
+                        + (retryAfter != null ? " (Retry-After: " + retryAfter + ")" : "")
+                        + ". Wait and retry, or try a freshly-borrowed title; see the server log for details.");
             }
 
             String href = firstMatch(HREF_PATTERN, body);
