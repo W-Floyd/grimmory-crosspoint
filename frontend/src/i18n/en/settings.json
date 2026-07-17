@@ -12,6 +12,7 @@
     "tasks": "Tasks",
     "auditLogs": "Audit Logs",
     "opds": "OPDS",
-    "devices": "Devices"
+    "devices": "Devices",
+    "overdrive": "OverDrive"
   }
 }

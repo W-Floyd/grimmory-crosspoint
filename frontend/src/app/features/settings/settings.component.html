@@ -63,6 +63,11 @@
                 <i class="pi pi-mobile"></i> {{ t('devices') }}
               </p-tab>
             }
+            @if (canOpenTab(SettingsTab.Overdrive)) {
+              <p-tab [value]="SettingsTab.Overdrive">
+                <i class="pi pi-book"></i> {{ t('overdrive') }}
+              </p-tab>
+            }
           </p-tablist>
           <p-tabpanels>
             <!-- [GROUP: Lazy Tabs] -->
@@ -156,6 +161,14 @@
               <p-tabpanel [value]="SettingsTab.DeviceSettings">
                 @if (visitedTabs().has(SettingsTab.DeviceSettings)) {
                   <app-device-settings-component></app-device-settings-component>
+                }
+              </p-tabpanel>
+            }
+
+            @if (canOpenTab(SettingsTab.Overdrive)) {
+              <p-tabpanel [value]="SettingsTab.Overdrive">
+                @if (visitedTabs().has(SettingsTab.Overdrive)) {
+                  <app-overdrive-settings></app-overdrive-settings>
                 }
               </p-tabpanel>
             }
