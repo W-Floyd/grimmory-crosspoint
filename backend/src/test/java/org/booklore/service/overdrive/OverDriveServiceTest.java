@@ -49,47 +49,52 @@ class OverDriveServiceTest {
     }
 
     @Test
-    void storeToken_persistsForCurrentUser() {
+    void storeToken_persistsCardForCurrentUser() {
         authAs(7L);
-        when(tokenRepository.findByUserId(7L)).thenReturn(Optional.empty());
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.empty());
 
-        service.storeToken("card-1", "token-xyz");
+        service.storeToken("card-1", "LAPL", "lapl", "token-xyz");
 
         ArgumentCaptor<OverDriveTokenEntity> captor = ArgumentCaptor.forClass(OverDriveTokenEntity.class);
         verify(tokenRepository).save(captor.capture());
         assertThat(captor.getValue().getUserId()).isEqualTo(7L);
         assertThat(captor.getValue().getIdentity()).isEqualTo("card-1");
+        assertThat(captor.getValue().getCardName()).isEqualTo("LAPL");
+        assertThat(captor.getValue().getLibraryKey()).isEqualTo("lapl");
         assertThat(captor.getValue().getToken()).isEqualTo("token-xyz");
     }
 
     @Test
-    void hasToken_reflectsCurrentUser() {
+    void hasToken_reflectsCurrentUserCard() {
         authAs(7L);
-        when(tokenRepository.existsByUserId(7L)).thenReturn(true);
-        assertThat(service.hasToken("ignored")).isTrue();
+        when(tokenRepository.existsByUserIdAndIdentity(7L, "card-1")).thenReturn(true);
+        assertThat(service.hasToken("card-1")).isTrue();
     }
 
     @Test
-    void listIdentities_returnsCurrentUsersCard() {
+    void listCards_returnsCurrentUsersLinkedCards() {
         authAs(7L);
-        when(tokenRepository.findByUserId(7L))
-                .thenReturn(Optional.of(OverDriveTokenEntity.builder().userId(7L).identity("card-1").token("t").build()));
-        assertThat(service.listIdentities()).containsExactly("card-1");
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").cardName("LAPL").token("t").build(),
+                OverDriveTokenEntity.builder().userId(7L).identity("card-2").cardName("BPL").token("t").build()));
+        assertThat(service.listCards()).extracting(c -> c.cardId()).containsExactly("card-1", "card-2");
+        assertThat(service.listIdentities()).containsExactly("card-1", "card-2");
     }
 
     @Test
-    void removeToken_removesCurrentUsersToken() {
+    void removeToken_removesCurrentUsersCard() {
         authAs(7L);
-        service.removeToken("ignored");
-        verify(tokenRepository).deleteByUserId(7L);
+        service.removeToken("card-1");
+        verify(tokenRepository).deleteByUserIdAndIdentity(7L, "card-1");
     }
 
     @Test
-    void getStoredTokenForUser_returnsTokenWhenPresent() {
-        when(tokenRepository.findByUserId(9L))
-                .thenReturn(Optional.of(OverDriveTokenEntity.builder().userId(9L).identity("c").token("tok").build()));
-        assertThat(service.getStoredTokenForUser(9L)).isEqualTo("tok");
-        assertThat(service.getStoredTokenForUser(null)).isNull();
+    void getStoredToken_byUserAndCard() {
+        when(tokenRepository.findByUserIdAndIdentity(9L, "card-9"))
+                .thenReturn(Optional.of(OverDriveTokenEntity.builder().userId(9L).identity("card-9").token("tok").build()));
+        assertThat(service.getStoredToken(9L, "card-9")).isEqualTo("tok");
+        assertThat(service.getStoredToken(null, "card-9")).isNull();
+        assertThat(service.getStoredToken(9L, null)).isNull();
     }
 
     @Test
@@ -114,7 +119,11 @@ class OverDriveServiceTest {
         epub.setIsbn("9780441013593");
         item.setFormats(List.of(pdf, epub));
 
-        when(overDriveParser.searchCatalog("dune")).thenReturn(List.of(item));
+        // No admin key (settings unstubbed → null); one linked card library "lapl".
+        authAs(7L);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(item));
 
         var results = service.searchCatalog("dune");
 
@@ -123,6 +132,134 @@ class OverDriveServiceTest {
         assertThat(results.getFirst().formatId()).isEqualTo("ebook-epub-adobe");
         assertThat(results.getFirst().author()).isEqualTo("Frank Herbert");
         assertThat(results.getFirst().isbn()).isEqualTo("9780441013593");
+    }
+
+    @Test
+    void resolveLibrary_validKeyReturnsName() {
+        when(overDriveParser.fetchLibraryName("lapl")).thenReturn("Los Angeles Public Library");
+
+        var res = service.resolveLibrary("  lapl  ");
+
+        assertThat(res.valid()).isTrue();
+        assertThat(res.libraryKey()).isEqualTo("lapl");
+        assertThat(res.name()).isEqualTo("Los Angeles Public Library");
+    }
+
+    @Test
+    void resolveLibrary_unknownKeyIsInvalid() {
+        when(overDriveParser.fetchLibraryName("nope")).thenReturn(null);
+
+        var res = service.resolveLibrary("nope");
+
+        assertThat(res.valid()).isFalse();
+        assertThat(res.name()).isNull();
+    }
+
+    @Test
+    void resolveLibrary_blankKeyIsInvalidWithoutLookup() {
+        var res = service.resolveLibrary("   ");
+
+        assertThat(res.valid()).isFalse();
+        verifyNoInteractions(overDriveParser);
+    }
+
+    @Test
+    void searchCatalog_mapsAvailabilityFields() {
+        var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        item.setId("title-1");
+        item.setTitle("Dune");
+        item.setAvailable(true);
+        item.setHoldable(true);
+        item.setAvailableCopies(2);
+        item.setOwnedCopies(5);
+        item.setHoldsCount(3);
+        item.setEstimatedWaitDays(14);
+        item.setPreRelease(false);
+
+        authAs(7L);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(item));
+
+        var result = service.searchCatalog("dune").getFirst();
+
+        assertThat(result.available()).isTrue();
+        assertThat(result.holdable()).isTrue();
+        assertThat(result.availableCopies()).isEqualTo(2);
+        assertThat(result.ownedCopies()).isEqualTo(5);
+        assertThat(result.holdsCount()).isEqualTo(3);
+        assertThat(result.estimatedWaitDays()).isEqualTo(14);
+        assertThat(result.preRelease()).isFalse();
+    }
+
+    @Test
+    void searchCatalog_defaultsAvailabilityToSafeValuesWhenAbsent() {
+        var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        item.setId("title-1");
+        item.setTitle("Dune"); // no availability fields set → all null
+
+        authAs(7L);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(item));
+
+        var result = service.searchCatalog("dune").getFirst();
+
+        assertThat(result.available()).isFalse();
+        assertThat(result.holdable()).isFalse();
+        assertThat(result.preRelease()).isFalse();
+        assertThat(result.availableCopies()).isNull();
+    }
+
+    @Test
+    void searchCatalog_dedupePrefersAvailableCopyAcrossLibraries() {
+        var unavailable = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        unavailable.setId("title-1");
+        unavailable.setTitle("Dune");
+        unavailable.setAvailable(false);
+        unavailable.setHoldable(true);
+        var available = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        available.setId("title-1"); // same title id, but borrowable in this library
+        available.setTitle("Dune");
+        available.setAvailable(true);
+
+        authAs(7L);
+        when(appSettingService.getAppSettings()).thenReturn(null);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build(),
+                OverDriveTokenEntity.builder().userId(7L).identity("c2").libraryKey("bpl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(unavailable));
+        when(overDriveParser.searchLibrary("bpl", "dune")).thenReturn(List.of(available));
+
+        var results = service.searchCatalog("dune");
+
+        assertThat(results).hasSize(1);
+        assertThat(results.getFirst().available()).isTrue();
+    }
+
+    @Test
+    void searchCatalog_unionsAdminAndCardLibrariesDedupedByTitle() {
+        var itemA = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        itemA.setId("title-1");
+        itemA.setTitle("Dune");
+        var itemDup = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        itemDup.setId("title-1"); // same title id from a second library → deduped
+        itemDup.setTitle("Dune");
+        var itemB = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        itemB.setId("title-2");
+        itemB.setTitle("Dune Messiah");
+
+        authAs(7L);
+        when(appSettingService.getAppSettings()).thenReturn(null); // no admin key path
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build(),
+                OverDriveTokenEntity.builder().userId(7L).identity("c2").libraryKey("bpl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(itemA));
+        when(overDriveParser.searchLibrary("bpl", "dune")).thenReturn(List.of(itemDup, itemB));
+
+        var results = service.searchCatalog("dune");
+
+        assertThat(results).extracting(c -> c.titleId()).containsExactly("title-1", "title-2");
     }
 
     @Test
@@ -168,9 +305,9 @@ class OverDriveServiceTest {
 
     @Test
     void borrowAndImport_failsWhenNoTokenAvailable() {
-        // Blank token and no stored token for the current user → resolveToken throws, nothing imported.
+        // Blank token and no stored token for the current user's card → resolveToken throws, nothing imported.
         authAs(7L);
-        when(tokenRepository.findByUserId(7L)).thenReturn(Optional.empty());
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.borrowAndImport("card", "", "title", 1L, 1L, "t", "a", null, null))
                 .isInstanceOf(RuntimeException.class);
         verifyNoInteractions(overDriveImportService);

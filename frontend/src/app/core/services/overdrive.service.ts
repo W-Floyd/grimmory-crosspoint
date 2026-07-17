@@ -3,18 +3,10 @@ import { HttpClient } from '@angular/common/http';
 import { API_CONFIG } from '../../core/config/api-config';
 import { Observable } from 'rxjs';
 
-export interface OverDriveChipResult {
-  identity: string;
-  token: string;
-}
-
-export interface OverDriveSetupCodeRequest {
-  code: string;
-}
-
-export interface OverDriveSetupResult {
-  identity: string;
-  token: string;
+/** A linked Libby library card. */
+export interface OverDriveCard {
+  cardId: string;
+  name?: string | null;
 }
 
 export interface OverDriveLoan {
@@ -59,12 +51,15 @@ export interface OverDriveFulfillResult {
   acsmBase64: string | null;
 }
 
-export interface OverDriveTokenListResult {
-  identities: string[];
-}
-
 export interface OverDriveCapabilities {
   acsmHandlerConfigured: boolean;
+}
+
+/** Result of validating/resolving an OverDrive library key against the Thunder directory. */
+export interface OverDriveLibraryResolution {
+  valid: boolean;
+  libraryKey: string;
+  name?: string | null;
 }
 
 export interface OverDriveCatalogItem {
@@ -74,6 +69,16 @@ export interface OverDriveCatalogItem {
   author?: string | null;
   coverUrl?: string | null;
   isbn?: string | null;
+  /** Borrowable right now (has an available copy). */
+  available: boolean;
+  /** Can be placed on hold when not available. */
+  holdable: boolean;
+  availableCopies?: number | null;
+  ownedCopies?: number | null;
+  holdsCount?: number | null;
+  estimatedWaitDays?: number | null;
+  /** Not yet released; neither borrowable nor holdable. */
+  preRelease: boolean;
 }
 
 export interface OverDriveBorrowImportRequest {
@@ -92,6 +97,10 @@ export interface OverDriveImportedBook {
   title?: string;
 }
 
+/**
+ * OverDrive/Libby API client. Auth tokens are stored server-side per (user, card); callers pass a
+ * card id and the backend resolves the token, so the client never handles tokens directly.
+ */
 @Injectable({
   providedIn: 'root'
 })
@@ -99,42 +108,33 @@ export class OverDriveService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = `${API_CONFIG.BASE_URL}/api/overdrive`;
 
-  // Chip / Auth
+  // Account / cards
 
-  /** Obtain a new chip identity from OverDrive. */
-  postChip(): Observable<OverDriveChipResult> {
-    return this.http.post<OverDriveChipResult>(`${this.baseUrl}/chip`, {});
+  /** Redeem a Libby 8-digit setup code; links all cards on that account and returns them. */
+  redeemSetupCode(code: string): Observable<OverDriveCard[]> {
+    return this.http.post<OverDriveCard[]>(`${this.baseUrl}/setup-code`, { code });
   }
 
-  /** Redeem a Libby 8-digit setup code to link a card. */
-  redeemSetupCode(code: string): Observable<OverDriveSetupResult> {
-    return this.http.post<OverDriveSetupResult>(`${this.baseUrl}/setup-code`, { code });
+  /** The current user's linked library cards. */
+  cards(): Observable<OverDriveCard[]> {
+    return this.http.get<OverDriveCard[]>(`${this.baseUrl}/cards`);
   }
 
-  /** Store a token for later use. */
-  storeToken(identity: string, token: string): Observable<void> {
-    return this.http.post<void>(`${this.baseUrl}/token`, {}, {
-      params: { identity, token }
-    });
+  /** Unlink a card. */
+  removeCard(cardId: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/token`, { params: { identity: cardId } });
   }
-
-  /** Remove a stored token. */
-  removeToken(identity: string): Observable<void> {
-    return this.http.delete<void>(`${this.baseUrl}/token`, {
-      params: { identity }
-    });
-  }
-
-  /** List stored token identities. */
-  listTokens(): Observable<string[]> {
-    return this.http.get<string[]>(`${this.baseUrl}/tokens`);
-  }
-
-  // Capabilities
 
   /** Report which OverDrive features are available (e.g. whether an ACSM handler is configured). */
   capabilities(): Observable<OverDriveCapabilities> {
     return this.http.get<OverDriveCapabilities>(`${this.baseUrl}/capabilities`);
+  }
+
+  /** Validate an OverDrive library key and resolve its display name via the Thunder directory. */
+  resolveLibrary(key: string): Observable<OverDriveLibraryResolution> {
+    return this.http.get<OverDriveLibraryResolution>(`${this.baseUrl}/resolve-library`, {
+      params: { key }
+    });
   }
 
   // Catalog
@@ -146,63 +146,44 @@ export class OverDriveService {
     });
   }
 
-  /** Borrow a title and import the fulfilled EPUB into a library. */
-  borrowAndImport(identity: string, token: string, request: OverDriveBorrowImportRequest): Observable<OverDriveImportedBook> {
-    return this.http.post<OverDriveImportedBook>(`${this.baseUrl}/${identity}/borrow-and-import`,
-      request,
-      { params: { token } }
-    );
+  /** Borrow a title on the given card and import the fulfilled book into a library. */
+  borrowAndImport(cardId: string, request: OverDriveBorrowImportRequest): Observable<OverDriveImportedBook> {
+    return this.http.post<OverDriveImportedBook>(`${this.baseUrl}/${cardId}/borrow-and-import`, request);
   }
 
-  // Sync
+  // Sync / loans
 
-  /** Sync loans and holds from OverDrive. */
-  sync(identity: string, token: string): Observable<OverDriveSyncResult> {
+  /** Sync loans and holds for a card. */
+  sync(cardId: string): Observable<OverDriveSyncResult> {
     return this.http.get<OverDriveSyncResult>(`${this.baseUrl}/sync`, {
-      params: { identity, token }
+      params: { identity: cardId }
     });
   }
 
-  // Loans
-
-  /** Borrow a title from OverDrive by its title id. */
-  borrow(identity: string, token: string, titleId: string): Observable<{ loanId: string }> {
-    return this.http.post<{ loanId: string }>(`${this.baseUrl}/${identity}/borrow`,
-      { titleId },
-      { params: { token } }
-    );
+  /** Borrow a title on a card by its title id. */
+  borrow(cardId: string, titleId: string): Observable<{ loanId: string }> {
+    return this.http.post<{ loanId: string }>(`${this.baseUrl}/${cardId}/borrow`, { titleId });
   }
 
   /** Fulfill a loan to download its ACSM fulfillment token. */
-  fulfill(identity: string, token: string, loanId: string): Observable<OverDriveFulfillResult> {
-    return this.http.post<OverDriveFulfillResult>(`${this.baseUrl}/${identity}/fulfill/${loanId}`,
-      null,
-      { params: { token } }
-    );
+  fulfill(cardId: string, loanId: string): Observable<OverDriveFulfillResult> {
+    return this.http.post<OverDriveFulfillResult>(`${this.baseUrl}/${cardId}/fulfill/${loanId}`, null);
   }
 
   /** Return a borrowed book. */
-  returnBook(identity: string, token: string, loanId: string): Observable<void> {
-    return this.http.post<void>(`${this.baseUrl}/${identity}/return/${loanId}`,
-      null,
-      { params: { token } }
-    );
+  returnBook(cardId: string, loanId: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${cardId}/return/${loanId}`, null);
   }
 
   // Holds
 
-  /** Place a hold on a book. */
-  placeHold(identity: string, token: string, formatId: string): Observable<void> {
-    return this.http.post<void>(`${this.baseUrl}/${identity}/hold/${formatId}`,
-      null,
-      { params: { token } }
-    );
+  /** Place a hold on a title. */
+  placeHold(cardId: string, titleId: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${cardId}/hold/${titleId}`, null);
   }
 
-  /** Cancel a hold. */
-  cancelHold(identity: string, token: string, formatId: string): Observable<void> {
-    return this.http.delete<void>(`${this.baseUrl}/${identity}/hold/${formatId}`, {
-      params: { token }
-    });
+  /** Cancel a hold on a title. */
+  cancelHold(cardId: string, titleId: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${cardId}/hold/${titleId}`);
   }
 }

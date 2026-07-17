@@ -7,7 +7,7 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { MessageService } from 'primeng/api';
 import { CommonModule } from '@angular/common';
-import { OverDriveService, OverDriveSetupResult } from '../../../core/services/overdrive.service';
+import { OverDriveService, OverDriveCard, OverDriveLibraryResolution } from '../../../core/services/overdrive.service';
 import { ButtonModule } from 'primeng/button';
 
 @Component({
@@ -33,14 +33,59 @@ export class OverdriveSettingsComponent {
   libraryKey = signal('');
   setupCode = signal('');
   connecting = signal(false);
-  setupResult = signal<OverDriveSetupResult | null>(null);
+  linkedCards = signal<OverDriveCard[]>([]);
   setupError = signal<string | null>(null);
+
+  // Library-key validation against the Thunder directory.
+  resolving = signal(false);
+  resolution = signal<OverDriveLibraryResolution | null>(null);
+  // Guards the effect from re-resolving the same key on every settings change.
+  private lastAutoResolvedKey = '';
 
   constructor() {
     effect(() => {
       const overdrive = this.appSettingsService.appSettings()?.metadataProviderSettings?.overdrive;
       if (overdrive) {
-        this.libraryKey.set(overdrive.libraryKey ?? '');
+        const key = overdrive.libraryKey ?? '';
+        this.libraryKey.set(key);
+        if (key && key !== this.lastAutoResolvedKey) {
+          this.lastAutoResolvedKey = key;
+          this.checkKey();
+        }
+      }
+    });
+    this.overdriveService.cards().subscribe({
+      next: (cards) => this.linkedCards.set(cards ?? []),
+      error: () => this.linkedCards.set([])
+    });
+  }
+
+  cardLabel(card: OverDriveCard): string {
+    return card.name ? `${card.name} (${card.cardId})` : card.cardId;
+  }
+
+  /** Update the key and clear any stale validation result so the UI doesn't show a mismatched name. */
+  onKeyChange(value: string): void {
+    this.libraryKey.set(value);
+    this.resolution.set(null);
+  }
+
+  /** Validate the entered library key against the Thunder directory and show the resolved name. */
+  checkKey(): void {
+    const key = this.libraryKey().trim();
+    if (!key) {
+      this.resolution.set(null);
+      return;
+    }
+    this.resolving.set(true);
+    this.overdriveService.resolveLibrary(key).subscribe({
+      next: (res) => {
+        this.resolution.set(res);
+        this.resolving.set(false);
+      },
+      error: () => {
+        this.resolution.set({ valid: false, libraryKey: key, name: null });
+        this.resolving.set(false);
       }
     });
   }
@@ -56,12 +101,12 @@ export class OverdriveSettingsComponent {
     this.setupError.set(null);
 
     this.overdriveService.redeemSetupCode(code).subscribe({
-      next: (result) => {
-        this.setupResult.set(result);
+      next: (cards) => {
+        this.linkedCards.set(cards ?? []);
         this.messageService.add({
           severity: 'success',
           summary: 'Connected',
-          detail: `Linked Libby card: ${result.identity}`
+          detail: `Linked ${cards.length} card(s)`
         });
         this.setupCode.set('');
       },
@@ -102,6 +147,8 @@ export class OverdriveSettingsComponent {
           summary: 'Saved',
           detail: 'OverDrive settings saved'
         });
+        this.lastAutoResolvedKey = this.libraryKey().trim();
+        this.checkKey();
       },
       error: (err) => {
         this.messageService.add({

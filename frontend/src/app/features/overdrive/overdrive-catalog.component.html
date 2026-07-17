@@ -27,11 +27,32 @@
        class="mt-3"
      />
 
+     <small class="hint">You can add more than one setup code to link multiple accounts/cards.</small>
+
      <p-message *ngIf="error()" severity="error">{{ error() }}</p-message>
   </p-card>
 
+   <!-- Active Card Selector -->
+  <p-card header="Active Card" styleClass="mb-4" *ngIf="cards().length > 0">
+     <div class="field">
+       <label>Borrow / sync using</label>
+       <p-select
+         [options]="cards()"
+         [ngModel]="selectedCard()"
+         (ngModelChange)="onCardChange($event)"
+         optionLabel="name"
+         [ngModelOptions]="{ standalone: true }"
+         placeholder="Select a library card"
+         appendTo="body"
+       >
+         <ng-template let-card pTemplate="selectedItem">{{ cardLabel(card) }}</ng-template>
+         <ng-template let-card pTemplate="item">{{ cardLabel(card) }}</ng-template>
+       </p-select>
+     </div>
+  </p-card>
+
    <!-- Catalog Search + Borrow & Import -->
-  <p-card header="Search &amp; Borrow" styleClass="mb-4" *ngIf="identity()">
+  <p-card header="Search &amp; Borrow" styleClass="mb-4" *ngIf="selectedCard()">
      <div class="field">
        <label>Destination library</label>
        <div class="destination-row">
@@ -75,6 +96,7 @@
            <th>Cover</th>
            <th>Title</th>
            <th>Author</th>
+           <th>Availability</th>
            <th>Actions</th>
          </tr>
        </ng-template>
@@ -86,13 +108,35 @@
            <td>{{ item.title }}</td>
            <td>{{ item.author }}</td>
            <td>
+             <span *ngIf="item.preRelease" class="availability pre-release">Not yet released</span>
+             <span *ngIf="!item.preRelease && item.available" class="availability available">
+               Available<ng-container *ngIf="item.availableCopies != null"> ({{ item.availableCopies }} copies)</ng-container>
+             </span>
+             <span *ngIf="!item.preRelease && !item.available" class="availability waitlisted">
+               <ng-container *ngIf="item.holdable">Wait list</ng-container>
+               <ng-container *ngIf="!item.holdable">Unavailable</ng-container>
+               <ng-container *ngIf="item.estimatedWaitDays != null"> · ~{{ item.estimatedWaitDays }} day wait</ng-container>
+               <ng-container *ngIf="item.holdsCount != null"> · {{ item.holdsCount }} holds</ng-container>
+             </span>
+           </td>
+           <td>
              <p-button
+               *ngIf="item.available"
                label="Borrow &amp; Import"
                icon="pi pi-download"
                [disabled]="!item.titleId || !selectedLibrary() || !selectedPath() || importingTitleId() !== null"
                [loading]="importingTitleId() === item.titleId"
                (onClick)="onBorrowImport(item)"
              />
+             <p-button
+               *ngIf="!item.available && item.holdable"
+               label="Place Hold"
+               icon="pi pi-clock"
+               severity="secondary"
+               [disabled]="!item.titleId"
+               (onClick)="onPlaceHold(item)"
+             />
+             <span *ngIf="!item.available && !item.holdable" class="no-action">—</span>
            </td>
          </tr>
        </ng-template>
@@ -100,7 +144,7 @@
   </p-card>
 
    <!-- Loans Section -->
-  <p-card header="Your Loans" styleClass="mb-4" *ngIf="identity()">
+  <p-card header="Your Loans" styleClass="mb-4" *ngIf="selectedCard()">
      <div class="loan-actions mb-3">
        <p-button label="Refresh Loans" icon="pi pi-refresh" (onClick)="onLoadLoans()" [disabled]="loading()" />
      </div>
@@ -135,18 +179,24 @@
   </p-card>
 
    <!-- Holds Section -->
-  <p-card header="Your Holds" styleClass="mb-4" *ngIf="identity() && holds().length > 0">
+  <p-card header="Your Holds" styleClass="mb-4" *ngIf="selectedCard() && holds().length > 0">
      <p-table [value]="holds()" [paginator]="true" [rows]="10">
        <ng-template pTemplate="header">
          <tr>
            <th>Title</th>
            <th>Est. Wait</th>
+           <th>Actions</th>
          </tr>
        </ng-template>
        <ng-template pTemplate="body" let-hold>
          <tr>
            <td>{{ hold.title }}</td>
            <td>{{ hold.estimatedWaitDays }} days</td>
+           <td>
+             <p-button icon="pi pi-times" severity="danger"
+               tooltip="Cancel hold"
+               (onClick)="onCancelHold(hold)" />
+           </td>
          </tr>
        </ng-template>
      </p-table>

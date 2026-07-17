@@ -1,6 +1,7 @@
 package org.booklore.model.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.util.List;
@@ -34,6 +35,20 @@ public class OverDriveApiResponse {
         private List<Format> formats;
         private DetailedSeries detailedSeries;
         private Double starRating;
+
+        // Availability fields (present on the browse/media responses; see docs §7b). Nullable — the
+        // metadata-only search path does not depend on them, so absence is tolerated.
+        @JsonProperty("isAvailable")
+        private Boolean available;
+        @JsonProperty("isHoldable")
+        private Boolean holdable;
+        @JsonProperty("isPreReleaseTitle")
+        private Boolean preRelease;
+        private Integer availableCopies;
+        private Integer ownedCopies;
+        private Integer holdsCount;
+        private Integer estimatedWaitDays;
+        private String availabilityType;
 
         @Data
         @JsonIgnoreProperties(ignoreUnknown = true)

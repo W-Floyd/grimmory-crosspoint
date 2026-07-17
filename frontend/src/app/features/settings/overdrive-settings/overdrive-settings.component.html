@@ -4,17 +4,32 @@
 
     <div class="field">
      <label for="library-key">Library Key</label>
-     <input
-       id="library-key"
-       pInputText
-       type="text"
-       [ngModel]="libraryKey()"
-       (ngModelChange)="libraryKey.set($event)"
-       [ngModelOptions]="{ standalone: true }"
-       placeholder="e.g. lapl"
-       class="w-full"
-      />
+     <div class="library-key-row">
+       <input
+         id="library-key"
+         pInputText
+         type="text"
+         [ngModel]="libraryKey()"
+         (ngModelChange)="onKeyChange($event)"
+         [ngModelOptions]="{ standalone: true }"
+         placeholder="e.g. lapl"
+         class="w-full"
+         (keyup.enter)="checkKey()"
+        />
+       <p-button
+         label="Check"
+         icon="pi pi-check-circle"
+         severity="secondary"
+         [loading]="resolving()"
+         [disabled]="!libraryKey().trim()"
+         (onClick)="checkKey()"
+       />
+     </div>
      <small>The OverDrive library key (preferredKey) for your library</small>
+     <p-message *ngIf="resolution() as res" [severity]="res.valid ? 'success' : 'error'" class="mt-1">
+       <ng-container *ngIf="res.valid">Resolved: {{ res.name }}</ng-container>
+       <ng-container *ngIf="!res.valid">No OverDrive library found for “{{ res.libraryKey }}”. Check the key.</ng-container>
+     </p-message>
     </div>
 
     <p-message *ngIf="setupError()" severity="error">{{ setupError() }}</p-message>
@@ -41,11 +56,10 @@
        class="mt-2"
       />
 
-       <p-card header="Connection Status" *ngIf="setupResult()">
-        <p class="m-0">
-          <strong>Identity:</strong> {{ setupResult()!.identity }}<br/>
-          <strong>Token:</strong> {{ setupResult()!.token | slice:0:20 }}...
-        </p>
+       <p-card header="Linked Cards" *ngIf="linkedCards().length > 0">
+        <ul class="m-0">
+          <li *ngFor="let card of linkedCards()">{{ cardLabel(card) }}</li>
+        </ul>
        </p-card>
      </div>
 

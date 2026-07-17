@@ -59,7 +59,7 @@ class OverDriveAutoReturnTaskTest {
         loan.setIdentity("lib-a");
         loan.setUserId(7L);
         when(loanRepository.findExpiredLoans(any())).thenReturn(List.of(loan));
-        when(overDriveService.getStoredTokenForUser(7L)).thenReturn("tok");
+        when(overDriveService.getStoredToken(7L, "lib-a")).thenReturn("tok");
 
         task.returnExpiredLoans();
 
@@ -75,7 +75,7 @@ class OverDriveAutoReturnTaskTest {
         loan.setIdentity("lib-b");
         loan.setUserId(8L);
         when(loanRepository.findExpiredLoans(any())).thenReturn(List.of(loan));
-        when(overDriveService.getStoredTokenForUser(8L)).thenReturn(null);
+        when(overDriveService.getStoredToken(8L, "lib-b")).thenReturn(null);
 
         task.returnExpiredLoans();
 

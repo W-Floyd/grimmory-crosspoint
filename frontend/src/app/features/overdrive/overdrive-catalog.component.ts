@@ -1,7 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { OverDriveService, OverDriveCatalogItem, OverDriveHold, OverDriveLibrary, OverDriveLoan, OverDriveSyncResult } from '../../core/services/overdrive.service';
+import { OverDriveService, OverDriveCard, OverDriveCatalogItem, OverDriveHold, OverDriveLibrary, OverDriveLoan, OverDriveSyncResult } from '../../core/services/overdrive.service';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { MessageModule } from 'primeng/message';
@@ -44,11 +44,13 @@ export class OverdriveCatalogComponent {
    // State
   loading = signal(false);
   error = signal<string | null>(null);
-  identity = signal('');
-  token = signal('');
   loans = signal<OverDriveLoan[]>([]);
   holds = signal<OverDriveHold[]>([]);
   libraries = signal<OverDriveLibrary[]>([]);
+
+   // Linked Libby cards (per user); the selected card drives sync/borrow/return.
+  cards = signal<OverDriveCard[]>([]);
+  selectedCard = signal<OverDriveCard | null>(null);
 
    // Setup code input
   setupCode = signal('');
@@ -62,6 +64,93 @@ export class OverdriveCatalogComponent {
   selectedLibrary = signal<Library | null>(null);
   selectedPath = signal<LibraryPath | null>(null);
   importingTitleId = signal<string | null>(null);
+
+   constructor() {
+     this.loadCards();
+   }
+
+   cardLabel(card: OverDriveCard | null): string {
+     if (!card) return '';
+     return card.name ? `${card.name} (${card.cardId})` : card.cardId;
+   }
+
+   /** Load the user's linked cards; optionally select a specific one, else keep/first. */
+   private loadCards(preferCardId?: string): void {
+     this.overdriveService.cards().subscribe({
+       next: (cards) => {
+         this.cards.set(cards ?? []);
+         if (cards && cards.length > 0) {
+           const preferred = preferCardId ? cards.find(c => c.cardId === preferCardId) : undefined;
+           const current = this.selectedCard();
+           const stillPresent = current ? cards.find(c => c.cardId === current.cardId) : undefined;
+           this.selectedCard.set(preferred ?? stillPresent ?? cards[0]);
+           this.onLoadLoans();
+         } else {
+           this.selectedCard.set(null);
+         }
+       },
+       error: () => { /* not connected yet; leave cards empty */ }
+     });
+   }
+
+   onCardChange(card: OverDriveCard | null): void {
+     this.selectedCard.set(card);
+     if (card) {
+       this.onLoadLoans();
+     }
+   }
+
+   onConnect(): void {
+     const code = this.setupCode().trim();
+     if (!code) {
+       this.error.set('Setup code is required');
+       return;
+       }
+
+     this.connecting.set(true);
+     this.error.set(null);
+
+     this.overdriveService.redeemSetupCode(code).subscribe({
+       next: (linked) => {
+         this.setupCode.set('');
+         this.messageService.add({
+           severity: 'success',
+           summary: 'Connected',
+           detail: `Linked ${linked.length} card(s)`
+          });
+         this.connecting.set(false);
+         this.loadCards(linked[0]?.cardId);
+         },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Connection failed'));
+         this.connecting.set(false);
+         }
+      });
+     }
+
+   onLoadLoans(): void {
+     const card = this.selectedCard();
+     if (!card) {
+       this.error.set('Connect a Libby account and select a card first');
+       return;
+       }
+
+     this.loading.set(true);
+     this.error.set(null);
+
+     this.overdriveService.sync(card.cardId).subscribe({
+       next: (result: OverDriveSyncResult) => {
+         this.loans.set(result.loans ?? []);
+         this.holds.set(result.holds ?? []);
+         this.libraries.set(result.libraries ?? []);
+         this.loading.set(false);
+         },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Failed to sync'));
+         this.loading.set(false);
+         }
+       });
+     }
 
    onLibraryChange(library: Library | null): void {
      this.selectedLibrary.set(library);
@@ -90,12 +179,11 @@ export class OverdriveCatalogComponent {
      }
 
    onBorrowImport(item: OverDriveCatalogItem): void {
-     const id = this.identity();
-     const tok = this.token();
+     const card = this.selectedCard();
      const library = this.selectedLibrary();
      const path = this.selectedPath();
-     if (!id || !tok) {
-       this.error.set('Connect to your library first (identity and token are required)');
+     if (!card) {
+       this.error.set('Connect a Libby account and select a card first');
        return;
        }
      if (!item.titleId) {
@@ -109,7 +197,7 @@ export class OverdriveCatalogComponent {
 
      this.importingTitleId.set(item.titleId);
      this.error.set(null);
-     this.overdriveService.borrowAndImport(id, tok, {
+     this.overdriveService.borrowAndImport(card.cardId, {
        titleId: item.titleId,
        libraryId: library.id,
        pathId: path.id,
@@ -134,68 +222,55 @@ export class OverdriveCatalogComponent {
        });
      }
 
-   // Actions
-  onLoadLoans(): void {
-     const id = this.identity();
-     const tok = this.token();
-     if (!id || !tok) {
-       this.error.set('Identity and token are required');
+   onPlaceHold(item: OverDriveCatalogItem): void {
+     const card = this.selectedCard();
+     if (!card) {
+       this.error.set('Connect a Libby account and select a card first');
        return;
        }
-
-     this.loading.set(true);
-     this.error.set(null);
-
-     this.overdriveService.sync(id, tok).subscribe({
-       next: (result: OverDriveSyncResult) => {
-         this.loans.set(result.loans ?? []);
-         this.holds.set(result.holds ?? []);
-         this.libraries.set(result.libraries ?? []);
-         this.loading.set(false);
-         },
-       error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Failed to sync'));
-         this.loading.set(false);
-         }
-       });
-     }
-
-   onConnect(): void {
-     const code = this.setupCode().trim();
-     if (!code) {
-       this.error.set('Setup code is required');
+     if (!item.titleId) {
        return;
        }
-
-     this.connecting.set(true);
      this.error.set(null);
-
-     this.overdriveService.redeemSetupCode(code).subscribe({
-       next: (result) => {
-         this.identity.set(result.identity);
-         this.token.set(result.token);
-         this.setupCode.set('');
+     this.overdriveService.placeHold(card.cardId, item.titleId).subscribe({
+       next: () => {
          this.messageService.add({
            severity: 'success',
-           summary: 'Connected',
-           detail: `Linked Libby card: ${result.identity}`
+           summary: 'Hold placed',
+           detail: `Placed a hold on "${item.title}"`
           });
-         this.connecting.set(false);
          this.onLoadLoans();
          },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Connection failed'));
-         this.connecting.set(false);
+         this.error.set(this.errorMessage(err, 'Place hold failed'));
+         }
+      });
+     }
+
+   onCancelHold(hold: OverDriveHold): void {
+     const card = this.selectedCard();
+     if (!card) return;
+
+     this.overdriveService.cancelHold(card.cardId, hold.id).subscribe({
+       next: () => {
+         this.messageService.add({
+           severity: 'success',
+           summary: 'Hold cancelled',
+           detail: `Cancelled the hold on "${hold.title}"`
+          });
+         this.onLoadLoans();
+         },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Cancel hold failed'));
          }
       });
      }
 
    onReturn(loanId: string): void {
-     const id = this.identity();
-     const tok = this.token();
-     if (!id || !tok) return;
+     const card = this.selectedCard();
+     if (!card) return;
 
-     this.overdriveService.returnBook(id, tok, loanId).subscribe({
+     this.overdriveService.returnBook(card.cardId, loanId).subscribe({
        next: () => {
          this.messageService.add({
            severity: 'success',
@@ -211,11 +286,10 @@ export class OverdriveCatalogComponent {
      }
 
    onFulfill(loanId: string): void {
-     const id = this.identity();
-     const tok = this.token();
-     if (!id || !tok) return;
+     const card = this.selectedCard();
+     if (!card) return;
 
-     this.overdriveService.fulfill(id, tok, loanId).subscribe({
+     this.overdriveService.fulfill(card.cardId, loanId).subscribe({
        next: (result) => {
          if (result.acsmBase64) {
             // Decode and download the ACSM file

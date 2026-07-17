@@ -46,6 +46,27 @@
     border-radius: 2px;
   }
 
+  .availability {
+    font-size: 0.85rem;
+
+    &.available {
+      color: var(--green-500, #22c55e);
+      font-weight: 500;
+    }
+
+    &.waitlisted {
+      color: var(--text-color-secondary);
+    }
+
+    &.pre-release {
+      color: var(--orange-500, #f97316);
+    }
+  }
+
+  .no-action {
+    color: var(--text-color-secondary);
+  }
+
   .field {
     label {
       display: block;

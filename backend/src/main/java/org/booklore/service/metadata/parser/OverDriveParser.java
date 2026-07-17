@@ -44,6 +44,8 @@ import java.util.regex.Pattern;
 public class OverDriveParser implements BookParser {
 
     private static final String THUNDER_BASE_URL = "https://thunder.api.overdrive.com/v2/libraries";
+    /** Libby's public, library-agnostic share link for a title id (e.g. .../title/618973). */
+    private static final String LIBBY_TITLE_URL = "https://share.libbyapp.com/title/";
     private static final int MAX_RESULTS = 20;
     private static final long MIN_REQUEST_INTERVAL_MS = 1000;
     private static final Pattern SPECIAL_CHARACTERS_PATTERN = Pattern.compile("[.,\\-\\[\\]{}()!@#$%^&*_=+|~`<>?/\";:]");
@@ -132,6 +134,54 @@ public class OverDriveParser implements BookParser {
         return fetchItems(libraryKey, query);
     }
 
+    /**
+     * Raw catalog search against a specific library key. Returns an empty list for a blank key or on
+     * failure. Used to search across the libraries a user has cards for.
+     */
+    public List<OverDriveApiResponse.Item> searchLibrary(String libraryKey, String query) {
+        if (libraryKey == null || libraryKey.isBlank()) {
+            return List.of();
+        }
+        return fetchItems(libraryKey, query);
+    }
+
+    /**
+     * Resolve a library's display name from its preferred/advantage key via the Thunder library
+     * directory ({@code /v2/libraries/{key}}). No auth required. Returns null on any failure.
+     */
+    public String fetchLibraryName(String libraryKey) {
+        if (libraryKey == null || libraryKey.isBlank()) {
+            return null;
+        }
+        try {
+            waitForRateLimit();
+            URI uri = UriComponentsBuilder.fromUriString(THUNDER_BASE_URL)
+                    .pathSegment(libraryKey)
+                    .build()
+                    .encode()
+                    .toUri();
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(uri)
+                    .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                return null;
+            }
+            var node = objectMapper.readTree(response.body());
+            var name = node.get("name");
+            return name != null && !name.asString().isBlank() ? name.asString() : null;
+        } catch (IOException e) {
+            log.warn("OverDrive: failed to resolve library name for {}: {}", libraryKey, e.getMessage());
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
     private List<OverDriveApiResponse.Item> fetchItems(String libraryKey, String query) {
         try {
             waitForRateLimit();
@@ -141,6 +191,9 @@ public class OverDriveParser implements BookParser {
                     .queryParam("query", query)
                     // Restrict to ebooks so we return book editions, not audiobook/magazine ones.
                     .queryParam("mediaTypes", "ebook")
+                    // Ask Thunder to include per-item availability (isAvailable/isHoldable/holdsCount/
+                    // estimatedWaitDays/…) so the borrow UI can offer Borrow vs Place Hold accurately.
+                    .queryParam("includedFacets", "availability")
                     .queryParam("perPage", MAX_RESULTS)
                     .queryParam("page", 1)
                     .build()
@@ -193,6 +246,7 @@ public class OverDriveParser implements BookParser {
 
         return BookMetadata.builder()
                 .provider(MetadataProvider.Overdrive)
+                .externalUrl(item.getId() != null ? LIBBY_TITLE_URL + item.getId() : null)
                 .title(item.getTitle())
                 .subtitle(item.getSubtitle())
                 .authors(extractAuthors(item))

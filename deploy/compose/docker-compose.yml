@@ -29,7 +29,7 @@ services:
       # you have the right to do so. Leave ACSM_ENABLED unset/false to keep it off.
       # - ACSM_ENABLED=true
       # - ACSM_TOOL_PATH=/opt/acsm/acsm-tool           # your tool or wrapper script (must be executable in the container)
-      # - ACSM_TOOL_ARGS=--acsm {acsm} --output {output}
+      # - ACSM_TOOL_ARGS=-f {acsm} -o {output}
       # - ACSM_TIMEOUT_SECONDS=120
       # Override JVM memory defaults (the image ships sensible defaults for ~512 MB heap).
       # Uncomment and adjust if you want a tighter or looser cap:

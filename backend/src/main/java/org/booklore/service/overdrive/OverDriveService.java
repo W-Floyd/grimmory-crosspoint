@@ -149,11 +149,12 @@ public class OverDriveService {
       }
 
       /**
-       * Link a library card to a fresh chip identity using a Libby 8-digit setup code
-       * (libbyapp.com → Settings → "Copy to another device" / setup-code). Returns the resolved
-       * card id and the identity token, and persists the token for later use.
+       * Link a Libby account to a fresh chip identity using an 8-digit setup code
+       * (libbyapp.com → Settings → "Copy to another device"). All cards on that identity are linked and
+       * stored for the current user (each with the shared token); a user may redeem several codes to
+       * link multiple accounts. Returns the cards linked by this code.
        */
-      public TokenResult redeemSetupCode(String setupCode) {
+      public List<OverDriveCard> redeemSetupCode(String setupCode) {
         String code = setupCode != null ? setupCode.trim() : "";
         if (!code.matches("\\d{8}")) {
             throw new RestClientException("Invalid Libby setup code: expected 8 digits");
@@ -162,7 +163,7 @@ public class OverDriveService {
         // 1. Fresh chip identity — this token authenticates everything that follows.
         String token = requestChip().token();
 
-        // 2. Associate the card to this identity: POST /chip/clone/code (form-encoded code).
+        // 2. Associate the account to this identity: POST /chip/clone/code (form-encoded code).
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("code", code);
         HttpHeaders headers = libbyHeaders(token);
@@ -179,16 +180,21 @@ public class OverDriveService {
             throw new RestClientException("OverDrive setup-code registration failed: " + e.getMessage());
          }
 
-        // 3. Discover the card id (the "identity" we key loans/tokens by) from sync.
-        String cardId = firstCardId(token);
-        String identity = cardId != null ? cardId : "default";
-        storeToken(identity, token);
-        log.info("Libby account linked; card id: {}", identity);
-        return new TokenResult(identity, token);
+        // 3. Enumerate all cards on this identity and persist a token row per card for the user.
+        List<OverDriveCard> cards = fetchCards(token);
+        if (cards.isEmpty()) {
+            throw new RestClientException("Setup code linked no library cards; check the code and try again.");
+        }
+        for (OverDriveCard card : cards) {
+            storeToken(card.cardId(), card.name(), card.libraryKey(), token);
+        }
+        log.info("Libby account linked for user {}: {} card(s)", currentUserId(), cards.size());
+        return cards;
       }
 
-      /** Fetch the first library card id from a sync, or null if none. */
-      private String firstCardId(String token) {
+      /** Read all library cards from a sync as {@link OverDriveCard}s (id + best-effort display name). */
+      private List<OverDriveCard> fetchCards(String token) {
+        List<OverDriveCard> cards = new ArrayList<>();
         try {
             Map<?, ?> body = restClient.get()
                     .uri(sentryBaseUrl + "/chip/sync")
@@ -196,14 +202,46 @@ public class OverDriveService {
                     .retrieve()
                     .toEntity(Map.class)
                     .getBody();
-            if (body != null && body.get("cards") instanceof List<?> cards
-                    && !cards.isEmpty() && cards.getFirst() instanceof Map<?, ?> card
-                    && card.get("cardId") != null) {
-                return card.get("cardId").toString();
+            if (body != null && body.get("cards") instanceof List<?> rawCards) {
+                for (Object raw : rawCards) {
+                    if (raw instanceof Map<?, ?> card && card.get("cardId") != null) {
+                        String libraryKey = advantageKey(card);
+                        // Prefer the authoritative library name from Thunder; fall back to the sync payload.
+                        String resolved = libraryKey != null ? overDriveParser.fetchLibraryName(libraryKey) : null;
+                        String name = resolved != null ? resolved : cardDisplayName(card);
+                        cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey));
+                    }
+                }
             }
          } catch (Exception e) {
-            log.warn("OverDrive: could not determine card id from sync: {}", e.getMessage());
+            log.warn("OverDrive: could not read cards from sync: {}", e.getMessage());
          }
+        return cards;
+      }
+
+      /** Best-effort friendly name for a card from the sync payload (library/advantage name, else the id). */
+      private String cardDisplayName(Map<?, ?> card) {
+        Object library = card.get("library");
+        if (library instanceof Map<?, ?> lib && lib.get("name") != null) {
+            return lib.get("name").toString();
+        }
+        Object advantageKey = card.get("advantageKey");
+        if (advantageKey != null) {
+            return advantageKey.toString();
+        }
+        Object name = card.get("cardName");
+        return name != null ? name.toString() : card.get("cardId").toString();
+      }
+
+      /** The OverDrive library advantage key for a card (the Thunder library key), or null. */
+      private String advantageKey(Map<?, ?> card) {
+        Object advantageKey = card.get("advantageKey");
+        if (advantageKey != null) {
+            return advantageKey.toString();
+        }
+        if (card.get("library") instanceof Map<?, ?> lib && lib.get("advantageKey") != null) {
+            return lib.get("advantageKey").toString();
+        }
         return null;
       }
 
@@ -444,14 +482,56 @@ public class OverDriveService {
       }
 
       /**
-       * Search the OverDrive catalog for borrowable titles. Backed by the read-only Thunder catalog API
-       * (no auth); results carry the format id needed to {@link #borrowAndImport}.
+       * Search the OverDrive catalog for borrowable titles across the admin-configured library and any
+       * libraries the current user has cards for. Backed by the read-only Thunder catalog API (no auth);
+       * results carry the title id needed to {@link #borrowAndImport}. Deduplicated by title id.
        */
       public List<OverDriveCatalogItem> searchCatalog(String query) {
-        return overDriveParser.searchCatalog(query).stream()
-                .map(this::toCatalogItem)
-                .filter(i -> i.title() != null && !i.title().isBlank())
-                .toList();
+        // Admin library first, then the user's card libraries (distinct, order-preserving).
+        Set<String> libraryKeys = new LinkedHashSet<>();
+        String adminKey = adminLibraryKey();
+        if (adminKey != null && !adminKey.isBlank()) {
+            libraryKeys.add(adminKey);
+        }
+        libraryKeys.addAll(userLibraryKeys());
+
+        Map<String, OverDriveCatalogItem> byTitleId = new LinkedHashMap<>();
+        for (String libraryKey : libraryKeys) {
+            for (OverDriveApiResponse.Item item : overDriveParser.searchLibrary(libraryKey, query)) {
+                OverDriveCatalogItem mapped = toCatalogItem(item);
+                if (mapped.title() == null || mapped.title().isBlank() || mapped.titleId() == null) {
+                    continue;
+                }
+                // Dedupe across libraries by title id, but prefer a copy that is available to borrow
+                // now over an identical title that is only holdable elsewhere.
+                OverDriveCatalogItem existing = byTitleId.get(mapped.titleId());
+                if (existing == null || (!existing.available() && mapped.available())) {
+                    byTitleId.put(mapped.titleId(), mapped);
+                }
+            }
+        }
+        return new ArrayList<>(byTitleId.values());
+      }
+
+      /**
+       * Resolve an OverDrive library key against the Thunder library directory to validate it and
+       * obtain the library's display name. Read-only, no auth. A blank key or one that does not resolve
+       * yields {@code valid=false}.
+       */
+      public OverDriveLibraryResolution resolveLibrary(String libraryKey) {
+        String key = libraryKey != null ? libraryKey.trim() : "";
+        if (key.isEmpty()) {
+            return new OverDriveLibraryResolution(false, key, null);
+        }
+        String name = overDriveParser.fetchLibraryName(key);
+        return new OverDriveLibraryResolution(name != null, key, name);
+      }
+
+      /** The admin-configured OverDrive library key from metadata provider settings, or null. */
+      private String adminLibraryKey() {
+        var appSettings = appSettingService.getAppSettings();
+        MetadataProviderSettings settings = appSettings != null ? appSettings.getMetadataProviderSettings() : null;
+        return settings != null && settings.getOverdrive() != null ? settings.getOverdrive().getLibraryKey() : null;
       }
 
       /**
@@ -550,7 +630,14 @@ public class OverDriveService {
                 item.getTitle(),
                 extractPrimaryAuthor(item),
                 extractCoverUrl(item),
-                extractIsbn(item));
+                extractIsbn(item),
+                Boolean.TRUE.equals(item.getAvailable()),
+                Boolean.TRUE.equals(item.getHoldable()),
+                item.getAvailableCopies(),
+                item.getOwnedCopies(),
+                item.getHoldsCount(),
+                item.getEstimatedWaitDays(),
+                Boolean.TRUE.equals(item.getPreRelease()));
       }
 
       /** Prefer the Adobe EPUB format (what {@link #getAcsm} fulfills), else the first format id. */
@@ -654,9 +741,9 @@ public class OverDriveService {
       /**
        * GET /card/{cardId}/hold/{formatId} — place a hold.
        */
-      public void placeHold(String identity, String authToken, String formatId) {
+      public void placeHold(String identity, String authToken, String titleId) {
         authToken = resolveToken(identity, authToken);
-        String url = sentryBaseUrl + "/card/" + identity + "/hold/" + formatId;
+        String url = sentryBaseUrl + "/card/" + identity + "/hold/" + titleId;
         HttpHeaders headers = libbyHeaders(authToken);
 
         try {
@@ -666,7 +753,7 @@ public class OverDriveService {
                     .retrieve()
                     .toBodilessEntity();
 
-            log.info("OverDrive hold placed for format {}", formatId);
+            log.info("OverDrive hold placed for title {}", titleId);
          } catch (Exception e) {
             log.error("OverDrive hold failed: {}", e.getMessage());
             throw new RestClientException("OverDrive hold failed: " + e.getMessage());
@@ -674,11 +761,11 @@ public class OverDriveService {
       }
 
       /**
-       * Cancel a hold.
+       * Cancel a hold on a title.
        */
-      public void cancelHold(String identity, String authToken, String formatId) {
+      public void cancelHold(String identity, String authToken, String titleId) {
         authToken = resolveToken(identity, authToken);
-        String url = sentryBaseUrl + "/card/" + identity + "/hold/" + formatId;
+        String url = sentryBaseUrl + "/card/" + identity + "/hold/" + titleId;
         HttpHeaders headers = libbyHeaders(authToken);
 
         try {
@@ -688,7 +775,7 @@ public class OverDriveService {
                     .retrieve()
                     .toBodilessEntity();
 
-            log.info("OverDrive hold cancelled for format {}", formatId);
+            log.info("OverDrive hold cancelled for title {}", titleId);
          } catch (Exception e) {
             log.error("OverDrive cancel hold failed: {}", e.getMessage());
             throw new RestClientException("OverDrive cancel hold failed: " + e.getMessage());
@@ -697,14 +784,16 @@ public class OverDriveService {
 
      // ── Token Management ─────────────────────────────────────────────────
 
-      /** Store (or replace) the current user's token. Persisted so it survives restarts. */
+      /** Store (or replace) the current user's token for a specific card. Persisted across restarts. */
       @Transactional
-      public void storeToken(String identity, String token) {
+      public void storeToken(String identity, String cardName, String libraryKey, String token) {
         Long userId = currentUserId();
-        OverDriveTokenEntity entity = tokenRepository.findByUserId(userId)
+        OverDriveTokenEntity entity = tokenRepository.findByUserIdAndIdentity(userId, identity)
                 .orElseGet(OverDriveTokenEntity::new);
         entity.setUserId(userId);
         entity.setIdentity(identity);
+        entity.setCardName(cardName);
+        entity.setLibraryKey(libraryKey);
         entity.setToken(token);
         entity.setExpiresAt(Instant.now().getEpochSecond() + 3600);
         if (entity.getCreatedAt() == null) {
@@ -714,45 +803,61 @@ public class OverDriveService {
         log.info("OverDrive token stored for user {} (card {})", userId, identity);
       }
 
-      /** Remove the current user's stored token. */
+      /** Remove the current user's stored token for a specific card. */
       @Transactional
       public void removeToken(String identity) {
-        tokenRepository.deleteByUserId(currentUserId());
-        log.info("OverDrive token removed for user {}", currentUserId());
+        tokenRepository.deleteByUserIdAndIdentity(currentUserId(), identity);
+        log.info("OverDrive card {} removed for user {}", identity, currentUserId());
       }
 
-      /** Whether the current user has a stored token. */
+      /** Whether the current user has a stored token for the given card. */
       public boolean hasToken(String identity) {
-        return tokenRepository.existsByUserId(currentUserId());
+        return tokenRepository.existsByUserIdAndIdentity(currentUserId(), identity);
       }
 
-      /** The current user's linked card identity, if any (single-element list for API compatibility). */
+      /** The current user's linked cards (id + display name + library key). */
+      public List<OverDriveCard> listCards() {
+        return tokenRepository.findByUserId(currentUserId()).stream()
+                .map(t -> new OverDriveCard(t.getIdentity(), t.getCardName(), t.getLibraryKey()))
+                .toList();
+      }
+
+      /** Distinct OverDrive library keys for the current user's linked cards. */
+      private List<String> userLibraryKeys() {
+        return tokenRepository.findByUserId(currentUserId()).stream()
+                .map(OverDriveTokenEntity::getLibraryKey)
+                .filter(k -> k != null && !k.isBlank())
+                .distinct()
+                .toList();
+      }
+
+      /** The current user's linked card ids. */
       public List<String> listIdentities() {
-        return tokenRepository.findByUserId(currentUserId())
-                .map(t -> List.of(t.getIdentity()))
-                .orElseGet(List::of);
+        return tokenRepository.findByUserId(currentUserId()).stream()
+                .map(OverDriveTokenEntity::getIdentity)
+                .toList();
       }
 
-      /** The current user's stored token, or null. */
+      /** The current user's stored token for a specific card, or null. */
       public String getStoredToken(String identity) {
-        return tokenRepository.findByUserId(currentUserId())
+        return tokenRepository.findByUserIdAndIdentity(currentUserId(), identity)
                 .map(OverDriveTokenEntity::getToken)
                 .orElse(null);
       }
 
-      /** A specific user's stored token, or null. Used by background tasks that have no request user. */
-      public String getStoredTokenForUser(Long userId) {
-        if (userId == null) {
+      /** A specific (user, card) stored token, or null. Used by background tasks with no request user. */
+      public String getStoredToken(Long userId, String identity) {
+        if (userId == null || identity == null) {
             return null;
         }
-        return tokenRepository.findByUserId(userId)
+        return tokenRepository.findByUserIdAndIdentity(userId, identity)
                 .map(OverDriveTokenEntity::getToken)
                 .orElse(null);
       }
 
       /**
-       * Resolve the token to use: the caller-supplied token when present, otherwise the current user's
-       * stored token. Throws if neither is available.
+       * Resolve the token to use for a card: the caller-supplied token when present, otherwise the
+       * current user's stored token for that card. Throws if neither is available.
        */
       private String resolveToken(String identity, String providedToken) {
         if (providedToken != null && !providedToken.isBlank()) {
@@ -760,7 +865,8 @@ public class OverDriveService {
         }
         String stored = getStoredToken(identity);
         if (stored == null || stored.isBlank()) {
-            throw new RestClientException("No OverDrive token available; connect your Libby account first.");
+            throw new RestClientException(
+                    "No OverDrive token available for card " + identity + "; connect your Libby account first.");
         }
         return stored;
       }

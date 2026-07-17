@@ -61,20 +61,32 @@ public class OverDriveController {
      }
 
      /**
-      * POST /api/overdrive/setup-code — link a library card from a Libby 8-digit setup code.
-      * Get the code in Libby under Settings → "Copy to another device".
+      * POST /api/overdrive/setup-code — link a Libby account (and all its cards) from an 8-digit setup
+      * code. Get the code in Libby under Settings → "Copy to another device". A user may redeem several
+      * codes to link multiple accounts. Returns the cards linked by this code.
       */
      @Operation(summary = "Register a Libby setup code",
-                description = "Redeems a Libby 8-digit setup code to link a card and obtain an authenticated token.")
-     @ApiResponse(responseCode = "200", description = "Setup code registered successfully")
+                description = "Redeems a Libby 8-digit setup code and links all cards on that account for the current user.")
+     @ApiResponse(responseCode = "200", description = "Setup code registered; linked cards returned")
      @ApiResponse(responseCode = "400", description = "Invalid setup code")
      @PostMapping("/setup-code")
-    public ResponseEntity<OverDriveSetupResult> redeemSetupCode(
+    public ResponseEntity<List<OverDriveCard>> redeemSetupCode(
             @Parameter(description = "Libby 8-digit setup code") @RequestBody OverDriveSetupCodeRequest request
     ) {
         requireEnabled();
-        OverDriveService.TokenResult token = overDriveService.redeemSetupCode(request.getCode());
-        return ResponseEntity.ok(new OverDriveSetupResult(token.identity(), token.token()));
+        return ResponseEntity.ok(overDriveService.redeemSetupCode(request.getCode()));
+    }
+
+    /**
+     * GET /api/overdrive/cards — the current user's linked library cards.
+     */
+    @Operation(summary = "List the current user's linked Libby cards",
+               description = "Returns every library card the user has linked across their setup codes.")
+    @ApiResponse(responseCode = "200", description = "Cards listed successfully")
+    @GetMapping("/cards")
+    public ResponseEntity<List<OverDriveCard>> listCards() {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.listCards());
     }
 
     // ── Sync ────────────────────────────────────────────────────────────
@@ -128,6 +140,20 @@ public class OverDriveController {
     @GetMapping("/capabilities")
     public ResponseEntity<OverDriveCapabilities> capabilities() {
         return ResponseEntity.ok(new OverDriveCapabilities(acsmHandler.isConfigured()));
+    }
+
+    /**
+     * GET /api/overdrive/resolve-library — validate an OverDrive library key and return its name.
+     * Not gated on the lending feature flag so the admin can validate the key while configuring it.
+     */
+    @Operation(summary = "Resolve an OverDrive library key",
+               description = "Looks the key up in the Thunder library directory to validate it and return the library's display name.")
+    @ApiResponse(responseCode = "200", description = "Resolution result returned (valid=false when the key does not resolve)")
+    @GetMapping("/resolve-library")
+    public ResponseEntity<OverDriveLibraryResolution> resolveLibrary(
+            @Parameter(description = "OverDrive library key (preferredKey, e.g. lapl)") @RequestParam String key
+    ) {
+        return ResponseEntity.ok(overDriveService.resolveLibrary(key));
     }
 
     /**
@@ -195,7 +221,7 @@ public class OverDriveController {
     @PostMapping("/{identity}/fulfill/{loanId}")
     public ResponseEntity<OverDriveFulfillResult> fulfill(
             @Parameter(description = "Library identity") @PathVariable String identity,
-            @Parameter(description = "Auth token") @RequestParam String token,
+            @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
             @Parameter(description = "Loan ID to fulfill") @PathVariable String loanId
     ) {
         String acsmBase64 = overDriveService.fulfill(identity, token, loanId);
@@ -214,7 +240,7 @@ public class OverDriveController {
              @PostMapping(value = "/{identity}/fulfill/{loanId}/download", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
         public ResponseEntity<byte[]> downloadViaAcsm(
                  @Parameter(description = "Library card id") @PathVariable String identity,
-                 @Parameter(description = "Auth token") @RequestParam String token,
+                 @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
                  @Parameter(description = "Loan ID to fulfill") @PathVariable String loanId,
                  HttpServletResponse response
           ) {
@@ -263,7 +289,7 @@ public class OverDriveController {
     @PostMapping("/{identity}/return/{loanId}")
     public ResponseEntity<Void> returnBook(
             @Parameter(description = "Library identity") @PathVariable String identity,
-            @Parameter(description = "Auth token") @RequestParam String token,
+            @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
             @Parameter(description = "Loan ID to return") @PathVariable String loanId
     ) {
         overDriveService.returnBook(identity, token, loanId);
@@ -273,34 +299,36 @@ public class OverDriveController {
     // ── Holds ────────────────────────────────────────────────────────────
 
     /**
-     * POST /api/overdrive/{identity}/hold/{formatId} — place a hold.
+     * POST /api/overdrive/{identity}/hold/{titleId} — place a hold on a title.
      */
-    @Operation(summary = "Place a hold on a book",
-               description = "POST /card/{cardId}/hold/{formatId} to place a hold.")
+    @Operation(summary = "Place a hold on a title",
+               description = "POST /card/{cardId}/hold/{titleId} to place a hold.")
     @ApiResponse(responseCode = "200", description = "Hold placed successfully")
-    @PostMapping("/{identity}/hold/{formatId}")
+    @PostMapping("/{identity}/hold/{titleId}")
     public ResponseEntity<Void> placeHold(
-            @Parameter(description = "Library identity") @PathVariable String identity,
-            @Parameter(description = "Auth token") @RequestParam String token,
-            @Parameter(description = "Format ID to hold") @PathVariable String formatId
+            @Parameter(description = "Library card id") @PathVariable String identity,
+            @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
+            @Parameter(description = "OverDrive title id to hold") @PathVariable String titleId
     ) {
-        overDriveService.placeHold(identity, token, formatId);
+        requireEnabled();
+        overDriveService.placeHold(identity, token, titleId);
         return ResponseEntity.ok().build();
     }
 
     /**
-     * DELETE /api/overdrive/{identity}/hold/{formatId} — cancel a hold.
+     * DELETE /api/overdrive/{identity}/hold/{titleId} — cancel a hold.
      */
     @Operation(summary = "Cancel a hold",
-               description = "DELETE /card/{cardId}/hold/{formatId} to cancel a hold.")
+               description = "DELETE /card/{cardId}/hold/{titleId} to cancel a hold.")
     @ApiResponse(responseCode = "200", description = "Hold cancelled successfully")
-    @DeleteMapping("/{identity}/hold/{formatId}")
+    @DeleteMapping("/{identity}/hold/{titleId}")
     public ResponseEntity<Void> cancelHold(
-            @Parameter(description = "Library identity") @PathVariable String identity,
-            @Parameter(description = "Auth token") @RequestParam String token,
-            @Parameter(description = "Format ID") @PathVariable String formatId
+            @Parameter(description = "Library card id") @PathVariable String identity,
+            @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
+            @Parameter(description = "OverDrive title id") @PathVariable String titleId
     ) {
-        overDriveService.cancelHold(identity, token, formatId);
+        requireEnabled();
+        overDriveService.cancelHold(identity, token, titleId);
         return ResponseEntity.ok().build();
     }
 
@@ -314,7 +342,7 @@ public class OverDriveController {
             @Parameter(description = "Identity") @RequestParam String identity,
             @Parameter(description = "Token") @RequestParam String token
     ) {
-        overDriveService.storeToken(identity, token);
+        overDriveService.storeToken(identity, null, null, token);
         return ResponseEntity.ok().build();
     }
 
@@ -380,8 +408,6 @@ public class OverDriveController {
     record OverDriveCapabilities(boolean acsmHandlerConfigured) {}
 
     record OverDriveChipResult(String identity, String token) {}
-
-    record OverDriveSetupResult(String identity, String token) {}
 
     record OverDriveSyncResult(
             List<OverDriveLoanDto> loans,

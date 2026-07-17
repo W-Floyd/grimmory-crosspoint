@@ -100,6 +100,8 @@ class OverDriveParserTest {
         assertThat(m.getSeriesName()).isEqualTo("The Series");
         assertThat(m.getSeriesNumber()).isEqualTo(3f);
         assertThat(m.getRating()).isEqualTo(4.5);
+        // A Libby share link (from the title id) so the results UI can build a provider link.
+        assertThat(m.getExternalUrl()).isEqualTo("https://share.libbyapp.com/title/123");
     }
 
     @Test

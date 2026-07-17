@@ -486,7 +486,9 @@ export class MetadataSearcherComponent implements OnDestroy, OnChanges {
       const providerName = metadata.provider || 'Link';
       return `<a href="${metadata.externalUrl}" target="_blank">${providerName}</a>`;
     }
-    throw new Error("No provider ID found in metadata.");
+    // No linkable id or URL: show the provider name as plain text rather than throwing, which would
+    // break rendering of the entire results list.
+    return metadata.provider ?? '';
   }
 
   trackByMetadata(index: number, metadata: BookMetadata): string {

@@ -40,10 +40,10 @@ public class OverDriveAutoReturnTask {
         log.info("OverDrive auto-return: {} expired loan(s) to process", expired.size());
 
         for (OverDriveLoanEntity loan : expired) {
-            String token = overDriveService.getStoredTokenForUser(loan.getUserId());
+            String token = overDriveService.getStoredToken(loan.getUserId(), loan.getIdentity());
             if (token == null || token.isBlank()) {
-                log.warn("OverDrive auto-return: no stored token for user {}, marking loan {} EXPIRED",
-                        loan.getUserId(), loan.getOverdriveLoanId());
+                log.warn("OverDrive auto-return: no stored token for user {} card {}, marking loan {} EXPIRED",
+                        loan.getUserId(), loan.getIdentity(), loan.getOverdriveLoanId());
                 loan.setState("EXPIRED");
                 loanRepository.save(loan);
                 continue;

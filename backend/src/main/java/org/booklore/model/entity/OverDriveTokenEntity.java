@@ -6,8 +6,9 @@ import lombok.*;
 import java.time.Instant;
 
 /**
- * A stored OverDrive/Libby auth token, persisted so a linked account survives server restarts and
- * so background tasks (e.g. auto-return) can act on loans without the token being re-supplied.
+ * A stored OverDrive/Libby auth token for a single linked library card. A user may have several
+ * (across one or more Libby accounts); cards from the same setup code share a token value. Persisted
+ * so linked cards survive restarts and background tasks (auto-return) can act without re-supply.
  */
 @Entity
 @Table(name = "overdrive_token")
@@ -22,13 +23,21 @@ public class OverDriveTokenEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** The Grimmory user that owns this Libby connection. */
-    @Column(name = "user_id", nullable = false, unique = true)
+    /** The Grimmory user that owns this linked card. */
+    @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    /** OverDrive identity / card id this token authenticates. */
+    /** OverDrive identity / card id this token authenticates. Unique per user. */
     @Column(name = "identity", length = 255, nullable = false)
     private String identity;
+
+    /** Human-friendly card/library name for display in the card picker. */
+    @Column(name = "card_name", length = 255)
+    private String cardName;
+
+    /** OverDrive library "advantage key" (e.g. "lapl") for this card, used to scope catalog search. */
+    @Column(name = "library_key", length = 255)
+    private String libraryKey;
 
     /** The bearer token used for authenticated OverDrive calls. */
     @Column(name = "token", length = 4096, nullable = false)
