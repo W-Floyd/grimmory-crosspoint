@@ -53,6 +53,7 @@ public class MetadataProviderSettings {
     @Data
     public static class Ranobedb {
         private boolean enabled;
+        private boolean preferRomaji;
     }
 
     @Data

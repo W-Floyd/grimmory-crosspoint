@@ -82,6 +82,7 @@ export interface Goodreads {
 
 export interface Ranobedb {
   enabled: boolean;
+  preferRomaji: boolean;
 }
 
 export interface Hardcover {

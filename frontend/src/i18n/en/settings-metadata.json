@@ -62,7 +62,9 @@
     "apiToken": "API Token",
     "hardcoverPlaceholder": "Enter Hardcover API token",
     "comicvinePlaceholder": "Enter Comic Vine API token",
-    "overdriveConfigNote": "All other OverDrive settings (library keys, borrow formats, linked cards) are managed on the Settings → OverDrive/Libby page."
+    "overdriveConfigNote": "All other OverDrive settings (library keys, borrow formats, linked cards) are managed on the Settings → OverDrive/Libby page.",
+    "ranobedbPreferRomajiLabel": "Prefer Romaji",
+    "ranobedbPreferRomajiDesc": "When enabled, Japanese releases use romanization of Japanese characters where possible."
   },
   "publicReviews": {
     "sectionTitle": "Public Reviews",

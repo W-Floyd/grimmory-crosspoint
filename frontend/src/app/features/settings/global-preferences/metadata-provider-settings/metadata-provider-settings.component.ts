@@ -101,6 +101,7 @@ export class MetadataProviderSettingsComponent {
   doubanEnabled: boolean = false;
   lubimyCzytacEnabled: boolean = false;
   ranobedbEnabled: boolean = false;
+  ranobedbPreferRomaji: boolean = false;
   googleApiKey: string = '';
 
   private appSettingsService = inject(AppSettingsService);
@@ -131,6 +132,7 @@ export class MetadataProviderSettingsComponent {
     this.doubanEnabled = metadataProviderSettings?.douban?.enabled ?? false;
     this.lubimyCzytacEnabled = metadataProviderSettings?.lubimyczytac?.enabled ?? false;
     this.ranobedbEnabled = metadataProviderSettings?.ranobedb?.enabled ?? false;
+    this.ranobedbPreferRomaji = metadataProviderSettings?.ranobedb?.preferRomaji ?? false;
     this.audibleEnabled = metadataProviderSettings?.audible?.enabled ?? false;
     this.selectedAudibleDomain = metadataProviderSettings?.audible?.domain ?? 'com';
     this.overdriveEnabled = metadataProviderSettings?.overdrive?.enabled ?? false;
@@ -179,7 +181,10 @@ export class MetadataProviderSettingsComponent {
           },
           douban: {enabled: this.doubanEnabled},
           lubimyczytac: {enabled: this.lubimyCzytacEnabled},
-          ranobedb: {enabled: this.ranobedbEnabled},
+          ranobedb: {
+            enabled: this.ranobedbEnabled,
+            preferRomaji: this.ranobedbPreferRomaji
+          },
           audible: {
             enabled: this.audibleEnabled,
             domain: this.selectedAudibleDomain
