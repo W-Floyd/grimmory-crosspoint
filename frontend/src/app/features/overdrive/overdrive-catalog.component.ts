@@ -735,6 +735,23 @@ export class OverdriveCatalogComponent {
      this.selectedFormats.update((m) => ({ ...m, [titleId]: formatId }));
      }
 
+   /** The library book type the chosen format for a title would import as. */
+   chosenBookType(item: OverDriveCatalogItem): 'PDF' | 'EPUB' | null {
+     const f = this.chosenFormat(item);
+     return f ? (f.startsWith('ebook-pdf') ? 'PDF' : 'EPUB') : null;
+     }
+
+   /**
+    * True when the selected destination library restricts formats and excludes the chosen format's type.
+    * Importing there would be purged on the next scan, so the borrow will land in Bookdrop instead.
+    */
+   destinationRejectsFormat(item: OverDriveCatalogItem): boolean {
+     const allowed = this.selectedLibrary()?.allowedFormats;
+     if (!allowed || allowed.length === 0) return false;
+     const type = this.chosenBookType(item);
+     return type != null && !allowed.includes(type);
+     }
+
    /**
     * Best author label for a loan or hold: sync provides a flat firstCreatorName rather than a
     * creators array, so prefer that and fall back to the first creator name.

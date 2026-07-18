@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -56,12 +57,25 @@ public class AcsmHandler {
     }
 
     /**
+     * Hand the given ACSM to the configured tool and return the produced book file bytes. The tool's
+     * output path is named {@code book.epub}; callers that know the real format should use
+     * {@link #handle(byte[], String)} instead, and callers that don't should detect it from the returned
+     * bytes (e.g. the {@code %PDF} magic).
+     */
+    public byte[] handle(byte[] acsmBytes) {
+        return handle(acsmBytes, null);
+    }
+
+    /**
      * Hand the given ACSM to the configured tool and return the produced book file bytes.
      *
      * @param acsmBytes the ACSM fulfillment token from OverDrive
+     * @param extension the expected book file extension (e.g. {@code epub} or {@code pdf}); the tool's
+     *                  output path is named accordingly, since some tools key the output format off it.
+     *                  Blank/unknown falls back to {@code epub}.
      * @return the book file bytes, or null if no tool is configured or the tool fails
      */
-    public byte[] handle(byte[] acsmBytes) {
+    public byte[] handle(byte[] acsmBytes, String extension) {
         if (!config.isEnabled() || config.getToolPath().isBlank()) {
             log.debug("ACSM handler not enabled or tool path not configured");
             return null;
@@ -71,7 +85,7 @@ public class AcsmHandler {
         try {
             tempDir = Files.createTempDirectory("overdrive-acsm-");
             Path acsmFile = tempDir.resolve("fulfillment.acsm");
-            Path outputFile = tempDir.resolve("book.epub");
+            Path outputFile = tempDir.resolve("book." + normalizeExtension(extension));
 
             Files.write(acsmFile, acsmBytes);
             log.info("Wrote {} bytes to {}", acsmBytes.length, acsmFile);
@@ -155,6 +169,15 @@ public class AcsmHandler {
                 }
             }
         }
+    }
+
+    /** A safe, lowercase book file extension for the tool output path; defaults to {@code epub}. */
+    private static String normalizeExtension(String extension) {
+        if (extension == null || extension.isBlank()) {
+            return "epub";
+        }
+        String ext = extension.strip().toLowerCase(Locale.ROOT).replaceFirst("^\\.", "");
+        return ext.matches("[a-z0-9]{1,8}") ? ext : "epub";
     }
 
     /** A single-line, length-capped tail of tool output for surfacing in error messages. */

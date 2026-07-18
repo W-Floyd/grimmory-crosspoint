@@ -6,6 +6,7 @@ import {MessageService} from 'primeng/api';
 import {OverdriveCatalogComponent} from './overdrive-catalog.component';
 import {OverDriveService, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
 import {LibraryService} from '../../features/book/service/library.service';
+import {Library} from '../../features/book/model/library.model';
 
 function card(cardId: string, libraryKey: string, name = cardId): OverDriveCard {
   return {cardId, libraryKey, name};
@@ -255,6 +256,22 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(hold.pct).toBe(100);
     expect(hold.atLimit).toBe(true);
     expect(hold.canHold).toBe(true);
+  });
+
+  it('warns when the destination library would reject the chosen format', () => {
+    setup();
+    component.selectedLibrary.set({id: 1, name: 'Books', allowedFormats: ['EPUB']} as unknown as Library);
+
+    const pdf = item({titleId: 't-pdf', formatId: 'ebook-pdf-adobe', formats: ['ebook-pdf-adobe']});
+    expect(component.chosenBookType(pdf)).toBe('PDF');
+    expect(component.destinationRejectsFormat(pdf)).toBe(true);
+
+    const epub = item({titleId: 't-epub', formatId: 'ebook-epub-open', formats: ['ebook-epub-open']});
+    expect(component.destinationRejectsFormat(epub)).toBe(false);
+
+    // No restriction → no warning.
+    component.selectedLibrary.set({id: 2, name: 'Anything', allowedFormats: []} as unknown as Library);
+    expect(component.destinationRejectsFormat(pdf)).toBe(false);
   });
 
   it('scopes the search request to the selected card ids', () => {

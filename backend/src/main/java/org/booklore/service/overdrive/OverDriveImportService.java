@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 
 /**
  * Imports an EPUB obtained from OverDrive (borrowed and fulfilled) into a Grimmory
@@ -75,6 +76,20 @@ public class OverDriveImportService {
     // (spring.jpa.open-in-view: false) that mapping would otherwise throw LazyInitializationException
     // after the book was already written — and the catch below would then delete the imported file.
     @Transactional
+    /**
+     * Whether a library would keep a file of the given type. A library with no explicit allowed-formats
+     * list accepts everything; otherwise only listed types survive — importing another type just gets it
+     * purged on the next scan, so callers should route it elsewhere (e.g. Bookdrop) instead.
+     */
+    public boolean acceptsFormat(long libraryId, BookFileType fileType) {
+        return libraryRepository.findById(libraryId)
+                .map(lib -> {
+                    List<BookFileType> allowed = lib.getAllowedFormats();
+                    return allowed == null || allowed.isEmpty() || allowed.contains(fileType);
+                })
+                .orElse(true);
+    }
+
     public Book importBook(byte[] bookBytes, String suggestedFileName, long libraryId, long pathId,
                            BookMetadata metadata, BookFileType fileType) {
         if (bookBytes == null || bookBytes.length == 0) {

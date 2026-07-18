@@ -1349,7 +1349,7 @@ public class OverDriveService {
             if (acsm == null || acsm.length == 0) {
                 throw new RestClientException("Could not fetch the ACSM for loan " + loanId);
             }
-            content = acsmHandler.handle(acsm);
+            content = acsmHandler.handle(acsm, fileExtension(chosenFormat));
             if (content == null || content.length == 0) {
                 throw new RestClientException("The external ACSM handler did not produce a book file for loan "
                         + loanId + ".");
@@ -1366,12 +1366,19 @@ public class OverDriveService {
         }
         String fileName = buildFileName(title, loanId, fileExtension(chosenFormat));
 
-        // With a destination library + path, import straight into the library. Without one, drop the
-        // fulfilled file into the Bookdrop folder for the operator to review and finalize there.
+        // With a destination library + path, import straight into the library — unless that library
+        // wouldn't keep this file type (it purges disallowed formats on scan), in which case drop it into
+        // Bookdrop instead so the fulfilled file survives for the operator to place somewhere that accepts
+        // it. Without a destination at all, Bookdrop is the default.
         Book book;
-        if (libraryId != null && pathId != null) {
+        if (libraryId != null && pathId != null && overDriveImportService.acceptsFormat(libraryId, fileType)) {
             book = overDriveImportService.importBook(content, fileName, libraryId, pathId, metadata, fileType);
         } else {
+            if (libraryId != null && pathId != null) {
+                log.warn("Destination library {} does not accept {} files — dropping loan {} ('{}') into "
+                        + "Bookdrop instead of importing (it would be purged on the next scan).",
+                        libraryId, fileType, loanId, title);
+            }
             overDriveImportService.dropToBookdrop(content, fileName);
             book = null;
         }

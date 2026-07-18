@@ -314,4 +314,11 @@
     white-space: nowrap;
     color: var(--green-500, #22c55e);
   }
+
+  // Warning that the chosen format won't be kept by the destination library (→ Bookdrop).
+  .format-warning {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--orange-500, #f97316);
+  }
 }
