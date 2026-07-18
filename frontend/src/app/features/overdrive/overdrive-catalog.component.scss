@@ -231,6 +231,21 @@
     }
   }
 
+  // Badge flagging a search result the user already has out on loan.
+  .loan-warning {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--primary-color);
+
+    i {
+      font-size: 0.7rem;
+    }
+  }
+
   .no-action {
     color: var(--text-color-secondary);
 

@@ -149,6 +149,11 @@
                   [subtitle]="item.subtitle"
                   [bookId]="item.bookId"
                   [libbyUrl]="libbyUrl(item.titleId, chosenCard(item)?.libraryKey)" />
+                @if (isOnLoan(item)) {
+                  <span class="loan-warning" pTooltip="You already have this out on loan at {{ loanLibraryLabel(item) }} — import it from the Loans tab, or borrow again to re-import.">
+                    <i class="pi pi-bookmark-fill"></i> Already borrowed
+                  </span>
+                }
                 @if (isForeignLanguage(item)) {
                   <span class="lang-warning" pTooltip="This title is in {{ foreignLanguageLabel(item) }}, not your language ({{ userLanguageLabel() }})">
                     <i class="pi pi-exclamation-triangle"></i> {{ foreignLanguageLabel(item) }}

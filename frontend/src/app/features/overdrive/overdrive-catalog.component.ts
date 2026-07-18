@@ -817,6 +817,17 @@ export class OverdriveCatalogComponent {
      return item.firstCreatorName ?? item.creators?.[0]?.name ?? '';
      }
 
+   /** Whether the user already has this search-result title out on loan (on any selected card). */
+   isOnLoan(item: OverDriveCatalogItem): boolean {
+     return this.loans().some(l => l.id === item.titleId);
+     }
+
+   /** Label of the library/card this title is already borrowed on, or ''. */
+   loanLibraryLabel(item: OverDriveCatalogItem): string {
+     const cardId = this.loans().find(l => l.id === item.titleId)?.cardId;
+     return cardId ? this.shortCardLabel(cardId) : '';
+     }
+
    /**
     * Whether the user already holds this search-result title. A held title takes precedence over the
     * "not available / no copies" state — we surface the hold rather than offering to place another.

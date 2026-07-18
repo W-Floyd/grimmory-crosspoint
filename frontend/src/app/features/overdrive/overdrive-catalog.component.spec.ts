@@ -313,6 +313,14 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.isForeignLanguage(item({language: null}))).toBe(false);
   });
 
+  it('flags a search result the user already has on loan', () => {
+    setup();
+    component.loans.set([{id: 'title-1', title: 'Dune', expireDate: '2026-08-08', cardId: 'c1'}]);
+    expect(component.isOnLoan(item({titleId: 'title-1'}))).toBe(true);
+    expect(component.loanLibraryLabel(item({titleId: 'title-1'}))).toBe('LAPL');
+    expect(component.isOnLoan(item({titleId: 'other'}))).toBe(false);
+  });
+
   it('scopes the search request to the selected card ids', () => {
     const {c1, c2} = setup();
     overdriveService.search.mockReturnValue(of([]));
