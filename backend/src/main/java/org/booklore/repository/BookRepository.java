@@ -31,6 +31,13 @@ public interface BookRepository extends JpaRepository<BookEntity, Long>, JpaSpec
     @Query("SELECT b FROM BookEntity b WHERE b.id = :id AND (b.deleted IS NULL OR b.deleted = false)")
     Optional<BookEntity> findByIdWithBookFiles(@Param("id") Long id);
 
+    // Like findByIdWithBookFiles but also eager-fetches metadata.authors (+ other metadata collections),
+    // so callers that map the full book outside an active session (e.g. building an add-notification
+    // payload) don't trip a LazyInitializationException on authors.
+    @EntityGraph(attributePaths = { "metadata", "metadata.authors", "metadata.categories", "metadata.moods", "metadata.tags", "metadata.comicMetadata", "shelves", "libraryPath", "library", "bookFiles" })
+    @Query("SELECT b FROM BookEntity b WHERE b.id = :id AND (b.deleted IS NULL OR b.deleted = false)")
+    Optional<BookEntity> findByIdWithBookFilesAndMetadata(@Param("id") Long id);
+
     @EntityGraph(attributePaths = { "metadata", "bookFiles", "libraryPath", "library" })
     @Query("SELECT b FROM BookEntity b WHERE b.id = :id AND (b.deleted IS NULL OR b.deleted = false)")
     Optional<BookEntity> findByIdForStreaming(@Param("id") Long id);

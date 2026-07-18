@@ -123,14 +123,21 @@ public class OverDriveImportService {
 
             Book book = processFileInLibrary(targetFile.getName(), library, path, targetFile, fileType);
             applyOverDriveMetadata(book, metadata);
-            // Re-fetch the fully-persisted book (with libraryId + applied cover/metadata) so the live
-            // "book added" push carries a complete payload the UI can place — matching the file
-            // watcher's notification. Without this the broadcast sends a pre-metadata snapshot and the
-            // book only appears after a manual library reload.
-            Book completeBook = reloadCompleteBook(book);
-            eventPublisher.publishEvent(new BookAddedEvent(completeBook));
-            log.info("OverDrive import: created book id={}", completeBook.getId());
-            return completeBook;
+            log.info("OverDrive import: created book id={}", book.getId());
+
+            // The import is done at this point (file written, book + metadata persisted). Re-fetching the
+            // complete book and sending the live "book added" push is a best-effort nicety — its failure
+            // must NOT abort the import and delete the just-written file (which would leave an orphaned
+            // library row with no file). Without the push, the book simply appears on the next reload.
+            try {
+                Book completeBook = reloadCompleteBook(book);
+                eventPublisher.publishEvent(new BookAddedEvent(completeBook));
+                return completeBook;
+            } catch (RuntimeException e) {
+                log.warn("OverDrive import: book id={} imported, but the add-notification failed: {}",
+                        book.getId(), e.getMessage());
+                return book;
+            }
         } catch (IOException e) {
             cleanupTargetFile(target);
             throw ApiError.GENERIC_BAD_REQUEST.createException("Failed to write imported book: " + e.getMessage());
@@ -189,7 +196,8 @@ public class OverDriveImportService {
 
     /** Re-fetch and map the fully-persisted book so the add-notification carries a complete payload. */
     private Book reloadCompleteBook(Book book) {
-        return bookRepository.findByIdWithBookFiles(book.getId())
+        // Fetch metadata.authors too — the mapper reads it, and this may run outside an active session.
+        return bookRepository.findByIdWithBookFilesAndMetadata(book.getId())
                 .map(entity -> bookMapper.toBookWithDescription(entity, false))
                 .orElse(book);
     }
