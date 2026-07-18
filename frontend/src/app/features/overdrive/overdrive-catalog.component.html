@@ -128,7 +128,8 @@
                 <app-overdrive-title-cell
                   [title]="item.title"
                   [subtitle]="item.subtitle"
-                  [bookId]="item.bookId" />
+                  [bookId]="item.bookId"
+                  [libbyUrl]="libbyUrl(item.titleId)" />
               </td>
               <td>{{ item.author }}</td>
               <td>
@@ -317,7 +318,8 @@
             <app-overdrive-title-cell
               [title]="loan.title"
               [subtitle]="loan.subtitle"
-              [bookId]="loan.bookId" />
+              [bookId]="loan.bookId"
+              [libbyUrl]="libbyUrl(loan.id)" />
           </td>
           <td>{{ creatorName(loan) }}</td>
           <td>{{ loanFormat(loan) ?? '—' }}</td>
@@ -373,7 +375,8 @@
           <td>
             <app-overdrive-title-cell
               [title]="hold.title"
-              [subtitle]="hold.subtitle" />
+              [subtitle]="hold.subtitle"
+              [libbyUrl]="libbyUrl(hold.id)" />
           </td>
           <td>{{ creatorName(hold) }}</td>
           <td>

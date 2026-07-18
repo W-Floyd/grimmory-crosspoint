@@ -97,6 +97,12 @@ export class OverdriveCatalogComponent {
      return card.name ? `${card.name} (${card.cardId})` : card.cardId;
    }
 
+   /** Deep link to a title on libbyapp.com for the active card's library, or null. */
+   libbyUrl(titleId: string): string | null {
+     const key = this.selectedCard()?.libraryKey;
+     return key && titleId ? `https://libbyapp.com/library/${key}/everything/page-1/${titleId}` : null;
+     }
+
    /** Record a row's borrow/import/hold outcome for its inline status indicator. */
    private setOutcome(id: string, outcome: 'success' | 'error'): void {
      this.actionOutcome.update((m) => ({ ...m, [id]: outcome }));

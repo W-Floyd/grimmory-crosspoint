@@ -21,4 +21,6 @@ export class OverdriveTitleCellComponent {
   /** Id of the matched library book; when set, an "In your library" link is shown. Defaults to null
    * (not undefined) so an unbound bookId — e.g. on the holds table — doesn't render a bogus link. */
   readonly bookId = input<number | null>(null);
+  /** Deep link to this title on libbyapp.com; when set, an external-link icon is shown. */
+  readonly libbyUrl = input<string | null>(null);
 }

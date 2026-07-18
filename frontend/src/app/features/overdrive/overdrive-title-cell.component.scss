@@ -4,6 +4,22 @@
   gap: 0.15rem;
 }
 
+.od-title-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.od-libby {
+  display: inline-flex;
+  color: var(--text-color-secondary);
+  font-size: 0.8rem;
+
+  &:hover {
+    color: var(--primary-color);
+  }
+}
+
 .od-subtitle {
   color: var(--text-color-secondary);
   font-size: 0.85rem;

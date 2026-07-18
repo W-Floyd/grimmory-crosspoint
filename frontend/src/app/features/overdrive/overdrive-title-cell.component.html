@@ -1,5 +1,13 @@
 <div class="od-title-text">
-  <span>{{ title() }}</span>
+  <span class="od-title-line">
+    {{ title() }}
+    @if (libbyUrl()) {
+      <a [href]="libbyUrl()" target="_blank" rel="noopener noreferrer" class="od-libby"
+        pTooltip="Open in Libby" tooltipPosition="top">
+        <i class="pi pi-external-link"></i>
+      </a>
+    }
+  </span>
   @if (subtitle()) {
     <small class="od-subtitle">{{ subtitle() }}</small>
   }
