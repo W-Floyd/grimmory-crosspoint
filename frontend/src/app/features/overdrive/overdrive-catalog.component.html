@@ -37,7 +37,7 @@
 
       @if (cardsCollapsed()) {
         <small class="collapsed-summary">
-          {{ selectedCards().length }} of {{ cards().length }} cards · {{ loansTabLabel() }} · {{ holdsTabLabel() }}
+          {{ selectedCards().length }}/{{ cards().length }} cards · Loans {{ loansSummary() }} · Holds {{ holdsSummary() }}
         </small>
       } @else {
         <div class="field">

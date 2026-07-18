@@ -225,6 +225,19 @@ export class OverdriveCatalogComponent {
      return limit !== null ? `Holds (${count} / ${limit})` : `Holds (${this.holds().length})`;
    }
 
+   /** Compact "used/limit" (or bare "used") for the folded Library Cards summary, e.g. "20/75". */
+   loansSummary(): string {
+     const count = this.totalCount(s => s.loanCount, this.loans().length);
+     const limit = this.totalLimit(s => s.loanLimit);
+     return limit !== null ? `${count}/${limit}` : `${count}`;
+   }
+
+   holdsSummary(): string {
+     const count = this.totalCount(s => s.holdCount, this.holds().length);
+     const limit = this.totalLimit(s => s.holdLimit);
+     return limit !== null ? `${count}/${limit}` : `${count}`;
+   }
+
    /** "Last synced" label: time only when it was today, otherwise date + time to avoid ambiguity. */
    syncedLabel(): string | null {
      const d = this.lastSynced();
