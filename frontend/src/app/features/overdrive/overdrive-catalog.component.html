@@ -206,6 +206,15 @@
                       [disabled]="!item.titleId || importingTitleId() !== null"
                       [loading]="importingTitleId() === item.titleId"
                       (onClick)="onBorrowImport(item)" />
+                    <p-button
+                      label="Borrow"
+                      icon="pi pi-bookmark"
+                      severity="secondary"
+                      [outlined]="true"
+                      pTooltip="Borrow to your Libby account only — don't import into grimmory"
+                      [disabled]="!item.titleId || importingTitleId() !== null"
+                      [loading]="importingTitleId() === item.titleId"
+                      (onClick)="onBorrowOnly(item)" />
                   }
                 }
                 @if (!borrowableNow(item)) {
@@ -274,6 +283,7 @@
           <th>Cover</th>
           <th>Title</th>
           <th>Author</th>
+          <th>Format</th>
           <th>Expires</th>
           <th>Actions</th>
         </tr>
@@ -292,22 +302,23 @@
               [bookId]="loan.bookId" />
           </td>
           <td>{{ creatorName(loan) }}</td>
+          <td>{{ loanFormat(loan) ?? '—' }}</td>
           <td>{{ formatDate(loan.expireDate) }}</td>
           <td>
-            <p-button icon="pi pi-file-import"
+            <p-button label="Import" icon="pi pi-file-import"
               pTooltip="Import server-side into the selected library (Search &amp; Borrow), or into Bookdrop if none is selected"
               tooltipPosition="top"
               [disabled]="importingTitleId() !== null"
               [loading]="importingTitleId() === loan.id"
               (onClick)="onImportLoan(loan)"
               class="mr-2" />
-            <p-button icon="pi pi-download"
+            <p-button label="Download" icon="pi pi-download"
               severity="secondary"
               pTooltip="Download the raw ACSM file to your browser"
               tooltipPosition="top"
               (onClick)="onFulfill(loan.id)"
               class="mr-2" />
-            <p-button icon="pi pi-sign-out"
+            <p-button label="Return" icon="pi pi-sign-out"
               severity="danger"
               pTooltip="Return this loan to the library"
               tooltipPosition="top"

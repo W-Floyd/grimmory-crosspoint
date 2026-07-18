@@ -261,6 +261,33 @@ export class OverdriveCatalogComponent {
      return item.subtitle ? `${item.title}: ${item.subtitle}` : item.title;
      }
 
+   /** Borrow a title onto the Libby account without importing it into grimmory. */
+   onBorrowOnly(item: OverDriveCatalogItem): void {
+     const card = this.selectedCard();
+     if (!card || !item.titleId) return;
+     this.importingTitleId.set(item.titleId);
+     this.error.set(null);
+     this.overdriveService.borrow(card.cardId, item.titleId).subscribe({
+       next: () => {
+         this.messageService.add({ severity: 'success', summary: 'Borrowed',
+           detail: `"${this.fullTitle(item)}" borrowed to Libby (not imported)` });
+         this.importingTitleId.set(null);
+         this.onLoadLoans();
+         },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Borrow failed'));
+         this.importingTitleId.set(null);
+         this.onLoadLoans();
+         }
+       });
+     }
+
+   /** Human label for the format a loan was taken in (the locked/chosen format), or null. */
+   loanFormat(loan: OverDriveLoan): string | null {
+     const id = loan.formatId ?? loan.formats?.[0]?.id ?? null;
+     return id ? this.formatLabel(id) : null;
+     }
+
    /** True when a search result already matches a book in the library (by ISBN). */
    isInLibrary(item: OverDriveCatalogItem): boolean {
      return item.bookId != null;
