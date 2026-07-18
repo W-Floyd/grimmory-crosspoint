@@ -45,9 +45,53 @@
     flex-direction: column;
   }
 
+  // On short/mobile viewports the flex column can squeeze the active tab's table to zero height
+  // (scrollHeight="flex" resolves to 0), leaving only the paginator visible. Give the panel a floor
+  // so rows always render; the page itself scrolls (.overdrive-container is overflow-y:auto).
+  @media (max-height: 820px) {
+    ::ng-deep .p-tabpanel {
+      min-height: 26rem;
+    }
+  }
+
   // Tighten PrimeNG card padding so the stacked sections aren't so vertically spread out.
   ::ng-deep .p-card .p-card-body {
     padding: 1rem 1.25rem;
+  }
+
+  // Library Cards header: title on the left, a fold toggle on the right so the whole card (selector +
+  // capacity meters) can collapse to reclaim vertical space on short screens.
+  .card-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .fold-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-color-secondary);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--surface-200, rgb(255 255 255 / 8%));
+      color: var(--text-color);
+    }
+  }
+
+  // One-line summary shown in place of the selector + meters when the card is folded.
+  .collapsed-summary {
+    display: block;
+    color: var(--text-color-secondary);
+    font-size: 0.85rem;
   }
 
   // Page header: title/subtitle on the left, a general Refresh (syncs loans + holds) on the right.

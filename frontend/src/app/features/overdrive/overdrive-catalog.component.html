@@ -23,47 +23,64 @@
   <!-- Card Selector. Checked cards form the set of libraries to search and the pool of cards eligible
   to borrow/hold with. Linking, unlinking and diagnostics live on the OverDrive settings page. -->
   @if (cards().length > 0) {
-    <p-card header="Library Cards" styleClass="mb-4">
-      <div class="field">
-        <label for="active-card-select">Search &amp; borrow using</label>
-        <p-multiSelect
-          inputId="active-card-select"
-          [options]="cards()"
-          [ngModel]="selectedCards()"
-          (ngModelChange)="onCardsChange($event)"
-          optionLabel="name"
-          [ngModelOptions]="{ standalone: true }"
-          placeholder="Select library cards"
-          selectedItemsLabel="{0} cards selected"
-          appendTo="body"
-          >
-          <ng-template let-card pTemplate="item">{{ cardLabel(card) }}</ng-template>
-        </p-multiSelect>
-      </div>
-      <small class="hint">Search covers every selected card's library; each result lets you pick which card to borrow/hold with. Manage cards (connect, re-link, unlink) on the <strong>Settings → OverDrive</strong> page.</small>
-
-      @if (selectedCards().length > 0) {
-        <div class="card-capacity">
-          @for (card of selectedCards(); track card.cardId) {
-            @let loan = loanBar(card.cardId);
-            @let hold = holdBar(card.cardId);
-            <div class="capacity-row">
-              <span class="capacity-card" [pTooltip]="card.cardId" tooltipPosition="top">{{ card.name || card.cardId }}</span>
-              <div class="meter" [pTooltip]="loan.atLimit ? 'Loan limit reached' : 'Loans in use'">
-                <span class="meter-label">Loans</span>
-                <span class="meter-track"><span class="meter-fill" [class.full]="loan.atLimit" [style.width.%]="loan.pct"></span></span>
-                <span class="meter-value" [class.full]="loan.atLimit">{{ loan.count ?? '—' }} / {{ loan.limit ?? '—' }}</span>
-              </div>
-              <div class="meter" [pTooltip]="!hold.canHold ? 'This card can\'t place holds' : (hold.atLimit ? 'Hold limit reached' : 'Holds in use')">
-                <span class="meter-label">Holds</span>
-                <span class="meter-track"><span class="meter-fill" [class.full]="hold.atLimit" [style.width.%]="hold.pct"></span></span>
-                <span class="meter-value" [class.full]="hold.atLimit">
-                  @if (hold.canHold) {{{ hold.count ?? '—' }} / {{ hold.limit ?? '—' }}} @else {n/a}
-                </span>
-              </div>
-            </div>
-          }
+    <p-card styleClass="mb-4">
+      <ng-template pTemplate="title">
+        <div class="card-title-row">
+          <span>Library Cards</span>
+          <button type="button" class="fold-toggle" (click)="cardsCollapsed.set(!cardsCollapsed())"
+            [attr.aria-expanded]="!cardsCollapsed()"
+            [pTooltip]="cardsCollapsed() ? 'Show cards and limits' : 'Hide cards and limits'" tooltipPosition="left">
+            <i class="pi" [class.pi-chevron-down]="cardsCollapsed()" [class.pi-chevron-up]="!cardsCollapsed()"></i>
+          </button>
         </div>
+      </ng-template>
+
+      @if (cardsCollapsed()) {
+        <small class="collapsed-summary">
+          {{ selectedCards().length }} of {{ cards().length }} cards · {{ loansTabLabel() }} · {{ holdsTabLabel() }}
+        </small>
+      } @else {
+        <div class="field">
+          <label for="active-card-select">Search &amp; borrow using</label>
+          <p-multiSelect
+            inputId="active-card-select"
+            [options]="cards()"
+            [ngModel]="selectedCards()"
+            (ngModelChange)="onCardsChange($event)"
+            optionLabel="name"
+            [ngModelOptions]="{ standalone: true }"
+            placeholder="Select library cards"
+            selectedItemsLabel="{0} cards selected"
+            appendTo="body"
+            >
+            <ng-template let-card pTemplate="item">{{ cardLabel(card) }}</ng-template>
+          </p-multiSelect>
+        </div>
+        <small class="hint">Search covers every selected card's library; each result lets you pick which card to borrow/hold with. Manage cards (connect, re-link, unlink) on the <strong>Settings → OverDrive</strong> page.</small>
+
+        @if (selectedCards().length > 0) {
+          <div class="card-capacity">
+            @for (card of selectedCards(); track card.cardId) {
+              @let loan = loanBar(card.cardId);
+              @let hold = holdBar(card.cardId);
+              <div class="capacity-row">
+                <span class="capacity-card" [pTooltip]="card.cardId" tooltipPosition="top">{{ card.name || card.cardId }}</span>
+                <div class="meter" [pTooltip]="loan.atLimit ? 'Loan limit reached' : 'Loans in use'">
+                  <span class="meter-label">Loans</span>
+                  <span class="meter-track"><span class="meter-fill" [class.full]="loan.atLimit" [style.width.%]="loan.pct"></span></span>
+                  <span class="meter-value" [class.full]="loan.atLimit">{{ loan.count ?? '—' }} / {{ loan.limit ?? '—' }}</span>
+                </div>
+                <div class="meter" [pTooltip]="!hold.canHold ? 'This card can\'t place holds' : (hold.atLimit ? 'Hold limit reached' : 'Holds in use')">
+                  <span class="meter-label">Holds</span>
+                  <span class="meter-track"><span class="meter-fill" [class.full]="hold.atLimit" [style.width.%]="hold.pct"></span></span>
+                  <span class="meter-value" [class.full]="hold.atLimit">
+                    @if (hold.canHold) {{{ hold.count ?? '—' }} / {{ hold.limit ?? '—' }}} @else {n/a}
+                  </span>
+                </div>
+              </div>
+            }
+          </div>
+        }
       }
     </p-card>
   }

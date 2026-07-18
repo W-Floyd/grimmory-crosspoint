@@ -65,6 +65,10 @@ export class OverdriveCatalogComponent {
   lastSynced = signal<Date | null>(null);
   // Active tab on the catalog (search / loans / holds).
   activeTab = signal<string | number>('search');
+  // Whether the Library Cards + capacity section is folded away to give the loans/holds tables room.
+  // Defaults to folded on short viewports (e.g. mobile), where the tall card would otherwise squeeze
+  // the tab tables to nothing; the user can always toggle it back open.
+  cardsCollapsed = signal(typeof window !== 'undefined' && window.innerHeight < 720);
 
    // Linked Libby cards (per user). The checkbox-selected cards form the set of libraries to search
    // and the pool of eligible cards to borrow/hold with. Linking/unlinking and diagnostics live on the
