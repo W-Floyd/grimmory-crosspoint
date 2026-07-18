@@ -215,7 +215,6 @@
     }
   }
 
-  .destination-row,
   .search-row {
     display: flex;
     gap: 0.5rem;
@@ -228,6 +227,23 @@
 
     input {
       flex: 1 1 240px;
+    }
+  }
+
+  // Destination library + path share one row: two equal-width selects that shrink to fit rather than
+  // wrapping onto separate lines (important on narrow/mobile widths).
+  .destination-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+
+    p-select {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    ::ng-deep .p-select {
+      width: 100%;
     }
   }
 
