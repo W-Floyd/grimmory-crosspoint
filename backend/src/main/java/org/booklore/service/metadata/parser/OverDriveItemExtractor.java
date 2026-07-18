@@ -126,6 +126,25 @@ public final class OverDriveItemExtractor {
         return isbns[0] != null ? isbns[0] : isbns[1];
     }
 
+    /** The ASIN (Amazon edition id) from the title's format identifiers, or null. */
+    public static String asin(OverDriveApiResponse.Item item) {
+        if (item.getFormats() == null) {
+            return null;
+        }
+        for (OverDriveApiResponse.Item.Format format : item.getFormats()) {
+            if (format.getIdentifiers() == null) {
+                continue;
+            }
+            for (OverDriveApiResponse.Item.Format.Identifier id : format.getIdentifiers()) {
+                if (id.getType() != null && id.getType().equalsIgnoreCase("ASIN")
+                        && id.getValue() != null && !id.getValue().isBlank()) {
+                    return id.getValue().trim();
+                }
+            }
+        }
+        return null;
+    }
+
     private static List<String> isbnCandidates(OverDriveApiResponse.Item.Format format) {
         List<String> candidates = new ArrayList<>();
         if (format.getIsbn() != null) {

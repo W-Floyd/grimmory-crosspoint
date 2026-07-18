@@ -87,7 +87,8 @@ class OverDriveParserTest {
                     "publishDate": "2021-06-15T00:00:00Z",
                     "subjects": [{"name": "Fiction"}, {"name": "Fantasy"}],
                     "languages": [{"name": "English"}],
-                    "formats": [{"id": "ebook-epub-adobe", "isbn": "9781234567897"}],
+                    "formats": [{"id": "ebook-epub-adobe", "isbn": "9781234567897",
+                      "identifiers": [{"type": "ISBN", "value": "9781234567897"}, {"type": "ASIN", "value": "B00ABCDEF0"}]}],
                     "detailedSeries": {"seriesName": "The Series", "readingOrder": "3"},
                     "starRating": 4.5
                   }]
@@ -108,6 +109,7 @@ class OverDriveParserTest {
         assertThat(m.getPublishedDate()).isEqualTo(java.time.LocalDate.of(2021, 6, 15));
         assertThat(m.getCategories()).containsExactlyInAnyOrder("Fiction", "Fantasy");
         assertThat(m.getIsbn13()).isEqualTo("9781234567897");
+        assertThat(m.getAsin()).isEqualTo("B00ABCDEF0");
         assertThat(m.getThumbnailUrl()).isEqualTo("https://img/large.jpg"); // prefers largest
         assertThat(m.getSeriesName()).isEqualTo("The Series");
         assertThat(m.getSeriesNumber()).isEqualTo(3f);

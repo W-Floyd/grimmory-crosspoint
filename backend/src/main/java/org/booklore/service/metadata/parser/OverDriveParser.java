@@ -378,6 +378,7 @@ public class OverDriveParser implements BookParser {
                         ? LanguageNormalizer.normalize(item.getLanguages().getFirst().getName()) : null)
                 .isbn13(isbns[0])
                 .isbn10(isbns[1])
+                .asin(OverDriveItemExtractor.asin(item))
                 .thumbnailUrl(OverDriveItemExtractor.coverHref(item.getCovers()))
                 .seriesName(series.name())
                 .seriesNumber(series.number())
