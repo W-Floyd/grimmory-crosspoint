@@ -325,8 +325,9 @@
           <td>{{ loanFormat(loan) ?? '—' }}</td>
           <td>{{ formatDate(loan.expireDate) }}</td>
           <td>
-            <p-button label="Import" icon="pi pi-file-import"
-              pTooltip="Import server-side into the selected library (Search &amp; Borrow), or into Bookdrop if none is selected"
+            <p-button [label]="loan.bookId ? 'Import again' : 'Import'" icon="pi pi-file-import"
+              [severity]="loan.bookId ? 'warn' : null"
+              [pTooltip]="loan.bookId ? 'Already in your library — import another copy' : 'Import server-side into the selected library (Search &amp; Borrow), or into Bookdrop if none is selected'"
               tooltipPosition="top"
               [disabled]="importingTitleId() !== null"
               [loading]="importingTitleId() === loan.id"
