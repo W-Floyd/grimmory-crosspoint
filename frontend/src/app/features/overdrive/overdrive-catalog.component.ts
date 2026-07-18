@@ -12,6 +12,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { TooltipModule } from 'primeng/tooltip';
 import { InputTextModule } from 'primeng/inputtext';
+import { TabsModule } from 'primeng/tabs';
 import { LibraryService } from '../../features/book/service/library.service';
 import { Library, LibraryPath } from '../../features/book/model/library.model';
 import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
@@ -29,7 +30,8 @@ import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
     SelectModule,
     ToastModule,
     TooltipModule,
-    InputTextModule
+    InputTextModule,
+    TabsModule
 ],
   templateUrl: './overdrive-catalog.component.html',
   styleUrl: './overdrive-catalog.component.scss',
@@ -48,6 +50,8 @@ export class OverdriveCatalogComponent {
   libraries = signal<OverDriveLibrary[]>([]);
   // Time of the last successful loans/holds sync, so the user knows how current the data is.
   lastSynced = signal<Date | null>(null);
+  // Active tab on the catalog (search / loans / holds).
+  activeTab = signal<string | number>('search');
 
    // Linked Libby cards (per user); the selected card drives sync/borrow/return. Linking/unlinking and
    // diagnostics live on the OverDrive settings page — this page is browse/borrow only.

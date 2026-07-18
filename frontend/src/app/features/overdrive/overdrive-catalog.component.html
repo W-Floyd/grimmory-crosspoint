@@ -49,9 +49,15 @@
     </p-card>
   }
 
-  <!-- Catalog Search + Borrow & Import -->
   @if (selectedCard()) {
-    <p-card header="Search &amp; Borrow" styleClass="mb-4">
+    <p-tabs [value]="activeTab()" (valueChange)="activeTab.set($event ?? 'search')">
+      <p-tablist>
+        <p-tab value="search">Search &amp; Borrow</p-tab>
+        <p-tab value="loans">Loans ({{ loans().length }})</p-tab>
+        <p-tab value="holds">Holds ({{ holds().length }})</p-tab>
+      </p-tablist>
+      <p-tabpanels>
+        <p-tabpanel value="search">
       <div class="field">
         <label for="dest-library-select">Destination library</label>
         <div class="destination-row">
@@ -270,12 +276,9 @@
       </ng-template>
     </p-table>
   }
-</p-card>
-}
+        </p-tabpanel>
 
-<!-- Loans Section -->
-@if (selectedCard()) {
-  <p-card header="Your Loans" styleClass="mb-4">
+        <p-tabpanel value="loans">
     <p-table [value]="loans()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
       currentPageReportTemplate="Showing {first} to {last} of {totalRecords} loans">
       <ng-template pTemplate="header">
@@ -327,12 +330,9 @@
         </tr>
       </ng-template>
     </p-table>
-  </p-card>
-}
+        </p-tabpanel>
 
-<!-- Holds Section -->
-@if (selectedCard() && holds().length > 0) {
-  <p-card header="Your Holds" styleClass="mb-4">
+        <p-tabpanel value="holds">
     <p-table [value]="holds()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
       currentPageReportTemplate="Showing {first} to {last} of {totalRecords} holds">
       <ng-template pTemplate="header">
@@ -383,11 +383,13 @@
         </tr>
       </ng-template>
     </p-table>
-  </p-card>
-}
+        </p-tabpanel>
+      </p-tabpanels>
+    </p-tabs>
+  }
 
-<!-- Library Info -->
-@if (libraries().length > 0) {
+  <!-- Library Info -->
+  @if (libraries().length > 0) {
   <p-card header="Library Information">
     <p-table [value]="libraries()">
       <ng-template pTemplate="header">
