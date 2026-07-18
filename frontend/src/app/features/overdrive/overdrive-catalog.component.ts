@@ -46,6 +46,8 @@ export class OverdriveCatalogComponent {
   loans = signal<OverDriveLoan[]>([]);
   holds = signal<OverDriveHold[]>([]);
   libraries = signal<OverDriveLibrary[]>([]);
+  // Time of the last successful loans/holds sync, so the user knows how current the data is.
+  lastSynced = signal<Date | null>(null);
 
    // Linked Libby cards (per user); the selected card drives sync/borrow/return. Linking/unlinking and
    // diagnostics live on the OverDrive settings page — this page is browse/borrow only.
@@ -79,6 +81,15 @@ export class OverdriveCatalogComponent {
    cardLabel(card: OverDriveCard | null): string {
      if (!card) return '';
      return card.name ? `${card.name} (${card.cardId})` : card.cardId;
+   }
+
+   /** "Last synced" label: time only when it was today, otherwise date + time to avoid ambiguity. */
+   syncedLabel(): string | null {
+     const d = this.lastSynced();
+     if (!d) return null;
+     const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+     const isToday = d.toDateString() === new Date().toDateString();
+     return isToday ? time : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`;
    }
 
    /** Load the user's linked cards; optionally select a specific one, else keep/first. */
@@ -150,6 +161,7 @@ export class OverdriveCatalogComponent {
          this.loans.set(result.loans ?? []);
          this.holds.set(result.holds ?? []);
          this.libraries.set(result.libraries ?? []);
+         this.lastSynced.set(new Date());
          this.loading.set(false);
          },
        error: (err: unknown) => {

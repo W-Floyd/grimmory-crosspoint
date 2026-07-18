@@ -8,6 +8,15 @@
   overflow-y: auto;
   box-sizing: border-box;
 
+  // Page header: title/subtitle on the left, a general Refresh (syncs loans + holds) on the right.
+  .page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
   h2 {
     margin-bottom: 0.5rem;
     font-size: 1.75rem;
@@ -24,9 +33,17 @@
     margin-bottom: 1.5rem;
   }
 
-  .loan-actions {
+  .refresh-group {
     display: flex;
+    align-items: center;
     gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .last-synced {
+    font-size: 0.8rem;
+    color: var(--text-color-secondary);
+    white-space: nowrap;
   }
 
   .destination-row,

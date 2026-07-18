@@ -1,6 +1,19 @@
 <div class="overdrive-container">
-  <h2>OverDrive / Libby Integration</h2>
-  <p class="subtitle">Manage your library loans and holds</p>
+  <div class="page-header">
+    <div>
+      <h2>OverDrive / Libby Integration</h2>
+      <p class="subtitle">Manage your library loans and holds</p>
+    </div>
+    @if (selectedCard()) {
+      <div class="refresh-group">
+        @if (syncedLabel()) {
+          <span class="last-synced">Updated {{ syncedLabel() }}</span>
+        }
+        <p-button label="Refresh" icon="pi pi-refresh" (onClick)="onLoadLoans()" [disabled]="loading()"
+          pTooltip="Sync your loans and holds" />
+      </div>
+    }
+  </div>
 
   @if (error()) {
     <p-message severity="error" styleClass="mb-4">{{ error() }}</p-message>
@@ -254,9 +267,6 @@
 <!-- Loans Section -->
 @if (selectedCard()) {
   <p-card header="Your Loans" styleClass="mb-4">
-    <div class="loan-actions mb-3">
-      <p-button label="Refresh Loans" icon="pi pi-refresh" (onClick)="onLoadLoans()" [disabled]="loading()" />
-    </div>
     <p-table [value]="loans()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
       currentPageReportTemplate="Showing {first} to {last} of {totalRecords} loans">
       <ng-template pTemplate="header">
