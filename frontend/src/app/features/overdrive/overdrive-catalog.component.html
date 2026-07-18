@@ -397,7 +397,7 @@
         <p-tabpanel value="loans">
     <p-table [value]="loans()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
       [scrollable]="true" scrollHeight="flex"
-      currentPageReportTemplate="{first}-{last}/{totalRecords}">
+      currentPageReportTemplate="{first}-{last} / {totalRecords}">
       <ng-template pTemplate="header">
         <tr>
           <th>Cover</th>
@@ -460,7 +460,7 @@
         <p-tabpanel value="holds">
     <p-table [value]="holds()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
       [scrollable]="true" scrollHeight="flex"
-      currentPageReportTemplate="{first}-{last}/{totalRecords}">
+      currentPageReportTemplate="{first}-{last} / {totalRecords}">
       <ng-template pTemplate="header">
         <tr>
           <th>Cover</th>
