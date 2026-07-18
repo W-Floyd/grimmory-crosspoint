@@ -308,22 +308,31 @@ tasks.register("exportOpenApi") {
     inputs.files(mainSourceSet.runtimeClasspath, openApiExportRuntimeOnly, openApiExportScript)
     outputs.file(openApiOutputFile)
 
+    // Capture project-scoped values at configuration time; the execution action (doLast) must not touch
+    // `project`, `files()`, or `javaToolchains` under the configuration cache.
+    val classpathFiles = files(mainSourceSet.runtimeClasspath, openApiExportRuntimeOnly)
+    val projectDir = layout.projectDirectory.asFile
+    val scriptPath = openApiExportScript.asFile.absolutePath
+    val outputFileProvider = openApiOutputFile
+    val logFileProvider = openApiLogFile
+    val javaLauncher = javaToolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(25))
+    }
+
     doLast {
-        val outputFile = openApiOutputFile.get().asFile
-        val logFile = openApiLogFile.get().asFile
-        val classpath = files(mainSourceSet.runtimeClasspath, openApiExportRuntimeOnly).asPath
-        val javaExecutable = javaToolchains.launcherFor {
-            languageVersion.set(JavaLanguageVersion.of(25))
-        }.get().executablePath.asFile.absolutePath
+        val outputFile = outputFileProvider.get().asFile
+        val logFile = logFileProvider.get().asFile
+        val classpath = classpathFiles.asPath
+        val javaExecutable = javaLauncher.get().executablePath.asFile.absolutePath
 
         val result = ProcessBuilder(
             "bash",
-            openApiExportScript.asFile.absolutePath,
+            scriptPath,
             javaExecutable,
             classpath,
             outputFile.absolutePath
         )
-            .directory(project.projectDir)
+            .directory(projectDir)
             .inheritIO()
             .apply {
                 environment()["OPENAPI_EXPORT_LOG_FILE"] = logFile.absolutePath
