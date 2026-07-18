@@ -54,9 +54,15 @@
     }
   }
 
-  // Tighten PrimeNG card padding so the stacked sections aren't so vertically spread out.
+  // Tighten PrimeNG card padding + the caption→content gap so the stacked sections aren't so
+  // vertically spread out (the default theme gap is generous for a dense settings-style card).
   ::ng-deep .p-card .p-card-body {
-    padding: 1rem 1.25rem;
+    padding: 0.75rem 1rem;
+    gap: 0.5rem;
+  }
+
+  ::ng-deep .p-card .p-card-caption {
+    gap: 0.25rem;
   }
 
   // On narrow widths the paginator's report + controls ragged-wrap. Force a clean two-line break:
@@ -115,9 +121,9 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.5rem;
     flex-wrap: wrap;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
   }
 
   h2 {
@@ -133,7 +139,7 @@
   }
 
   .mb-4 {
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
   }
 
   .refresh-group {
@@ -154,7 +160,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
-    margin-top: 0.75rem;
+    margin-top: 0.5rem;
   }
 
   .capacity-row {
