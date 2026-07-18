@@ -52,6 +52,21 @@
     white-space: nowrap;
   }
 
+  // Inline per-row outcome of the last borrow/import/hold action.
+  .action-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: 0.5rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    color: var(--green-500, #22c55e);
+
+    &.error {
+      color: var(--red-500, #ef4444);
+    }
+  }
+
   .destination-row,
   .search-row {
     display: flex;

@@ -76,6 +76,8 @@ export class OverdriveCatalogComponent {
   selectedFormats = signal<Record<string, string>>({});
   // Title ids the user has explicitly chosen to re-borrow despite already being in the library.
   reborrowOverrides = signal<Set<string>>(new Set());
+  // Per-row outcome of the last borrow/import/hold action (keyed by titleId / loanId / holdId).
+  actionOutcome = signal<Record<string, 'success' | 'error'>>({});
   // Whether an ACSM handler is configured (enables importing Adobe-DRM formats). Shapes the
   // "No supported format" tooltip: no point suggesting ACSM setup when it's already enabled.
   acsmConfigured = signal(false);
@@ -91,6 +93,11 @@ export class OverdriveCatalogComponent {
    cardLabel(card: OverDriveCard | null): string {
      if (!card) return '';
      return card.name ? `${card.name} (${card.cardId})` : card.cardId;
+   }
+
+   /** Record a row's borrow/import/hold outcome for its inline status indicator. */
+   private setOutcome(id: string, outcome: 'success' | 'error'): void {
+     this.actionOutcome.update((m) => ({ ...m, [id]: outcome }));
    }
 
    /** True when the card has reached its loan limit — borrowing is blocked until a loan is returned. */
@@ -284,11 +291,13 @@ export class OverdriveCatalogComponent {
              detail: `"${this.fullTitle(item)}" borrowed and dropped into Bookdrop for review`
             });
          }
+         this.setOutcome(item.titleId, 'success');
          this.importingTitleId.set(null);
          this.onLoadLoans();
          },
        error: (err: unknown) => {
          this.error.set(this.errorMessage(err, 'Borrow & import failed'));
+         this.setOutcome(item.titleId, 'error');
          this.importingTitleId.set(null);
          // The borrow may have placed the loan even when the import step failed (e.g. no importable
          // format) — resync so the placed loan appears in Your Loans (usable in the Libby app).
@@ -312,11 +321,13 @@ export class OverdriveCatalogComponent {
        next: () => {
          this.messageService.add({ severity: 'success', summary: 'Borrowed',
            detail: `"${this.fullTitle(item)}" borrowed to Libby (not imported)` });
+         this.setOutcome(item.titleId, 'success');
          this.importingTitleId.set(null);
          this.onLoadLoans();
          },
        error: (err: unknown) => {
          this.error.set(this.errorMessage(err, 'Borrow failed'));
+         this.setOutcome(item.titleId, 'error');
          this.importingTitleId.set(null);
          this.onLoadLoans();
          }
@@ -480,10 +491,12 @@ export class OverdriveCatalogComponent {
            ? `"${loan.title}" imported (book #${book.id})`
            : `"${loan.title}" dropped into Bookdrop for review`;
          this.messageService.add({ severity: 'success', summary: book?.id != null ? 'Imported' : 'Sent to Bookdrop', detail });
+         this.setOutcome(loan.id, 'success');
          this.importingTitleId.set(null);
          },
        error: (err: unknown) => {
          this.error.set(this.errorMessage(err, 'Import failed'));
+         this.setOutcome(loan.id, 'error');
          this.importingTitleId.set(null);
          }
        });
@@ -510,11 +523,13 @@ export class OverdriveCatalogComponent {
            ? `"${hold.title}" borrowed and imported (book #${book.id})`
            : `"${hold.title}" borrowed and dropped into Bookdrop for review`;
          this.messageService.add({ severity: 'success', summary: book?.id != null ? 'Imported' : 'Sent to Bookdrop', detail });
+         this.setOutcome(hold.id, 'success');
          this.importingTitleId.set(null);
          this.onLoadLoans();
          },
        error: (err: unknown) => {
          this.error.set(this.errorMessage(err, 'Borrow failed'));
+         this.setOutcome(hold.id, 'error');
          this.importingTitleId.set(null);
          this.onLoadLoans();
          }

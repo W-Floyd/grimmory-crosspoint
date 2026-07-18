@@ -1,4 +1,5 @@
 <div class="overdrive-container">
+  <p-toast />
   <div class="page-header">
     <div>
       <h2>OverDrive / Libby Integration</h2>
@@ -282,6 +283,12 @@
                   }
                 }
               }
+              @if (actionOutcome()[item.titleId]; as st) {
+                <span class="action-status" [class.error]="st === 'error'">
+                  <i class="pi" [class.pi-check-circle]="st === 'success'" [class.pi-times-circle]="st === 'error'"></i>
+                  {{ st === 'success' ? 'Done' : 'Failed' }}
+                </span>
+              }
             </div>
           </td>
         </tr>
@@ -338,6 +345,12 @@
               pTooltip="Return this loan to the library"
               tooltipPosition="top"
               (onClick)="onReturn(loan.id)" />
+            @if (actionOutcome()[loan.id]; as st) {
+              <span class="action-status" [class.error]="st === 'error'">
+                <i class="pi" [class.pi-check-circle]="st === 'success'" [class.pi-times-circle]="st === 'error'"></i>
+                {{ st === 'success' ? 'Imported' : 'Failed' }}
+              </span>
+            }
           </td>
         </tr>
       </ng-template>
@@ -391,6 +404,12 @@
               pTooltip="Cancel hold"
               tooltipPosition="top"
               (onClick)="onCancelHold(hold)" />
+            @if (actionOutcome()[hold.id]; as st) {
+              <span class="action-status" [class.error]="st === 'error'">
+                <i class="pi" [class.pi-check-circle]="st === 'success'" [class.pi-times-circle]="st === 'error'"></i>
+                {{ st === 'success' ? 'Borrowed' : 'Failed' }}
+              </span>
+            }
           </td>
         </tr>
       </ng-template>
