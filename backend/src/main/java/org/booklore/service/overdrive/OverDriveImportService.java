@@ -71,11 +71,6 @@ public class OverDriveImportService {
      * @param fileType          the book file type (EPUB or PDF)
      * @return the persisted {@link Book}
      */
-    // Transactional so the persistence session stays open while we re-fetch and map the persisted book
-    // (reloadCompleteBook → BookMapper touches lazily-loaded metadata.authors). With OSIV disabled
-    // (spring.jpa.open-in-view: false) that mapping would otherwise throw LazyInitializationException
-    // after the book was already written — and the catch below would then delete the imported file.
-    @Transactional
     /**
      * Whether a library would keep a file of the given type. A library with no explicit allowed-formats
      * list accepts everything; otherwise only listed types survive — importing another type just gets it
@@ -90,6 +85,11 @@ public class OverDriveImportService {
                 .orElse(true);
     }
 
+    // Transactional so the persistence session stays open while the metadata overlay and re-fetch touch
+    // lazily-loaded metadata.authors. With OSIV disabled (spring.jpa.open-in-view: false) that access
+    // would otherwise throw LazyInitializationException after the book was already written — and the
+    // catch below would then delete the imported file, leaving an orphaned library row with no file.
+    @Transactional
     public Book importBook(byte[] bookBytes, String suggestedFileName, long libraryId, long pathId,
                            BookMetadata metadata, BookFileType fileType) {
         if (bookBytes == null || bookBytes.length == 0) {
