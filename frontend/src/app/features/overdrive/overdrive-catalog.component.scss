@@ -4,9 +4,14 @@
   // overflow:hidden — each page scrolls itself.
   width: 100%;
   height: 100%;
-  padding: 1.5rem;
+  padding: 1rem 1.5rem;
   overflow-y: auto;
   box-sizing: border-box;
+
+  // Tighten PrimeNG card padding so the stacked sections aren't so vertically spread out.
+  ::ng-deep .p-card .p-card-body {
+    padding: 1rem 1.25rem;
+  }
 
   // Page header: title/subtitle on the left, a general Refresh (syncs loans + holds) on the right.
   .page-header {
@@ -15,22 +20,23 @@
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
+    margin-bottom: 0.75rem;
   }
 
   h2 {
-    margin-bottom: 0.5rem;
-    font-size: 1.75rem;
+    margin-bottom: 0.25rem;
+    font-size: 1.5rem;
     font-weight: 600;
     color: var(--text-color);
   }
 
   .subtitle {
-    margin-bottom: 1.5rem;
+    margin-bottom: 0;
     color: var(--text-color-secondary);
   }
 
   .mb-4 {
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.75rem;
   }
 
   .refresh-group {
