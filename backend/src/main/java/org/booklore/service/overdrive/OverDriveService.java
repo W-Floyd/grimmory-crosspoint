@@ -1001,6 +1001,14 @@ public class OverDriveService {
         return selectFormat(loanFormats, formatPreference(), acsmHandler.isConfigured());
       }
 
+      /**
+       * The format grimmory would actually fulfill/import from the offered format ids (preferred
+       * importable one; null when none are importable). Used to label a loan with its real format.
+       */
+      public String chooseImportFormat(List<String> offeredFormatIds) {
+        return chooseFormat(offeredFormatIds);
+      }
+
       /** A supported format we can actually import: open formats always, Adobe only with an ACSM handler. */
       private boolean isImportableFormat(String formatId) {
         return SUPPORTED_FORMATS.contains(formatId) && (isOpenFormat(formatId) || acsmHandler.isConfigured());

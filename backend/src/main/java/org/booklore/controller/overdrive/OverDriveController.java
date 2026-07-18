@@ -13,6 +13,7 @@ import org.booklore.model.dto.overdrive.*;
 import org.booklore.model.dto.settings.OverdriveProperties;
 import org.booklore.service.acsm.AcsmHandler;
 import org.booklore.service.acsm.AcsmHandlerConfig;
+import org.booklore.service.metadata.parser.OverDriveItemExtractor;
 import org.booklore.service.overdrive.OverDriveService;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -569,10 +570,37 @@ public class OverDriveController {
                 loan.getFirstCreatorName(),
                 loanCoverUrl(loan.getCovers()),
                 loan.getCreators(),
-                loan.getFormat() != null ? loan.getFormat().getId() : null,
+                loanFormatId(loan),
                 loan.getFormats(),
                 overDriveService.resolveLoanBookId(loan.getId(), loanIsbn(loan))
         );
+    }
+
+    /**
+     * The format a loan is actually in: the locked-in format the loan committed to (what was
+     * fulfilled), else the format grimmory would import, else the loan's primary format. Avoids
+     * mislabelling a loan with an arbitrary offered format (e.g. Kindle/OverDrive Read) when the
+     * fulfilled/importable format is really Adobe EPUB.
+     */
+    private String loanFormatId(OverDriveLoan loan) {
+        if (loan.getFormats() != null && !loan.getFormats().isEmpty()) {
+            String locked = loan.getFormats().stream()
+                    .filter(f -> Boolean.TRUE.equals(f.getIsLockedIn()) && f.getId() != null)
+                    .map(OverDriveFormat::getId)
+                    .findFirst()
+                    .orElse(null);
+            if (locked != null) {
+                return locked;
+            }
+            String importable = overDriveService.chooseImportFormat(loan.getFormats().stream()
+                    .map(OverDriveFormat::getId)
+                    .filter(id -> id != null)
+                    .toList());
+            if (importable != null) {
+                return importable;
+            }
+        }
+        return loan.getFormat() != null ? loan.getFormat().getId() : null;
     }
 
     /** First usable ISBN a loan carries (single format, then the format list), or null. */
@@ -595,12 +623,19 @@ public class OverDriveController {
         if (covers == null) {
             return null;
         }
-        String href = coverHref(covers.getCover150Wide());
-        return href != null ? href : coverHref(covers.getCover300Wide());
+        // Prefer the largest available so the hover preview is crisp; the 40px thumbnail downscales fine.
+        String href = coverHref(covers.getCover510Wide());
+        if (href == null) {
+            href = coverHref(covers.getCover300Wide());
+        }
+        return href != null ? href : coverHref(covers.getCover150Wide());
     }
 
     private String coverHref(OverDriveCoverDetail detail) {
-        return detail != null && detail.getHref() != null && !detail.getHref().isBlank() ? detail.getHref() : null;
+        if (detail == null || detail.getHref() == null || detail.getHref().isBlank()) {
+            return null;
+        }
+        return OverDriveItemExtractor.encodeCoverUrl(detail.getHref());
     }
 
     private OverDriveHoldDto holdToDto(OverDriveHold hold) {

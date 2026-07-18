@@ -51,10 +51,26 @@ public final class OverDriveItemExtractor {
         for (OverDriveApiResponse.Item.Covers.Cover cover : List.of(
                 nullSafe(covers.getCover510Wide()), nullSafe(covers.getCover300Wide()), nullSafe(covers.getCover150Wide()))) {
             if (cover.getHref() != null && !cover.getHref().isBlank()) {
-                return cover.getHref();
+                return encodeCoverUrl(cover.getHref());
             }
         }
         return null;
+    }
+
+    /**
+     * Percent-encode characters OverDrive leaves literal in cover URLs (the {@code {crid}} braces, and
+     * the occasional space/pipe/caret) so the URL parses as a valid URI when the cover is downloaded.
+     * Browsers accept the encoded form too, so display is unaffected.
+     */
+    public static String encodeCoverUrl(String url) {
+        if (url == null) {
+            return null;
+        }
+        return url.replace("{", "%7B")
+                .replace("}", "%7D")
+                .replace(" ", "%20")
+                .replace("|", "%7C")
+                .replace("^", "%5E");
     }
 
     /** @return [isbn13, isbn10], cleaned; either may be null. Reads format ISBNs and ISBN identifiers. */
