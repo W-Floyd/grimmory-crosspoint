@@ -9,129 +9,145 @@
 
   <div class="settings-card">
     <div class="field">
-     <label for="library-key">Library Key</label>
-     <div class="library-key-row">
-       <input
-         id="library-key"
-         pInputText
-         type="text"
-         [ngModel]="libraryKey()"
-         (ngModelChange)="onKeyChange($event)"
-         [ngModelOptions]="{ standalone: true }"
-         placeholder="e.g. lapl"
-         class="w-full"
-         (keyup.enter)="checkKey()"
-        />
-       <p-button
-         label="Check"
-         icon="pi pi-check-circle"
-         severity="secondary"
-         [loading]="resolving()"
-         [disabled]="!libraryKey().trim()"
-         (onClick)="checkKey()"
-       />
-     </div>
-     <small>The OverDrive library key (preferredKey) for your library</small>
-     <p-message *ngIf="resolution() as res" [severity]="res.valid ? 'success' : 'error'" class="mt-1">
-       <ng-container *ngIf="res.valid">Resolved: {{ res.name }}</ng-container>
-       <ng-container *ngIf="!res.valid">No OverDrive library found for “{{ res.libraryKey }}”. Check the key.</ng-container>
-     </p-message>
+      <label for="library-key">Library Key</label>
+      <div class="library-key-row">
+        <input
+          id="library-key"
+          pInputText
+          type="text"
+          [ngModel]="libraryKey()"
+          (ngModelChange)="onKeyChange($event)"
+          [ngModelOptions]="{ standalone: true }"
+          placeholder="e.g. lapl"
+          class="w-full"
+          (keyup.enter)="checkKey()"
+          />
+        <p-button
+          label="Check"
+          icon="pi pi-check-circle"
+          severity="secondary"
+          [loading]="resolving()"
+          [disabled]="!libraryKey().trim()"
+          (onClick)="checkKey()"
+          />
+      </div>
+      <small>The OverDrive library key (preferredKey) for your library</small>
+      @if (resolution(); as res) {
+        <p-message [severity]="res.valid ? 'success' : 'error'" class="mt-1">
+          @if (res.valid) {
+            Resolved: {{ res.name }}
+          }
+          @if (!res.valid) {
+            No OverDrive library found for “{{ res.libraryKey }}”. Check the key.
+          }
+        </p-message>
+      }
     </div>
 
-    <p-message *ngIf="setupError()" severity="error">{{ setupError() }}</p-message>
+    @if (setupError()) {
+      <p-message severity="error">{{ setupError() }}</p-message>
+    }
 
     <div class="field setup-section">
-     <label for="setup-code">Libby Setup Code</label>
-     <input
-       id="setup-code"
-       pInputText
-       type="text"
-       [ngModel]="setupCode()"
-       (ngModelChange)="setupCode.set($event)"
-       [ngModelOptions]="{ standalone: true }"
-       placeholder="Enter your 8-digit Libby setup code"
-       class="w-full"
-      />
-     <small>Get it in Libby → Settings → Copy to another device</small>
+      <label for="setup-code">Libby Setup Code</label>
+      <input
+        id="setup-code"
+        pInputText
+        type="text"
+        [ngModel]="setupCode()"
+        (ngModelChange)="setupCode.set($event)"
+        [ngModelOptions]="{ standalone: true }"
+        placeholder="Enter your 8-digit Libby setup code"
+        class="w-full"
+        />
+      <small>Get it in Libby → Settings → Copy to another device</small>
 
       <p-button
-       label="Connect"
+        label="Connect"
         [loading]="connecting()"
-       (onClick)="onConnect()"
-       severity="help"
-       class="mt-2"
-      />
+        (onClick)="onConnect()"
+        severity="help"
+        class="mt-2"
+        />
 
-       <div class="link-card-section">
-         <label>Or link a card by number + PIN</label>
-         <small>Links a card the same way a signed-in browser does (a <strong>primary</strong> chip). Recommended if setup-code downloads of Adobe-DRM titles fail. Uses the library key above.</small>
-         <small *ngIf="!credentialStorageEnabled()" class="cred-note">Set <code>OVERDRIVE_CREDENTIAL_KEY</code> to store the card + PIN (encrypted) and auto-relink when the token expires. Without it, re-link manually on expiry.</small>
-         <div class="link-card-row">
-           <input
-             pInputText
-             type="text"
-             [ngModel]="cardNumber()"
-             (ngModelChange)="cardNumber.set($event)"
-             [ngModelOptions]="{ standalone: true }"
-             placeholder="Library card number"
-           />
-           <input
-             pInputText
-             type="password"
-             [ngModel]="pin()"
-             (ngModelChange)="pin.set($event)"
-             [ngModelOptions]="{ standalone: true }"
-             placeholder="PIN (if required)"
-             autocomplete="off"
-           />
-           <p-button label="Link card" [loading]="linkingCard()" (onClick)="onLinkCard()" severity="help" />
-         </div>
-       </div>
-
-       <div class="link-card-section">
-         <label>Or paste a Libby identity token</label>
-         <small>From a signed-in browser at libbyapp.com: DevTools → Application → Local Storage → key ending <code>sentry.identity</code> (or copy the <code>Authorization: Bearer</code> value from any request). This is a primary token that can download Adobe-DRM titles; it expires, so re-paste when needed.</small>
-         <div class="link-card-row">
-           <input
-             pInputText
-             type="text"
-             [ngModel]="identityToken()"
-             (ngModelChange)="identityToken.set($event)"
-             [ngModelOptions]="{ standalone: true }"
-             placeholder="eyJhbGciOi..."
-             autocomplete="off"
-           />
-           <p-button label="Link token" [loading]="linkingToken()" (onClick)="onLinkToken()" severity="help" />
-         </div>
-       </div>
-
-       <p-card header="Linked Cards" *ngIf="linkedCards().length > 0">
-        <div class="linked-card-row" *ngFor="let card of linkedCards()">
-          <span class="linked-card-info">
-            <input pInputText type="text" [value]="card.name || ''" #labelInput placeholder="Card label"
-              class="linked-card-label" (keyup.enter)="onRenameCard(card, labelInput.value)" />
-            <small class="linked-card-id">{{ card.cardId }}</small>
-          </span>
-          <span class="linked-card-actions">
-            <p-button label="Rename" icon="pi pi-pencil" severity="secondary" size="small" [text]="true"
-              pTooltip="Save this label for the card" (onClick)="onRenameCard(card, labelInput.value)" />
-            <p-button label="Refresh" icon="pi pi-refresh" severity="secondary" size="small" [text]="true"
-              *ngIf="card.credentialsStored" pTooltip="Re-link from stored card + PIN to get a fresh token"
-              (onClick)="onRefreshCard(card)" />
-            <p-button label="Unlink" icon="pi pi-times" severity="danger" size="small" [text]="true"
-              pTooltip="Clear this card's stored token/credentials" (onClick)="onUnlinkCard(card)" />
-          </span>
+      <div class="link-card-section">
+        <span class="section-label">Or link a card by number + PIN</span>
+        <small>Links a card the same way a signed-in browser does (a <strong>primary</strong> chip). Recommended if setup-code downloads of Adobe-DRM titles fail. Uses the library key above.</small>
+        @if (!credentialStorageEnabled()) {
+          <small class="cred-note">Set <code>OVERDRIVE_CREDENTIAL_KEY</code> to store the card + PIN (encrypted) and auto-relink when the token expires. Without it, re-link manually on expiry.</small>
+        }
+        <div class="link-card-row">
+          <input
+            pInputText
+            type="text"
+            [ngModel]="cardNumber()"
+            (ngModelChange)="cardNumber.set($event)"
+            [ngModelOptions]="{ standalone: true }"
+            placeholder="Library card number"
+            />
+          <input
+            pInputText
+            type="password"
+            [ngModel]="pin()"
+            (ngModelChange)="pin.set($event)"
+            [ngModelOptions]="{ standalone: true }"
+            placeholder="PIN (if required)"
+            autocomplete="off"
+            />
+          <p-button label="Link card" [loading]="linkingCard()" (onClick)="onLinkCard()" severity="help" />
         </div>
-        <small class="hint">Set a label to rename a card. Unlink to clear an expired/blocked token, then re-link. Refresh (card+PIN links only) re-links from the stored credentials without re-entering the PIN.</small>
-       </p-card>
-     </div>
+      </div>
+
+      <div class="link-card-section">
+        <span class="section-label">Or paste a Libby identity token</span>
+        <small>From a signed-in browser at libbyapp.com: DevTools → Application → Local Storage → key ending <code>sentry.identity</code> (or copy the <code>Authorization: Bearer</code> value from any request). This is a primary token that can download Adobe-DRM titles; it expires, so re-paste when needed.</small>
+        <div class="link-card-row">
+          <input
+            pInputText
+            type="text"
+            [ngModel]="identityToken()"
+            (ngModelChange)="identityToken.set($event)"
+            [ngModelOptions]="{ standalone: true }"
+            placeholder="eyJhbGciOi..."
+            autocomplete="off"
+            />
+          <p-button label="Link token" [loading]="linkingToken()" (onClick)="onLinkToken()" severity="help" />
+        </div>
+      </div>
+
+      @if (linkedCards().length > 0) {
+        <p-card header="Linked Cards">
+          @for (card of linkedCards(); track card) {
+            <div class="linked-card-row">
+              <span class="linked-card-info">
+                <input pInputText type="text" [value]="card.name || ''" #labelInput placeholder="Card label"
+                  class="linked-card-label" (keyup.enter)="onRenameCard(card, labelInput.value)" />
+                <small class="linked-card-id">{{ card.cardId }}</small>
+              </span>
+              <span class="linked-card-actions">
+                <p-button label="Rename" icon="pi pi-pencil" severity="secondary" size="small" [text]="true"
+                  pTooltip="Save this label for the card" (onClick)="onRenameCard(card, labelInput.value)" />
+                @if (card.credentialsStored) {
+                  <p-button label="Refresh" icon="pi pi-refresh" severity="secondary" size="small" [text]="true"
+                    pTooltip="Re-link from stored card + PIN to get a fresh token"
+                    (onClick)="onRefreshCard(card)" />
+                }
+                <p-button label="Unlink" icon="pi pi-times" severity="danger" size="small" [text]="true"
+                  pTooltip="Clear this card's stored token/credentials" (onClick)="onUnlinkCard(card)" />
+              </span>
+            </div>
+          }
+          <small class="hint">Set a label to rename a card. Unlink to clear an expired/blocked token, then re-link. Refresh (card+PIN links only) re-links from the stored credentials without re-entering the PIN.</small>
+        </p-card>
+      }
+    </div>
 
     <p-button
-     label="Save Settings"
-     (onClick)="onSave()"
-     severity="success"
-     class="mt-4"
-    />
+      label="Save Settings"
+      (onClick)="onSave()"
+      severity="success"
+      class="mt-4"
+      />
   </div>
 
   <div class="settings-card">
@@ -143,13 +159,15 @@
     <div>
       <p-button label="Load diagnostics" icon="pi pi-refresh" [loading]="runningDiagnostics()" (onClick)="runDiagnostics()" />
     </div>
-    <div *ngIf="diagnosticsJson() as json" class="diagnostics-output">
-      <div class="diagnostics-actions">
-        <p-button label="Copy" icon="pi pi-copy" severity="secondary" size="small" (onClick)="copyDiagnostics()" />
-        <p-button label="Download JSON" icon="pi pi-download" severity="secondary" size="small" (onClick)="downloadDiagnostics()" />
-        <p-button label="Clear" icon="pi pi-times" severity="secondary" size="small" [text]="true" (onClick)="clearDiagnostics()" />
+    @if (diagnosticsJson(); as json) {
+      <div class="diagnostics-output">
+        <div class="diagnostics-actions">
+          <p-button label="Copy" icon="pi pi-copy" severity="secondary" size="small" (onClick)="copyDiagnostics()" />
+          <p-button label="Download JSON" icon="pi pi-download" severity="secondary" size="small" (onClick)="downloadDiagnostics()" />
+          <p-button label="Clear" icon="pi pi-times" severity="secondary" size="small" [text]="true" (onClick)="clearDiagnostics()" />
+        </div>
+        <pre class="diagnostics-json">{{ json }}</pre>
       </div>
-      <pre class="diagnostics-json">{{ json }}</pre>
-    </div>
+    }
   </div>
 </div>

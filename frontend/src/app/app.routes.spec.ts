@@ -27,7 +27,7 @@ describe('app routes', () => {
     const shellRoute = routes.find(route => route.path === '' && Array.isArray(route.children));
     const children = shellRoute?.children ?? [];
 
-    expect(children).toHaveLength(21);
+    expect(children).toHaveLength(22);
     expect(shellRoute?.canActivateChild).toEqual([AuthChildGuard]);
     expect(children.find(route => route.path === 'dashboard')?.canActivate).toBeUndefined();
     expect(children.find(route => route.path === 'all-books')?.canActivate).toBeUndefined();
@@ -49,6 +49,7 @@ describe('app routes', () => {
     const children = shellRoute?.children ?? [];
 
     expect(children.find(route => route.path === 'bookdrop')?.canActivate).toEqual([BookdropGuard]);
+    expect(typeof children.find(route => route.path === 'overdrive')?.loadComponent).toBe('function');
     expect(children.find(route => route.path === 'metadata-manager')?.canActivate).toEqual([EditMetadataGuard]);
     expect(children.find(route => route.path === 'library-stats')?.canActivate).toEqual([LibraryStatsGuard]);
     expect(children.find(route => route.path === 'reading-stats')?.canActivate).toEqual([UserStatsGuard]);

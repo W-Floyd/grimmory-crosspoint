@@ -2,7 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { OverDriveService, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLoan, OverDriveSyncResult } from '../../core/services/overdrive.service';
-import { CommonModule } from '@angular/common';
+
 import { ButtonModule } from 'primeng/button';
 import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
@@ -20,7 +20,6 @@ import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
   selector: 'app-overdrive-catalog',
   standalone: true,
   imports: [
-    CommonModule,
     OverdriveTitleCellComponent,
     FormsModule,
     ButtonModule,
@@ -31,7 +30,7 @@ import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
     ToastModule,
     TooltipModule,
     InputTextModule
-   ],
+],
   templateUrl: './overdrive-catalog.component.html',
   styleUrl: './overdrive-catalog.component.scss',
   providers: [MessageService]

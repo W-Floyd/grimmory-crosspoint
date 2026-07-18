@@ -6,7 +6,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { MessageService } from 'primeng/api';
-import { CommonModule } from '@angular/common';
+
 import { OverDriveService, OverDriveCard, OverDriveLibraryResolution } from '../../../core/services/overdrive.service';
 import { ButtonModule } from 'primeng/button';
 import { TooltipModule } from 'primeng/tooltip';
@@ -15,14 +15,13 @@ import { TooltipModule } from 'primeng/tooltip';
   selector: 'app-overdrive-settings',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     InputTextModule,
     MessageModule,
     CardModule,
     ButtonModule,
     TooltipModule
-  ],
+],
   templateUrl: './overdrive-settings.component.html',
   styleUrl: './overdrive-settings.component.scss',
   providers: [MessageService]

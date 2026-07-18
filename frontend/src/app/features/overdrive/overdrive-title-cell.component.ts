@@ -1,5 +1,5 @@
 import { Component, input } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { RouterLink } from '@angular/router';
 import { TooltipModule } from 'primeng/tooltip';
 
@@ -11,7 +11,7 @@ import { TooltipModule } from 'primeng/tooltip';
 @Component({
   selector: 'app-overdrive-title-cell',
   standalone: true,
-  imports: [CommonModule, RouterLink, TooltipModule],
+  imports: [RouterLink, TooltipModule],
   templateUrl: './overdrive-title-cell.component.html',
   styleUrl: './overdrive-title-cell.component.scss'
 })

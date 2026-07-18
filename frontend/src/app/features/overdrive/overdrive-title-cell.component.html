@@ -1,8 +1,12 @@
 <div class="od-title-text">
   <span>{{ title() }}</span>
-  <small *ngIf="subtitle()" class="od-subtitle">{{ subtitle() }}</small>
-  <a *ngIf="bookId() != null" class="od-in-library" [routerLink]="['/book', bookId()]"
-     pTooltip="Open this book in your library" tooltipPosition="top">
-    <i class="pi pi-check-circle"></i> In your library
-  </a>
+  @if (subtitle()) {
+    <small class="od-subtitle">{{ subtitle() }}</small>
+  }
+  @if (bookId() !== null) {
+    <a class="od-in-library" [routerLink]="['/book', bookId()]"
+      pTooltip="Open this book in your library" tooltipPosition="top">
+      <i class="pi pi-check-circle"></i> In your library
+    </a>
+  }
 </div>

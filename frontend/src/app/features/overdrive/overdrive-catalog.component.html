@@ -2,321 +2,386 @@
   <h2>OverDrive / Libby Integration</h2>
   <p class="subtitle">Manage your library loans and holds</p>
 
-   <p-message *ngIf="error()" severity="error" styleClass="mb-4">{{ error() }}</p-message>
+  @if (error()) {
+    <p-message severity="error" styleClass="mb-4">{{ error() }}</p-message>
+  }
 
-   <!-- Active Card Selector. Linking, unlinking and diagnostics live on the OverDrive settings page. -->
-  <p-card header="Active Card" styleClass="mb-4" *ngIf="cards().length > 0">
-     <div class="field">
-       <label>Borrow / sync using</label>
-       <p-select
-         [options]="cards()"
-         [ngModel]="selectedCard()"
-         (ngModelChange)="onCardChange($event)"
-         optionLabel="name"
-         [ngModelOptions]="{ standalone: true }"
-         placeholder="Select a library card"
-         appendTo="body"
-       >
-         <ng-template let-card pTemplate="selectedItem">{{ cardLabel(card) }}</ng-template>
-         <ng-template let-card pTemplate="item">{{ cardLabel(card) }}</ng-template>
-       </p-select>
-     </div>
-     <small class="hint">Manage cards (connect, re-link, unlink) on the <strong>Settings → OverDrive</strong> page.</small>
+  <!-- Active Card Selector. Linking, unlinking and diagnostics live on the OverDrive settings page. -->
+  @if (cards().length > 0) {
+    <p-card header="Active Card" styleClass="mb-4">
+      <div class="field">
+        <label for="active-card-select">Borrow / sync using</label>
+        <p-select
+          inputId="active-card-select"
+          [options]="cards()"
+          [ngModel]="selectedCard()"
+          (ngModelChange)="onCardChange($event)"
+          optionLabel="name"
+          [ngModelOptions]="{ standalone: true }"
+          placeholder="Select a library card"
+          appendTo="body"
+          >
+          <ng-template let-card pTemplate="selectedItem">{{ cardLabel(card) }}</ng-template>
+          <ng-template let-card pTemplate="item">{{ cardLabel(card) }}</ng-template>
+        </p-select>
+      </div>
+      <small class="hint">Manage cards (connect, re-link, unlink) on the <strong>Settings → OverDrive</strong> page.</small>
+    </p-card>
+  }
+
+  <!-- Empty state when no cards are linked yet. -->
+  @if (cards().length === 0) {
+    <p-card styleClass="mb-4">
+      <p>No linked Libby cards yet. Connect your library on the <strong>Settings → OverDrive</strong> page, then return here to search and borrow.</p>
+    </p-card>
+  }
+
+  <!-- Catalog Search + Borrow & Import -->
+  @if (selectedCard()) {
+    <p-card header="Search &amp; Borrow" styleClass="mb-4">
+      <div class="field">
+        <label for="dest-library-select">Destination library</label>
+        <div class="destination-row">
+          <p-select
+            inputId="dest-library-select"
+            [options]="grimmoryLibraries()"
+            optionLabel="name"
+            [ngModel]="selectedLibrary()"
+            (ngModelChange)="onLibraryChange($event)"
+            placeholder="Select a library"
+            appendTo="body"
+            />
+          <p-select
+            [options]="selectedLibrary()?.paths ?? []"
+            optionLabel="path"
+            [ngModel]="selectedPath()"
+            (ngModelChange)="onPathChange($event)"
+            [disabled]="!selectedLibrary()"
+            placeholder="Select a path"
+            appendTo="body"
+            />
+        </div>
+        <small class="hint">Remembered for this card. Leave empty to drop borrowed books into Bookdrop for review instead.</small>
+      </div>
+      <div class="field search-row">
+        <input
+          pInputText
+          type="text"
+          [ngModel]="searchQuery()"
+          (ngModelChange)="searchQuery.set($event)"
+          [ngModelOptions]="{ standalone: true }"
+          placeholder="Search the OverDrive catalog by title, author, or ISBN"
+          class="w-full"
+          (keyup.enter)="onSearch()"
+          />
+        <p-button label="Search" icon="pi pi-search" [loading]="searching()" (onClick)="onSearch()" />
+      </div>
+      @if (results().length > 0) {
+        <p-table [value]="results()">
+          <ng-template pTemplate="header">
+            <tr>
+              <th>Cover</th>
+              <th>Title</th>
+              <th>Author</th>
+              <th>Availability</th>
+              <th>Actions</th>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="body" let-item>
+            <tr>
+              <td>
+                @if (item.coverUrl) {
+                  <img [src]="item.coverUrl" alt="cover" class="result-cover" />
+                }
+              </td>
+              <td>
+                <app-overdrive-title-cell
+                  [title]="item.title"
+                  [subtitle]="item.subtitle"
+                  [bookId]="item.bookId" />
+              </td>
+              <td>{{ item.author }}</td>
+              <td>
+                @if (item.preRelease) {
+                  <span class="availability pre-release">Not yet released</span>
+                }
+                @if (!item.preRelease) {
+                  <!-- A ready hold (a copy reserved for you) borrows now; a pending hold takes
+                  precedence over the library-wide availability. -->
+                  @if (isHoldReady(item)) {
+                    <span class="availability available">Ready to borrow</span>
+                  }
+                  @if (!isHoldReady(item)) {
+                    @if (isOnHold(item)) {
+                      <span class="availability on-hold">
+                        On hold@if (holdWaitDays(item) !== null) {
+                        · ~{{ holdWaitDays(item) }} day wait
+                      }
+                    </span>
+                  }
+                  @if (!isOnHold(item)) {
+                    @if (item.available) {
+                      <span class="availability available">
+                        Available@if (item.availableCopies !== null) {
+                        ({{ item.availableCopies }} copies)
+                      }
+                    </span>
+                  }
+                  @if (!item.available) {
+                    <span class="availability waitlisted">
+                      @if (item.holdable) {
+                        Wait list
+                      }
+                      @if (!item.holdable) {
+                        Unavailable
+                      }
+                      @if (item.estimatedWaitDays !== null) {
+                        · ~{{ item.estimatedWaitDays }} day wait
+                      }
+                      @if (item.holdsCount !== null) {
+                        · {{ item.holdsCount }} holds
+                      }
+                    </span>
+                  }
+                }
+              }
+            }
+          </td>
+          <td>
+            <div class="borrow-action">
+              <!-- Format display: a picker when borrowable with a choice, otherwise a read-only
+              summary of the importable formats (shown even for hold-required titles). -->
+              @if (hasImportableFormat(item)) {
+                @if (borrowableNow(item) && (item.formats?.length ?? 0) > 1) {
+                  <p-select
+                    [options]="formatOptions(item)"
+                    optionLabel="label"
+                    optionValue="value"
+                    [ngModel]="chosenFormat(item)"
+                    (ngModelChange)="setFormat(item.titleId, $event)"
+                    [disabled]="importingTitleId() !== null"
+                    pTooltip="Choose which format to download & import"
+                    styleClass="format-select" />
+                }
+                @if (borrowableNow(item) && (item.formats?.length ?? 0) <= 1 && chosenFormat(item)) {
+                  <span class="format-single"
+                  pTooltip="Format that will be downloaded">{{ formatLabel(chosenFormat(item)!) }}</span>
+                }
+                @if (!borrowableNow(item)) {
+                  <span class="format-single" pTooltip="Available in these formats">{{ formatSummary(item) }}</span>
+                }
+              } @else {
+                <span class="format-single unsupported" [pTooltip]="unsupportedFormatTooltip()">No supported format</span>
+              }
+              <!-- Action: borrow when available, hold when not, disabled when no importable format. -->
+              @if (hasImportableFormat(item)) {
+                @if (borrowableNow(item)) {
+                  @if (isInLibrary(item) && !canBorrow(item)) {
+                    <p-button
+                      label="Borrow anyway"
+                      icon="pi pi-exclamation-triangle"
+                      severity="secondary"
+                      [outlined]="true"
+                      pTooltip="Already in your library — borrow and import another copy"
+                      (onClick)="allowReborrow(item)" />
+                  }
+                  @if (canBorrow(item)) {
+                    <p-button
+                      label="Borrow &amp; Import"
+                      icon="pi pi-download"
+                      pTooltip="Borrow this title and import it (server-side) into the selected library, or into Bookdrop if none is selected"
+                      [disabled]="!item.titleId || importingTitleId() !== null"
+                      [loading]="importingTitleId() === item.titleId"
+                      (onClick)="onBorrowImport(item)" />
+                  }
+                }
+                @if (!borrowableNow(item)) {
+                  @if (item.holdable && !isOnHold(item)) {
+                    <p-button
+                      label="Place Hold"
+                      icon="pi pi-clock"
+                      severity="secondary"
+                      [disabled]="!item.titleId"
+                      (onClick)="onPlaceHold(item)" />
+                  }
+                  @if (isOnHold(item)) {
+                    <span class="no-action on-hold">On hold</span>
+                  }
+                  @if (!item.holdable && !isOnHold(item)) {
+                    <span class="no-action">—</span>
+                  }
+                }
+              }
+              <!-- No importable format: still allow the action, warning it's for Libby-app use only. -->
+              @if (!hasImportableFormat(item)) {
+                @if (borrowableNow(item)) {
+                  <p-button
+                    label="Borrow anyway"
+                    icon="pi pi-exclamation-triangle"
+                    severity="warn"
+                    [pTooltip]="unsupportedBorrowTooltip()"
+                    [disabled]="!item.titleId || importingTitleId() !== null"
+                    [loading]="importingTitleId() === item.titleId"
+                    (onClick)="onBorrowImport(item)" />
+                }
+                @if (!borrowableNow(item)) {
+                  @if (item.holdable && !isOnHold(item)) {
+                    <p-button
+                      label="Place Hold anyway"
+                      icon="pi pi-exclamation-triangle"
+                      severity="warn"
+                      [pTooltip]="unsupportedHoldTooltip()"
+                      [disabled]="!item.titleId"
+                      (onClick)="onPlaceHold(item)" />
+                  }
+                  @if (isOnHold(item)) {
+                    <span class="no-action on-hold">On hold</span>
+                  }
+                  @if (!item.holdable && !isOnHold(item)) {
+                    <span class="no-action">—</span>
+                  }
+                }
+              }
+            </div>
+          </td>
+        </tr>
+      </ng-template>
+    </p-table>
+  }
+</p-card>
+}
+
+<!-- Loans Section -->
+@if (selectedCard()) {
+  <p-card header="Your Loans" styleClass="mb-4">
+    <div class="loan-actions mb-3">
+      <p-button label="Refresh Loans" icon="pi pi-refresh" (onClick)="onLoadLoans()" [disabled]="loading()" />
+    </div>
+    <p-table [value]="loans()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
+      currentPageReportTemplate="Showing {first} to {last} of {totalRecords} loans">
+      <ng-template pTemplate="header">
+        <tr>
+          <th>Cover</th>
+          <th>Title</th>
+          <th>Author</th>
+          <th>Expires</th>
+          <th>Actions</th>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="body" let-loan>
+        <tr>
+          <td>
+            @if (loan.coverUrl) {
+              <img [src]="loan.coverUrl" alt="cover" class="result-cover" />
+            }
+          </td>
+          <td>
+            <app-overdrive-title-cell
+              [title]="loan.title"
+              [subtitle]="loan.subtitle"
+              [bookId]="loan.bookId" />
+          </td>
+          <td>{{ creatorName(loan) }}</td>
+          <td>{{ formatDate(loan.expireDate) }}</td>
+          <td>
+            <p-button icon="pi pi-file-import"
+              pTooltip="Import server-side into the selected library (Search &amp; Borrow), or into Bookdrop if none is selected"
+              tooltipPosition="top"
+              [disabled]="importingTitleId() !== null"
+              [loading]="importingTitleId() === loan.id"
+              (onClick)="onImportLoan(loan)"
+              class="mr-2" />
+            <p-button icon="pi pi-download"
+              severity="secondary"
+              pTooltip="Download the raw ACSM file to your browser"
+              tooltipPosition="top"
+              (onClick)="onFulfill(loan.id)"
+              class="mr-2" />
+            <p-button icon="pi pi-sign-out"
+              severity="danger"
+              pTooltip="Return this loan to the library"
+              tooltipPosition="top"
+              (onClick)="onReturn(loan.id)" />
+          </td>
+        </tr>
+      </ng-template>
+    </p-table>
   </p-card>
+}
 
-   <!-- Empty state when no cards are linked yet. -->
-  <p-card styleClass="mb-4" *ngIf="cards().length === 0">
-     <p>No linked Libby cards yet. Connect your library on the <strong>Settings → OverDrive</strong> page, then return here to search and borrow.</p>
+<!-- Holds Section -->
+@if (selectedCard() && holds().length > 0) {
+  <p-card header="Your Holds" styleClass="mb-4">
+    <p-table [value]="holds()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
+      currentPageReportTemplate="Showing {first} to {last} of {totalRecords} holds">
+      <ng-template pTemplate="header">
+        <tr>
+          <th>Cover</th>
+          <th>Title</th>
+          <th>Author</th>
+          <th>Est. Wait</th>
+          <th>Actions</th>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="body" let-hold>
+        <tr>
+          <td>
+            @if (hold.coverUrl) {
+              <img [src]="hold.coverUrl" alt="cover" class="result-cover" />
+            }
+          </td>
+          <td>
+            <app-overdrive-title-cell
+              [title]="hold.title"
+              [subtitle]="hold.subtitle" />
+          </td>
+          <td>{{ creatorName(hold) }}</td>
+          <td>
+            @if (hold.ready) {
+              <span class="availability available">Ready to borrow</span>
+            }
+            @if (!hold.ready) {
+              <span>{{ hold.estimatedWaitDays }} days</span>
+            }
+          </td>
+          <td>
+            @if (hold.ready) {
+              <p-button icon="pi pi-download" severity="success"
+                pTooltip="Borrow this ready hold and import it (or drop to Bookdrop)"
+                tooltipPosition="top"
+                [disabled]="importingTitleId() !== null"
+                [loading]="importingTitleId() === hold.id"
+                (onClick)="onBorrowHold(hold)"
+                class="mr-2" />
+            }
+            <p-button icon="pi pi-times" severity="danger"
+              pTooltip="Cancel hold"
+              tooltipPosition="top"
+              (onClick)="onCancelHold(hold)" />
+          </td>
+        </tr>
+      </ng-template>
+    </p-table>
   </p-card>
+}
 
-   <!-- Catalog Search + Borrow & Import -->
-  <p-card header="Search &amp; Borrow" styleClass="mb-4" *ngIf="selectedCard()">
-     <div class="field">
-       <label>Destination library</label>
-       <div class="destination-row">
-         <p-select
-           [options]="grimmoryLibraries()"
-           optionLabel="name"
-           [ngModel]="selectedLibrary()"
-           (ngModelChange)="onLibraryChange($event)"
-           placeholder="Select a library"
-           appendTo="body"
-         />
-         <p-select
-           [options]="selectedLibrary()?.paths ?? []"
-           optionLabel="path"
-           [ngModel]="selectedPath()"
-           (ngModelChange)="onPathChange($event)"
-           [disabled]="!selectedLibrary()"
-           placeholder="Select a path"
-           appendTo="body"
-         />
-       </div>
-       <small class="hint">Remembered for this card. Leave empty to drop borrowed books into Bookdrop for review instead.</small>
-     </div>
-
-     <div class="field search-row">
-       <input
-         pInputText
-         type="text"
-         [ngModel]="searchQuery()"
-         (ngModelChange)="searchQuery.set($event)"
-         [ngModelOptions]="{ standalone: true }"
-         placeholder="Search the OverDrive catalog by title, author, or ISBN"
-         class="w-full"
-         (keyup.enter)="onSearch()"
-       />
-       <p-button label="Search" icon="pi pi-search" [loading]="searching()" (onClick)="onSearch()" />
-     </div>
-
-     <p-table [value]="results()" *ngIf="results().length > 0">
-       <ng-template pTemplate="header">
-         <tr>
-           <th>Cover</th>
-           <th>Title</th>
-           <th>Author</th>
-           <th>Availability</th>
-           <th>Actions</th>
-         </tr>
-       </ng-template>
-       <ng-template pTemplate="body" let-item>
-         <tr>
-           <td>
-             <img *ngIf="item.coverUrl" [src]="item.coverUrl" alt="cover" class="result-cover" />
-           </td>
-           <td>
-             <app-overdrive-title-cell
-               [title]="item.title"
-               [subtitle]="item.subtitle"
-               [bookId]="item.bookId" />
-           </td>
-           <td>{{ item.author }}</td>
-           <td>
-             <span *ngIf="item.preRelease" class="availability pre-release">Not yet released</span>
-             <ng-container *ngIf="!item.preRelease">
-               <!-- A ready hold (a copy reserved for you) borrows now; a pending hold takes
-                    precedence over the library-wide availability. -->
-               <span *ngIf="isHoldReady(item)" class="availability available">Ready to borrow</span>
-               <ng-container *ngIf="!isHoldReady(item)">
-                 <span *ngIf="isOnHold(item)" class="availability on-hold">
-                   On hold<ng-container *ngIf="holdWaitDays(item) != null"> · ~{{ holdWaitDays(item) }} day wait</ng-container>
-                 </span>
-                 <ng-container *ngIf="!isOnHold(item)">
-                   <span *ngIf="item.available" class="availability available">
-                     Available<ng-container *ngIf="item.availableCopies != null"> ({{ item.availableCopies }} copies)</ng-container>
-                   </span>
-                   <span *ngIf="!item.available" class="availability waitlisted">
-                     <ng-container *ngIf="item.holdable">Wait list</ng-container>
-                     <ng-container *ngIf="!item.holdable">Unavailable</ng-container>
-                     <ng-container *ngIf="item.estimatedWaitDays != null"> · ~{{ item.estimatedWaitDays }} day wait</ng-container>
-                     <ng-container *ngIf="item.holdsCount != null"> · {{ item.holdsCount }} holds</ng-container>
-                   </span>
-                 </ng-container>
-               </ng-container>
-             </ng-container>
-           </td>
-           <td>
-             <div class="borrow-action">
-               <!-- Format display: a picker when borrowable with a choice, otherwise a read-only
-                    summary of the importable formats (shown even for hold-required titles). -->
-               <ng-container *ngIf="hasImportableFormat(item); else noFormat">
-                 <p-select
-                   *ngIf="borrowableNow(item) && (item.formats?.length ?? 0) > 1"
-                   [options]="formatOptions(item)"
-                   optionLabel="label"
-                   optionValue="value"
-                   [ngModel]="chosenFormat(item)"
-                   (ngModelChange)="setFormat(item.titleId, $event)"
-                   [disabled]="importingTitleId() !== null"
-                   pTooltip="Choose which format to download & import"
-                   styleClass="format-select" />
-                 <span *ngIf="borrowableNow(item) && (item.formats?.length ?? 0) <= 1 && chosenFormat(item)" class="format-single"
-                   pTooltip="Format that will be downloaded">{{ formatLabel(chosenFormat(item)!) }}</span>
-                 <span *ngIf="!borrowableNow(item)" class="format-single" pTooltip="Available in these formats">{{ formatSummary(item) }}</span>
-               </ng-container>
-               <ng-template #noFormat>
-                 <span class="format-single unsupported" [pTooltip]="unsupportedFormatTooltip()">No supported format</span>
-               </ng-template>
-
-               <!-- Action: borrow when available, hold when not, disabled when no importable format. -->
-               <ng-container *ngIf="hasImportableFormat(item)">
-                 <ng-container *ngIf="borrowableNow(item)">
-                   <p-button
-                     *ngIf="isInLibrary(item) && !canBorrow(item)"
-                     label="Borrow anyway"
-                     icon="pi pi-exclamation-triangle"
-                     severity="secondary"
-                     [outlined]="true"
-                     pTooltip="Already in your library — borrow and import another copy"
-                     (onClick)="allowReborrow(item)" />
-                   <p-button
-                     *ngIf="canBorrow(item)"
-                     label="Borrow &amp; Import"
-                     icon="pi pi-download"
-                     pTooltip="Borrow this title and import it (server-side) into the selected library, or into Bookdrop if none is selected"
-                     [disabled]="!item.titleId || importingTitleId() !== null"
-                     [loading]="importingTitleId() === item.titleId"
-                     (onClick)="onBorrowImport(item)" />
-                 </ng-container>
-                 <ng-container *ngIf="!borrowableNow(item)">
-                   <p-button
-                     *ngIf="item.holdable && !isOnHold(item)"
-                     label="Place Hold"
-                     icon="pi pi-clock"
-                     severity="secondary"
-                     [disabled]="!item.titleId"
-                     (onClick)="onPlaceHold(item)" />
-                   <span *ngIf="isOnHold(item)" class="no-action on-hold">On hold</span>
-                   <span *ngIf="!item.holdable && !isOnHold(item)" class="no-action">—</span>
-                 </ng-container>
-               </ng-container>
-               <!-- No importable format: still allow the action, warning it's for Libby-app use only. -->
-               <ng-container *ngIf="!hasImportableFormat(item)">
-                 <p-button
-                   *ngIf="borrowableNow(item)"
-                   label="Borrow anyway"
-                   icon="pi pi-exclamation-triangle"
-                   severity="warn"
-                   [pTooltip]="unsupportedBorrowTooltip()"
-                   [disabled]="!item.titleId || importingTitleId() !== null"
-                   [loading]="importingTitleId() === item.titleId"
-                   (onClick)="onBorrowImport(item)" />
-                 <ng-container *ngIf="!borrowableNow(item)">
-                   <p-button
-                     *ngIf="item.holdable && !isOnHold(item)"
-                     label="Place Hold anyway"
-                     icon="pi pi-exclamation-triangle"
-                     severity="warn"
-                     [pTooltip]="unsupportedHoldTooltip()"
-                     [disabled]="!item.titleId"
-                     (onClick)="onPlaceHold(item)" />
-                   <span *ngIf="isOnHold(item)" class="no-action on-hold">On hold</span>
-                   <span *ngIf="!item.holdable && !isOnHold(item)" class="no-action">—</span>
-                 </ng-container>
-               </ng-container>
-             </div>
-           </td>
-         </tr>
-       </ng-template>
-     </p-table>
+<!-- Library Info -->
+@if (libraries().length > 0) {
+  <p-card header="Library Information">
+    <p-table [value]="libraries()">
+      <ng-template pTemplate="header">
+        <tr>
+          <th>Library Name</th>
+          <th>Key</th>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="body" let-lib>
+        <tr>
+          <td>{{ lib.name }}</td>
+          <td>{{ lib.preferredKey }}</td>
+        </tr>
+      </ng-template>
+    </p-table>
   </p-card>
-
-   <!-- Loans Section -->
-  <p-card header="Your Loans" styleClass="mb-4" *ngIf="selectedCard()">
-     <div class="loan-actions mb-3">
-       <p-button label="Refresh Loans" icon="pi pi-refresh" (onClick)="onLoadLoans()" [disabled]="loading()" />
-     </div>
-
-     <p-table [value]="loans()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
-       currentPageReportTemplate="Showing {first} to {last} of {totalRecords} loans">
-       <ng-template pTemplate="header">
-         <tr>
-           <th>Cover</th>
-           <th>Title</th>
-           <th>Author</th>
-           <th>Expires</th>
-           <th>Actions</th>
-         </tr>
-       </ng-template>
-       <ng-template pTemplate="body" let-loan>
-         <tr>
-           <td>
-             <img *ngIf="loan.coverUrl" [src]="loan.coverUrl" alt="cover" class="result-cover" />
-           </td>
-           <td>
-             <app-overdrive-title-cell
-               [title]="loan.title"
-               [subtitle]="loan.subtitle"
-               [bookId]="loan.bookId" />
-           </td>
-           <td>{{ creatorName(loan) }}</td>
-           <td>{{ formatDate(loan.expireDate) }}</td>
-           <td>
-             <p-button icon="pi pi-file-import"
-               pTooltip="Import server-side into the selected library (Search &amp; Borrow), or into Bookdrop if none is selected"
-               tooltipPosition="top"
-               [disabled]="importingTitleId() !== null"
-               [loading]="importingTitleId() === loan.id"
-               (onClick)="onImportLoan(loan)"
-               class="mr-2" />
-             <p-button icon="pi pi-download"
-               severity="secondary"
-               pTooltip="Download the raw ACSM file to your browser"
-               tooltipPosition="top"
-               (onClick)="onFulfill(loan.id)"
-               class="mr-2" />
-             <p-button icon="pi pi-sign-out"
-               severity="danger"
-               pTooltip="Return this loan to the library"
-               tooltipPosition="top"
-               (onClick)="onReturn(loan.id)" />
-           </td>
-         </tr>
-       </ng-template>
-     </p-table>
-  </p-card>
-
-   <!-- Holds Section -->
-  <p-card header="Your Holds" styleClass="mb-4" *ngIf="selectedCard() && holds().length > 0">
-     <p-table [value]="holds()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
-       currentPageReportTemplate="Showing {first} to {last} of {totalRecords} holds">
-       <ng-template pTemplate="header">
-         <tr>
-           <th>Cover</th>
-           <th>Title</th>
-           <th>Author</th>
-           <th>Est. Wait</th>
-           <th>Actions</th>
-         </tr>
-       </ng-template>
-       <ng-template pTemplate="body" let-hold>
-         <tr>
-           <td>
-             <img *ngIf="hold.coverUrl" [src]="hold.coverUrl" alt="cover" class="result-cover" />
-           </td>
-           <td>
-             <app-overdrive-title-cell
-               [title]="hold.title"
-               [subtitle]="hold.subtitle" />
-           </td>
-           <td>{{ creatorName(hold) }}</td>
-           <td>
-             <span *ngIf="hold.ready" class="availability available">Ready to borrow</span>
-             <span *ngIf="!hold.ready">{{ hold.estimatedWaitDays }} days</span>
-           </td>
-           <td>
-             <p-button *ngIf="hold.ready" icon="pi pi-download" severity="success"
-               pTooltip="Borrow this ready hold and import it (or drop to Bookdrop)"
-               tooltipPosition="top"
-               [disabled]="importingTitleId() !== null"
-               [loading]="importingTitleId() === hold.id"
-               (onClick)="onBorrowHold(hold)"
-               class="mr-2" />
-             <p-button icon="pi pi-times" severity="danger"
-               pTooltip="Cancel hold"
-               tooltipPosition="top"
-               (onClick)="onCancelHold(hold)" />
-           </td>
-         </tr>
-       </ng-template>
-     </p-table>
-  </p-card>
-
-   <!-- Library Info -->
-  <p-card header="Library Information" *ngIf="libraries().length > 0">
-     <p-table [value]="libraries()">
-       <ng-template pTemplate="header">
-         <tr>
-           <th>Library Name</th>
-           <th>Key</th>
-         </tr>
-       </ng-template>
-       <ng-template pTemplate="body" let-lib>
-         <tr>
-           <td>{{ lib.name }}</td>
-           <td>{{ lib.preferredKey }}</td>
-         </tr>
-       </ng-template>
-     </p-table>
-  </p-card>
+}
 </div>
