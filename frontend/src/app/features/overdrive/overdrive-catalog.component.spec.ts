@@ -7,6 +7,7 @@ import {OverdriveCatalogComponent} from './overdrive-catalog.component';
 import {OverDriveService, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
 import {LibraryService} from '../../features/book/service/library.service';
 import {Library} from '../../features/book/model/library.model';
+import {TranslocoService} from '@jsverse/transloco';
 
 function card(cardId: string, libraryKey: string, name = cardId): OverDriveCard {
   return {cardId, libraryKey, name};
@@ -51,6 +52,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
         {provide: OverDriveService, useValue: overdriveService},
         {provide: LibraryService, useValue: libraryService},
         {provide: MessageService, useValue: {add: vi.fn()}},
+        {provide: TranslocoService, useValue: {langChanges$: of('en'), getActiveLang: () => 'en'}},
       ],
     });
     component = TestBed.runInInjectionContext(() => new OverdriveCatalogComponent());
@@ -288,6 +290,27 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     // bpl (12d) sorts before lapl (40d); default is the shortest wait.
     expect(component.holdEligibleCards(it1).map(c => c.cardId)).toEqual(['c2', 'c1']);
     expect(component.chosenCardId(it1)).toBe('c2');
+  });
+
+  it('shows the shortest wait across libraries in the availability cell', () => {
+    const it1 = item({
+      available: false,
+      holdable: true,
+      estimatedWaitDays: 40, // aggregate/first-library value
+      availability: [
+        {libraryKey: 'lapl', available: false, holdable: true, estimatedWaitDays: 40, holdsCount: 8},
+        {libraryKey: 'bpl', available: false, holdable: true, estimatedWaitDays: 12, holdsCount: 3},
+      ],
+    });
+    expect(component.shortestWaitDays(it1)).toBe(12);
+    expect(component.shortestWaitHoldsCount(it1)).toBe(3); // holds from the same (shortest-wait) library
+  });
+
+  it('flags a result that is not in the user\'s language', () => {
+    // User language is 'en' (mocked TranslocoService).
+    expect(component.isForeignLanguage(item({language: 'es'}))).toBe(true);
+    expect(component.isForeignLanguage(item({language: 'en'}))).toBe(false);
+    expect(component.isForeignLanguage(item({language: null}))).toBe(false);
   });
 
   it('scopes the search request to the selected card ids', () => {

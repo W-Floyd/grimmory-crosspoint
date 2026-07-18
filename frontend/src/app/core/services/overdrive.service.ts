@@ -139,6 +139,8 @@ export interface OverDriveCatalogItem {
   availability?: OverDriveLibraryAvailability[];
   /** Id of an existing library book this title matches (by ISBN), or null if not in the library. */
   bookId?: number | null;
+  /** Normalized primary language code (e.g. "en", "es"), or null. */
+  language?: string | null;
 }
 
 export interface OverDriveBorrowImportRequest {

@@ -86,7 +86,8 @@ class OverDriveParserTest {
                     "publisher": {"name": "Test House"},
                     "publishDate": "2021-06-15T00:00:00Z",
                     "subjects": [{"name": "Fiction"}, {"name": "Fantasy"}],
-                    "languages": [{"name": "English"}],
+                    "languages": [{"id": "es", "name": "Spanish; Castilian"}],
+                    "keywords": ["gamers", "cyberpunk"],
                     "formats": [{"id": "ebook-epub-adobe", "isbn": "9781234567897",
                       "identifiers": [{"type": "ISBN", "value": "9781234567897"}, {"type": "ASIN", "value": "B00ABCDEF0"}]}],
                     "detailedSeries": {"seriesName": "The Series", "readingOrder": "3"},
@@ -110,6 +111,8 @@ class OverDriveParserTest {
         assertThat(m.getCategories()).containsExactlyInAnyOrder("Fiction", "Fantasy");
         assertThat(m.getIsbn13()).isEqualTo("9781234567897");
         assertThat(m.getAsin()).isEqualTo("B00ABCDEF0");
+        assertThat(m.getLanguage()).isEqualTo("es"); // from the language id, not the "Spanish; Castilian" name
+        assertThat(m.getTags()).containsExactlyInAnyOrder("gamers", "cyberpunk");
         assertThat(m.getThumbnailUrl()).isEqualTo("https://img/large.jpg"); // prefers largest
         assertThat(m.getSeriesName()).isEqualTo("The Series");
         assertThat(m.getSeriesNumber()).isEqualTo(3f);

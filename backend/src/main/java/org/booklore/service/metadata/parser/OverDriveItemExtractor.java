@@ -2,8 +2,11 @@ package org.booklore.service.metadata.parser;
 
 import org.booklore.model.dto.response.OverDriveApiResponse;
 
+import org.booklore.util.LanguageNormalizer;
+
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -124,6 +127,21 @@ public final class OverDriveItemExtractor {
     public static String primaryIsbn(OverDriveApiResponse.Item item) {
         String[] isbns = isbns(item);
         return isbns[0] != null ? isbns[0] : isbns[1];
+    }
+
+    /**
+     * The primary language code for a title: the language entry's {@code id} (which OverDrive gives as
+     * the code, e.g. "es") when present, otherwise the normalized display name, else null.
+     */
+    public static String languageCode(OverDriveApiResponse.Item item) {
+        if (item.getLanguages() == null || item.getLanguages().isEmpty()) {
+            return null;
+        }
+        OverDriveApiResponse.Item.NamedValue lang = item.getLanguages().getFirst();
+        if (lang.getId() != null && !lang.getId().isBlank()) {
+            return lang.getId().trim().toLowerCase(Locale.ROOT);
+        }
+        return lang.getName() != null ? LanguageNormalizer.normalize(lang.getName()) : null;
     }
 
     /** The ASIN (Amazon edition id) from the title's format identifiers, or null. */

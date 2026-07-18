@@ -9,7 +9,6 @@ import org.booklore.model.dto.settings.MetadataProviderSettings;
 import org.booklore.model.enums.MetadataProvider;
 import org.booklore.service.appsettings.AppSettingService;
 import org.booklore.util.BookUtils;
-import org.booklore.util.LanguageNormalizer;
 import org.jsoup.Jsoup;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -374,8 +373,8 @@ public class OverDriveParser implements BookParser {
                 .publisher(item.getPublisher() != null ? item.getPublisher().getName() : null)
                 .publishedDate(parseDate(item.getPublishDate()))
                 .categories(extractNames(item.getSubjects()))
-                .language(item.getLanguages() != null && !item.getLanguages().isEmpty()
-                        ? LanguageNormalizer.normalize(item.getLanguages().getFirst().getName()) : null)
+                .tags(extractKeywords(item.getKeywords()))
+                .language(OverDriveItemExtractor.languageCode(item))
                 .isbn13(isbns[0])
                 .isbn10(isbns[1])
                 .asin(OverDriveItemExtractor.asin(item))
@@ -395,6 +394,17 @@ public class OverDriveParser implements BookParser {
                 .filter(n -> n != null && !n.isBlank())
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         return names.isEmpty() ? null : names;
+    }
+
+    private Set<String> extractKeywords(List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) {
+            return null;
+        }
+        Set<String> result = keywords.stream()
+                .filter(k -> k != null && !k.isBlank())
+                .map(String::trim)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return result.isEmpty() ? null : result;
     }
 
     private record SeriesData(String name, Float number) {}

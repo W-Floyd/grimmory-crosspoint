@@ -40,5 +40,7 @@ public record OverDriveCatalogItem(
         /** Per-library availability (one entry per library the title surfaced from). */
         java.util.List<OverDriveLibraryAvailability> availability,
         /** Id of an existing library book this title matches (by ISBN), or null if not in the library. */
-        Long bookId
+        Long bookId,
+        /** Normalized primary language code (e.g. "en", "es"), or null. */
+        String language
 ) {}

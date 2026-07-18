@@ -1152,7 +1152,8 @@ public class OverDriveService {
                 existing.preRelease() && incoming.preRelease(),
                 display.formats(),
                 availability,
-                display.bookId());
+                display.bookId(),
+                display.language());
       }
 
       /** Sum two nullable copy counts, treating null as zero; null when both are null. */
@@ -1457,7 +1458,8 @@ public class OverDriveService {
                 Boolean.TRUE.equals(item.getPreRelease()),
                 formats,
                 new ArrayList<>(List.of(availability)),
-                resolveLinkedBookId(isbn));
+                resolveLinkedBookId(isbn),
+                OverDriveItemExtractor.languageCode(item));
       }
 
       /**

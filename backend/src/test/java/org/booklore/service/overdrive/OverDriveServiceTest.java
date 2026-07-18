@@ -125,6 +125,10 @@ class OverDriveServiceTest {
         epub.setIsbn("9780441013593");
         item.setFormats(List.of(pdf, epub));
 
+        var lang = new org.booklore.model.dto.response.OverDriveApiResponse.Item.NamedValue();
+        lang.setName("English");
+        item.setLanguages(List.of(lang));
+
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
@@ -137,6 +141,7 @@ class OverDriveServiceTest {
         assertThat(results.getFirst().formatId()).isEqualTo("ebook-epub-adobe");
         assertThat(results.getFirst().author()).isEqualTo("Frank Herbert");
         assertThat(results.getFirst().isbn()).isEqualTo("9780441013593");
+        assertThat(results.getFirst().language()).isEqualTo("en"); // normalized from "English"
     }
 
     @Test

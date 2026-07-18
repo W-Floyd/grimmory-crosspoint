@@ -1,6 +1,8 @@
 import { Component, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
+import { TranslocoService } from '@jsverse/transloco';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { OverDriveService, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSyncResult } from '../../core/services/overdrive.service';
@@ -47,6 +49,10 @@ export class OverdriveCatalogComponent {
   private readonly overdriveService = inject(OverDriveService);
   private readonly messageService = inject(MessageService);
   private readonly libraryService = inject(LibraryService);
+  private readonly transloco = inject(TranslocoService);
+
+  /** The user's active language (2-letter code), used to flag foreign-language search results. */
+  private readonly userLanguage = toSignal(this.transloco.langChanges$, { initialValue: this.transloco.getActiveLang() });
 
    // State
   loading = signal(false);
@@ -384,6 +390,41 @@ export class OverdriveCatalogComponent {
    /** True when this title has a "Lucky Day" (skip-the-line) copy available now at some selected library. */
    hasLuckyDay(item: OverDriveCatalogItem): boolean {
      return (item.luckyDayAvailableCopies ?? 0) > 0;
+   }
+
+   /** True when the result's language differs from the user's active language (both known). */
+   isForeignLanguage(item: OverDriveCatalogItem): boolean {
+     const lang = item.language?.trim().toLowerCase();
+     const user = this.userLanguage()?.trim().toLowerCase();
+     return !!lang && !!user && lang !== user;
+   }
+
+   /** The result's language code, uppercased for the badge (e.g. "ES"). */
+   foreignLanguageLabel(item: OverDriveCatalogItem): string {
+     return (item.language ?? '').trim().toUpperCase();
+   }
+
+   /** The user's active language code, uppercased. */
+   userLanguageLabel(): string {
+     return (this.userLanguage() ?? '').trim().toUpperCase();
+   }
+
+   /** The per-library availability with the shortest estimated wait for this title (the best case). */
+   private shortestWaitAvailability(item: OverDriveCatalogItem): OverDriveLibraryAvailability | null {
+     const waited = (item.availability ?? []).filter(a => a.estimatedWaitDays != null);
+     if (waited.length === 0) return null;
+     return waited.reduce((best, a) => (a.estimatedWaitDays! < best.estimatedWaitDays! ? a : best));
+   }
+
+   /** Shortest estimated wait (days) across the title's libraries, for the aggregate availability cell. */
+   shortestWaitDays(item: OverDriveCatalogItem): number | null {
+     return this.shortestWaitAvailability(item)?.estimatedWaitDays ?? item.estimatedWaitDays ?? null;
+   }
+
+   /** Holds count at the shortest-wait library (so the wait and holds describe the same library). */
+   shortestWaitHoldsCount(item: OverDriveCatalogItem): number | null {
+     const entry = this.shortestWaitAvailability(item);
+     return (entry ? entry.holdsCount : item.holdsCount) ?? null;
    }
 
    /** Per-library availability breakdown (one line each) for the Availability cell's hover tooltip. */

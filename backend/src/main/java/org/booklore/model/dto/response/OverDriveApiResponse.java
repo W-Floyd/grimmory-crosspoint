@@ -35,6 +35,7 @@ public class OverDriveApiResponse {
         private String publishDate;
         private List<NamedValue> subjects;
         private List<NamedValue> languages;
+        private List<String> keywords;
         private List<Format> formats;
         private DetailedSeries detailedSeries;
         private Double starRating;
@@ -98,6 +99,8 @@ public class OverDriveApiResponse {
         @Data
         @JsonIgnoreProperties(ignoreUnknown = true)
         public static class NamedValue {
+            /** Code, when the field provides one (e.g. a language's {@code id} is its code, "es"). */
+            private String id;
             private String name;
         }
 
