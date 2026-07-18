@@ -21,8 +21,4 @@ public class OverdriveProperties {
     private String sentryBaseUrl = "https://sentry.libbyapp.com";
     /** OverDrive client ID (defaults to "dewey"). */
     private String clientId = "dewey";
-    /** Whether to auto-borrow books during metadata refresh. Not yet implemented. */
-    private boolean autoBorrow = false;
-    /** Whether to auto-return expired loans in the background. */
-    private boolean autoReturn = false;
 }

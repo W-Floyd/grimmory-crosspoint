@@ -283,13 +283,33 @@ public class OverDriveController {
     @ApiResponse(responseCode = "200", description = "Search results returned")
     @GetMapping("/search")
     public ResponseEntity<List<OverDriveCatalogItem>> search(
-            @Parameter(description = "Search query (title/author/ISBN)") @RequestParam String query
+            @Parameter(description = "Search query (title/author/ISBN)") @RequestParam String query,
+            @Parameter(description = "Card ids to scope the search to (their libraries); at least one is required")
+            @RequestParam(required = false) List<String> cards
     ) {
         requireEnabled();
         if (query == null || query.isBlank()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException("query is required");
         }
-        return ResponseEntity.ok(overDriveService.searchCatalog(query));
+        if (cards == null || cards.isEmpty()) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("at least one card is required to search");
+        }
+        return ResponseEntity.ok(overDriveService.searchCatalog(query, cards));
+    }
+
+    /**
+     * GET /api/overdrive/title/{titleId}/availability — check a title's availability across the given
+     * cards' libraries, so the Holds tab can surface whether a held title is borrowable elsewhere.
+     */
+    @Operation(summary = "Check a title's availability across the user's libraries")
+    @ApiResponse(responseCode = "200", description = "Per-library availability returned")
+    @GetMapping("/title/{titleId}/availability")
+    public ResponseEntity<List<OverDriveLibraryAvailability>> titleAvailability(
+            @Parameter(description = "OverDrive title id") @PathVariable String titleId,
+            @Parameter(description = "Card ids whose libraries to check") @RequestParam(required = false) List<String> cards
+    ) {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.titleAvailability(titleId, cards));
     }
 
     /**
@@ -618,24 +638,26 @@ public class OverDriveController {
         return null;
     }
 
-    /** Best cover href from a sync loan's covers (150-wide, then 300-wide), or null. */
+    /** Href of the largest available cover rendition from a sync loan/hold's covers, or null. */
     private String loanCoverUrl(OverDriveCover covers) {
         if (covers == null) {
             return null;
         }
         // Prefer the largest available so the hover preview is crisp; the 40px thumbnail downscales fine.
-        String href = coverHref(covers.getCover510Wide());
-        if (href == null) {
-            href = coverHref(covers.getCover300Wide());
+        OverDriveCoverDetail best = null;
+        int bestWidth = -1;
+        for (Map.Entry<String, OverDriveCoverDetail> entry : covers.getVariants().entrySet()) {
+            OverDriveCoverDetail detail = entry.getValue();
+            if (detail == null || detail.getHref() == null || detail.getHref().isBlank()) {
+                continue;
+            }
+            int width = OverDriveItemExtractor.coverWidth(entry.getKey(), detail.getWidth() > 0 ? detail.getWidth() : null);
+            if (width > bestWidth) {
+                bestWidth = width;
+                best = detail;
+            }
         }
-        return href != null ? href : coverHref(covers.getCover150Wide());
-    }
-
-    private String coverHref(OverDriveCoverDetail detail) {
-        if (detail == null || detail.getHref() == null || detail.getHref().isBlank()) {
-            return null;
-        }
-        return OverDriveItemExtractor.encodeCoverUrl(detail.getHref());
+        return best != null ? OverDriveItemExtractor.encodeCoverUrl(best.getHref()) : null;
     }
 
     private OverDriveHoldDto holdToDto(OverDriveHold hold) {

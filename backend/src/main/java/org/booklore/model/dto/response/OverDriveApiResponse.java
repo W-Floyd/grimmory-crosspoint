@@ -1,10 +1,13 @@
 package org.booklore.model.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Response shape of the OverDrive "Thunder" catalog API (the unofficial, no-auth API the Libby web
@@ -60,14 +63,27 @@ public class OverDriveApiResponse {
         @Data
         @JsonIgnoreProperties(ignoreUnknown = true)
         public static class Covers {
-            private Cover cover150Wide;
-            private Cover cover300Wide;
-            private Cover cover510Wide;
+            /**
+             * All cover renditions keyed by their OverDrive name (e.g. {@code cover150Wide},
+             * {@code cover510Wide}). The set of sizes varies per title and can change over time, so we
+             * capture whatever the API returns rather than hardcoding a fixed list; the largest is chosen
+             * at read time (by {@code width}, falling back to the width parsed from the key).
+             */
+            private final Map<String, Cover> variants = new LinkedHashMap<>();
+
+            @JsonAnySetter
+            void putVariant(String name, Cover cover) {
+                if (cover != null) {
+                    variants.put(name, cover);
+                }
+            }
 
             @Data
             @JsonIgnoreProperties(ignoreUnknown = true)
             public static class Cover {
                 private String href;
+                private Integer width;
+                private Integer height;
             }
         }
 

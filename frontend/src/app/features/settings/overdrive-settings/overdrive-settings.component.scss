@@ -23,7 +23,8 @@
 .field {
   margin-bottom: 1rem;
 
-  label {
+  label,
+  .field-label {
     display: block;
     margin-bottom: 0.25rem;
     font-weight: 500;
@@ -145,4 +146,14 @@
     font-size: 0.8rem;
     white-space: pre;
   }
+}
+
+.format-unsupported {
+  color: var(--text-color-secondary);
+  opacity: 0.6;
+}
+
+.format-unsupported-note {
+  font-style: italic;
+  font-size: 0.85em;
 }

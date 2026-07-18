@@ -1034,35 +1034,73 @@ public class OverDriveService {
       }
 
       /**
-       * Search the OverDrive catalog for borrowable titles across the admin-configured library and any
-       * libraries the current user has cards for. Backed by the read-only Thunder catalog API (no auth);
-       * results carry the title id needed to {@link #borrowAndImport}. Deduplicated by title id.
+       * Search the OverDrive catalog scoped to a specific set of the current user's cards. At least one
+       * card is required — searching without a card returns nothing. Each card id is resolved to its
+       * library key (ignoring unknown/foreign ids); the search runs across the distinct union of those
+       * keys. Backed by the read-only Thunder catalog API (no auth); results carry the title id needed
+       * to {@link #borrowAndImport}.
+       *
+       * <p>Unlike a plain dedupe, a title surfacing from several libraries is <b>merged</b>: it keeps
+       * one {@link OverDriveLibraryAvailability} per library so the UI can tell which cards can borrow it
+       * now vs only hold it. The scalar availability fields become the aggregate across those libraries.
        */
-      public List<OverDriveCatalogItem> searchCatalog(String query) {
-        // Admin library first, then the user's card libraries (distinct, order-preserving).
-        Set<String> libraryKeys = new LinkedHashSet<>();
-        String adminKey = adminLibraryKey();
-        if (adminKey != null && !adminKey.isBlank()) {
-            libraryKeys.add(adminKey);
+      public List<OverDriveCatalogItem> searchCatalog(String query, List<String> cardIds) {
+        if (cardIds == null || cardIds.isEmpty()) {
+            return List.of();
         }
-        libraryKeys.addAll(userLibraryKeys());
+        // Scope strictly to the selected cards' libraries (resolve for this user only).
+        Long userId = currentUserId();
+        Set<String> libraryKeys = new LinkedHashSet<>();
+        for (String cardId : cardIds) {
+            tokenRepository.findByUserIdAndIdentity(userId, cardId)
+                    .map(OverDriveTokenEntity::getLibraryKey)
+                    .filter(k -> k != null && !k.isBlank())
+                    .ifPresent(libraryKeys::add);
+        }
 
+        // Merge each title across libraries, accumulating one availability entry per library.
         Map<String, OverDriveCatalogItem> byTitleId = new LinkedHashMap<>();
         for (String libraryKey : libraryKeys) {
             for (OverDriveApiResponse.Item item : overDriveParser.searchLibrary(libraryKey, query)) {
-                OverDriveCatalogItem mapped = toCatalogItem(item);
+                OverDriveCatalogItem mapped = toCatalogItem(libraryKey, item);
                 if (mapped.title() == null || mapped.title().isBlank() || mapped.titleId() == null) {
                     continue;
                 }
-                // Dedupe across libraries by title id, but prefer a copy that is available to borrow
-                // now over an identical title that is only holdable elsewhere.
-                OverDriveCatalogItem existing = byTitleId.get(mapped.titleId());
-                if (existing == null || (!existing.available() && mapped.available())) {
-                    byTitleId.put(mapped.titleId(), mapped);
-                }
+                byTitleId.merge(mapped.titleId(), mapped, OverDriveService::mergeCatalogItems);
             }
         }
         return new ArrayList<>(byTitleId.values());
+      }
+
+      /**
+       * Merge two catalog items for the same title from different libraries: concatenate their
+       * per-library availability and recompute the aggregate scalars. The display fields
+       * (cover/isbn/formats/title) are taken from whichever copy is available to borrow now, matching
+       * the previous "prefer an available copy" behaviour.
+       */
+      private static OverDriveCatalogItem mergeCatalogItems(OverDriveCatalogItem existing, OverDriveCatalogItem incoming) {
+        List<OverDriveLibraryAvailability> availability = new ArrayList<>(existing.availability());
+        availability.addAll(incoming.availability());
+        // Prefer the display metadata of an available copy over a holdable-only one.
+        OverDriveCatalogItem display = (!existing.available() && incoming.available()) ? incoming : existing;
+        return new OverDriveCatalogItem(
+                display.titleId(),
+                display.formatId(),
+                display.title(),
+                display.subtitle(),
+                display.author(),
+                display.coverUrl(),
+                display.isbn(),
+                existing.available() || incoming.available(),
+                existing.holdable() || incoming.holdable(),
+                display.availableCopies(),
+                display.ownedCopies(),
+                display.holdsCount(),
+                display.estimatedWaitDays(),
+                existing.preRelease() && incoming.preRelease(),
+                display.formats(),
+                availability,
+                display.bookId());
       }
 
       /**
@@ -1090,7 +1128,7 @@ public class OverDriveService {
         Map<String, Object> r = new LinkedHashMap<>();
         r.put("sentryBaseUrl", sentryBaseUrl);
         r.put("clientId", clientId);
-        r.put("adminLibraryKey", adminLibraryKey());
+        r.put("libraryKeys", configuredLibraryKeys());
         r.put("formatPreference", formatPreference());
         r.put("acsmHandlerConfigured", acsmHandler.isConfigured());
         r.put("credentialStorageEnabled", credentialCipher.isEnabled());
@@ -1178,11 +1216,20 @@ public class OverDriveService {
         return credentialCipher.isEnabled();
       }
 
-      /** The admin-configured OverDrive library key from metadata provider settings, or null. */
-      private String adminLibraryKey() {
+      /** The configured OverDrive library keys (for metadata search) from metadata provider settings. */
+      private List<String> configuredLibraryKeys() {
         var appSettings = appSettingService.getAppSettings();
         MetadataProviderSettings settings = appSettings != null ? appSettings.getMetadataProviderSettings() : null;
-        return settings != null && settings.getOverdrive() != null ? settings.getOverdrive().getLibraryKey() : null;
+        if (settings == null || settings.getOverdrive() == null || settings.getOverdrive().getLibraryKeys() == null) {
+            return List.of();
+        }
+        Set<String> keys = new LinkedHashSet<>();
+        for (String key : settings.getOverdrive().getLibraryKeys()) {
+            if (key != null && !key.isBlank()) {
+                keys.add(key.trim());
+            }
+        }
+        return new ArrayList<>(keys);
       }
 
       /**
@@ -1311,9 +1358,19 @@ public class OverDriveService {
                 .build();
       }
 
-      private OverDriveCatalogItem toCatalogItem(OverDriveApiResponse.Item item) {
+      private OverDriveCatalogItem toCatalogItem(String libraryKey, OverDriveApiResponse.Item item) {
         List<String> formats = importableFormats(item);
         String isbn = OverDriveItemExtractor.primaryIsbn(item);
+        boolean available = Boolean.TRUE.equals(item.getAvailable());
+        boolean holdable = Boolean.TRUE.equals(item.getHoldable());
+        OverDriveLibraryAvailability availability = new OverDriveLibraryAvailability(
+                libraryKey,
+                available,
+                holdable,
+                item.getAvailableCopies(),
+                item.getOwnedCopies(),
+                item.getHoldsCount(),
+                item.getEstimatedWaitDays());
         return new OverDriveCatalogItem(
                 item.getId(),
                 formats.isEmpty() ? pickBorrowFormatId(item) : formats.getFirst(),
@@ -1322,14 +1379,15 @@ public class OverDriveService {
                 OverDriveItemExtractor.primaryAuthor(item),
                 OverDriveItemExtractor.coverHref(item.getCovers()),
                 isbn,
-                Boolean.TRUE.equals(item.getAvailable()),
-                Boolean.TRUE.equals(item.getHoldable()),
+                available,
+                holdable,
                 item.getAvailableCopies(),
                 item.getOwnedCopies(),
                 item.getHoldsCount(),
                 item.getEstimatedWaitDays(),
                 Boolean.TRUE.equals(item.getPreRelease()),
                 formats,
+                new ArrayList<>(List.of(availability)),
                 resolveLinkedBookId(isbn));
       }
 
@@ -1548,13 +1606,38 @@ public class OverDriveService {
         tokenRepository.save(entity);
       }
 
-      /** Distinct OverDrive library keys for the current user's linked cards. */
-      private List<String> userLibraryKeys() {
-        return tokenRepository.findByUserId(currentUserId()).stream()
-                .map(OverDriveTokenEntity::getLibraryKey)
-                .filter(k -> k != null && !k.isBlank())
-                .distinct()
-                .toList();
+      /**
+       * Check a specific title's availability across the given cards' libraries (for the current user).
+       * Used by the Holds tab to surface whether a held title can be borrowed now at another of the
+       * user's libraries. Returns one entry per distinct library that responded.
+       */
+      public List<OverDriveLibraryAvailability> titleAvailability(String titleId, List<String> cardIds) {
+        if (titleId == null || titleId.isBlank() || cardIds == null || cardIds.isEmpty()) {
+            return List.of();
+        }
+        Long userId = currentUserId();
+        Set<String> libraryKeys = new LinkedHashSet<>();
+        for (String cardId : cardIds) {
+            tokenRepository.findByUserIdAndIdentity(userId, cardId)
+                    .map(OverDriveTokenEntity::getLibraryKey)
+                    .filter(k -> k != null && !k.isBlank())
+                    .ifPresent(libraryKeys::add);
+        }
+        List<OverDriveLibraryAvailability> result = new ArrayList<>();
+        for (String libraryKey : libraryKeys) {
+            OverDriveApiResponse.Item item = overDriveParser.fetchTitleAtLibrary(libraryKey, titleId);
+            if (item != null) {
+                result.add(new OverDriveLibraryAvailability(
+                        libraryKey,
+                        Boolean.TRUE.equals(item.getAvailable()),
+                        Boolean.TRUE.equals(item.getHoldable()),
+                        item.getAvailableCopies(),
+                        item.getOwnedCopies(),
+                        item.getHoldsCount(),
+                        item.getEstimatedWaitDays()));
+            }
+        }
+        return result;
       }
 
       /** The current user's linked card ids. */

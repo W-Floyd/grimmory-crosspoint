@@ -655,6 +655,52 @@ class FileServiceTest {
             }
 
             @Test
+            void jpegSourceNeedingNoTransform_isStoredVerbatim() throws IOException {
+                BufferedImage image = createTestImage(400, 600);
+                byte[] jpegBytes = toJpegBytes(image);
+
+                boolean result = fileService.saveCoverImages(image, jpegBytes, 200L);
+
+                assertTrue(result);
+                byte[] savedCover = Files.readAllBytes(Path.of(fileService.getCoverFile(200L)));
+                assertArrayEquals(jpegBytes, savedCover,
+                        "A suitably-sized JPEG should be stored byte-for-byte, not re-encoded");
+                // Thumbnail is still derived.
+                assertTrue(Files.exists(Path.of(fileService.getThumbnailFile(200L))));
+            }
+
+            @Test
+            void nonJpegSource_isReencodedToJpeg() throws IOException {
+                BufferedImage image = createTestImage(400, 600);
+                ByteArrayOutputStream png = new ByteArrayOutputStream();
+                ImageIO.write(image, "PNG", png);
+                byte[] pngBytes = png.toByteArray();
+
+                boolean result = fileService.saveCoverImages(image, pngBytes, 201L);
+
+                assertTrue(result);
+                byte[] savedCover = Files.readAllBytes(Path.of(fileService.getCoverFile(201L)));
+                assertFalse(java.util.Arrays.equals(pngBytes, savedCover),
+                        "A non-JPEG source must be re-encoded, not stored verbatim");
+                assertNotNull(ImageIO.read(new File(fileService.getCoverFile(201L))));
+            }
+
+            @Test
+            void oversizedJpegSource_isReencodedAndDownscaled() throws IOException {
+                BufferedImage large = createTestImage(2000, 3000); // exceeds max dims → needs resize
+                byte[] jpegBytes = toJpegBytes(large);
+
+                boolean result = fileService.saveCoverImages(large, jpegBytes, 202L);
+
+                assertTrue(result);
+                byte[] savedCover = Files.readAllBytes(Path.of(fileService.getCoverFile(202L)));
+                assertFalse(java.util.Arrays.equals(jpegBytes, savedCover),
+                        "An oversized JPEG must be re-encoded (downscaled), not stored verbatim");
+                BufferedImage saved = ImageIO.read(new File(fileService.getCoverFile(202L)));
+                assertTrue(saved.getWidth() <= 1000 && saved.getHeight() <= 1500);
+            }
+
+            @Test
             void largeImage_isScaledDownToMaxDimensions() throws IOException {
                 // Create a very large image that will trigger scaling
                 int largeWidth = 2000;  // > MAX_ORIGINAL_WIDTH (1000)
@@ -1536,6 +1582,12 @@ class FileServiceTest {
 
     private BufferedImage createTestImage(int width, int height) {
         return createTestImage(width, height, Color.BLUE);
+    }
+
+    private byte[] toJpegBytes(BufferedImage image) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(image, "JPEG", out);
+        return out.toByteArray();
     }
 
     private BufferedImage createTestImage(int width, int height, Color color) {

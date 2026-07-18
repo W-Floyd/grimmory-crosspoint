@@ -31,6 +31,8 @@ export interface OverDriveLoan {
   formats?: OverDriveFormat[];
   /** Id of the existing library book this loan is linked to (by prior import or ISBN), if any. */
   bookId?: number | null;
+  /** Client-side tag: the card this loan belongs to (set when aggregating across selected cards). */
+  cardId?: string;
 }
 
 export interface OverDriveHold {
@@ -48,6 +50,8 @@ export interface OverDriveHold {
   ready?: boolean;
   /** For a ready hold, the deadline to borrow it before the hold is released. */
   expireDate?: string;
+  /** Client-side tag: the card this hold belongs to (set when aggregating across selected cards). */
+  cardId?: string;
 }
 
 export interface OverDriveCreator {
@@ -95,6 +99,17 @@ export interface OverDriveLibraryResolution {
   name?: string | null;
 }
 
+/** Availability of a catalog title at one specific library (advantage key). */
+export interface OverDriveLibraryAvailability {
+  libraryKey: string;
+  available: boolean;
+  holdable: boolean;
+  availableCopies?: number | null;
+  ownedCopies?: number | null;
+  holdsCount?: number | null;
+  estimatedWaitDays?: number | null;
+}
+
 export interface OverDriveCatalogItem {
   titleId: string;
   formatId: string;
@@ -116,6 +131,8 @@ export interface OverDriveCatalogItem {
   formats?: string[];
   /** Not yet released; neither borrowable nor holdable. */
   preRelease: boolean;
+  /** Per-library availability (one entry per library the title surfaced from). */
+  availability?: OverDriveLibraryAvailability[];
   /** Id of an existing library book this title matches (by ISBN), or null if not in the library. */
   bookId?: number | null;
 }
@@ -232,11 +249,28 @@ export class OverDriveService {
 
   // Catalog
 
-  /** Search the OverDrive catalog for borrowable titles. */
-  search(query: string): Observable<OverDriveCatalogItem[]> {
-    return this.http.get<OverDriveCatalogItem[]>(`${this.baseUrl}/search`, {
-      params: { query }
-    });
+  /**
+   * Search the OverDrive catalog for borrowable titles. When {@code cardIds} is given, the search is
+   * scoped to those cards' libraries; otherwise all of the user's libraries are searched.
+   */
+  search(query: string, cardIds?: string[]): Observable<OverDriveCatalogItem[]> {
+    const params: Record<string, string | string[]> = { query };
+    if (cardIds && cardIds.length > 0) {
+      params['cards'] = cardIds;
+    }
+    return this.http.get<OverDriveCatalogItem[]>(`${this.baseUrl}/search`, { params });
+  }
+
+  /**
+   * Check a title's availability across the given cards' libraries (used by the Holds tab to surface
+   * whether a held title is borrowable now at another of the user's libraries).
+   */
+  titleAvailability(titleId: string, cardIds: string[]): Observable<OverDriveLibraryAvailability[]> {
+    const params: Record<string, string | string[]> = {};
+    if (cardIds.length > 0) {
+      params['cards'] = cardIds;
+    }
+    return this.http.get<OverDriveLibraryAvailability[]>(`${this.baseUrl}/title/${titleId}/availability`, { params });
   }
 
   /** Borrow a title on the given card and import the fulfilled book into a library. */

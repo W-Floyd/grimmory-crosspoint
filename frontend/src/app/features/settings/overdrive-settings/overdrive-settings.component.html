@@ -9,39 +9,54 @@
 
   <div class="settings-card">
     <div class="field">
-      <label for="library-key">Library Key</label>
+      <label for="library-keys">Library Keys</label>
       <div class="library-key-row">
         <input
-          id="library-key"
+          id="library-keys"
           pInputText
           type="text"
-          [ngModel]="libraryKey()"
-          (ngModelChange)="onKeyChange($event)"
+          [ngModel]="libraryKeysText()"
+          (ngModelChange)="onLibraryKeysChange($event)"
           [ngModelOptions]="{ standalone: true }"
-          placeholder="e.g. lapl"
+          placeholder="e.g. lapl, bpl, sfpl"
           class="w-full"
-          (keyup.enter)="checkKey()"
+          (keyup.enter)="checkKeys()"
           />
         <p-button
           label="Check"
           icon="pi pi-check-circle"
           severity="secondary"
-          [loading]="resolving()"
-          [disabled]="!libraryKey().trim()"
-          (onClick)="checkKey()"
+          [loading]="resolvingKeys()"
+          [disabled]="!libraryKeysText().trim()"
+          (onClick)="checkKeys()"
           />
       </div>
-      <small>The OverDrive library key (preferredKey) for your library</small>
-      @if (resolution(); as res) {
+      <small>OverDrive library keys (preferredKey) to search for metadata — comma or space separated, combined and deduplicated. The catalog/borrow page uses your linked cards instead.</small>
+      @for (res of keyResolutions(); track res.libraryKey) {
         <p-message [severity]="res.valid ? 'success' : 'error'" class="mt-1">
           @if (res.valid) {
-            Resolved: {{ res.name }}
+            {{ res.libraryKey }} → {{ res.name }}
           }
           @if (!res.valid) {
-            No OverDrive library found for “{{ res.libraryKey }}”. Check the key.
+            No OverDrive library found for “{{ res.libraryKey }}”
           }
         </p-message>
       }
+    </div>
+
+    <div class="field">
+      <span class="field-label">Format Preference</span>
+      <small>Order of formats to try when borrowing. DRM-free formats import directly; Adobe formats need a configured ACSM handler.</small>
+      <p-orderList [value]="formatPreference" [dragdrop]="true" [responsive]="true">
+        <ng-template let-format pTemplate="item">
+          <span [class.format-unsupported]="isFormatUnsupported(format.id)">
+            {{ format.label }}
+            @if (isFormatUnsupported(format.id)) {
+              <em class="format-unsupported-note">— requires an ACSM handler (not configured)</em>
+            }
+          </span>
+        </ng-template>
+      </p-orderList>
     </div>
 
     @if (setupError()) {
@@ -72,9 +87,39 @@
 
       <div class="link-card-section">
         <span class="section-label">Or link a card by number + PIN</span>
-        <small>Links a card the same way a signed-in browser does (a <strong>primary</strong> chip). Recommended if setup-code downloads of Adobe-DRM titles fail. Uses the library key above.</small>
+        <small>Links a card the same way a signed-in browser does (a <strong>primary</strong> chip). Recommended if setup-code downloads of Adobe-DRM titles fail.</small>
         @if (!credentialStorageEnabled()) {
           <small class="cred-note">Set <code>OVERDRIVE_CREDENTIAL_KEY</code> to store the card + PIN (encrypted) and auto-relink when the token expires. Without it, re-link manually on expiry.</small>
+        }
+        <div class="card-key-row">
+          <input
+            pInputText
+            type="text"
+            [ngModel]="cardLibraryKey()"
+            (ngModelChange)="onCardKeyChange($event)"
+            [ngModelOptions]="{ standalone: true }"
+            placeholder="Library key for this card (e.g. lapl)"
+            (keyup.enter)="checkCardKey()"
+            />
+          <p-button
+            label="Check"
+            icon="pi pi-check-circle"
+            severity="secondary"
+            [loading]="resolvingCardKey()"
+            [disabled]="!cardLibraryKey().trim()"
+            (onClick)="checkCardKey()"
+            />
+        </div>
+        <small>The card is authenticated against this library's system — use the library that issued the card (it may differ from the default key above).</small>
+        @if (cardResolution(); as res) {
+          <p-message [severity]="res.valid ? 'success' : 'error'" class="mt-1">
+            @if (res.valid) {
+              Resolved: {{ res.name }}
+            }
+            @if (!res.valid) {
+              No OverDrive library found for “{{ res.libraryKey }}”. Check the key.
+            }
+          </p-message>
         }
         <div class="link-card-row">
           <input
@@ -117,7 +162,7 @@
 
       @if (linkedCards().length > 0) {
         <p-card header="Linked Cards">
-          @for (card of linkedCards(); track card) {
+          @for (card of linkedCards(); track card.cardId) {
             <div class="linked-card-row">
               <span class="linked-card-info">
                 <input pInputText type="text" [value]="card.name || ''" #labelInput placeholder="Card label"

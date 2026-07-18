@@ -3,6 +3,8 @@ package org.booklore.model.dto.settings;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
+import java.util.List;
+
 @Data
 public class MetadataProviderSettings {
     private Amazon amazon;
@@ -72,16 +74,16 @@ public class MetadataProviderSettings {
     @Data
     public static class Overdrive {
         private boolean enabled;
-        /** OverDrive/Libby library key (the "preferredKey" / website id, e.g. "lapl"). */
-        private String libraryKey;
+        /**
+         * OverDrive/Libby library keys (each a "preferredKey" / website id, e.g. "lapl") to search for
+         * metadata, deduplicated by title. Managed on the Settings → OverDrive page. Not used for the
+         * catalog/borrow flow, which is scoped to the user's own linked cards.
+         */
+        private List<String> libraryKeys;
         /** Libby/OverDrive sentry base URL (e.g. https://sentry.libbyapp.com). */
         private String sentryBaseUrl;
         /** OverDrive client ID (defaults to "dewey"). */
         private String clientId;
-        /** Whether to auto-return books after reading. */
-        private boolean autoReturn;
-        /** Whether to auto-borrow when metadata refresh finds a copy. */
-        private boolean autoBorrow;
         /**
          * Preferred order of ebook fulfillment formats for borrow &amp; import, most-preferred first.
          * Values are OverDrive format ids (ebook-epub-open, ebook-epub-adobe, ebook-pdf-open,

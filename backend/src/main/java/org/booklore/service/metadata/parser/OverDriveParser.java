@@ -21,9 +21,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
@@ -70,15 +74,15 @@ public class OverDriveParser implements BookParser {
 
     @Override
     public List<BookMetadata> fetchMetadata(Book book, FetchMetadataRequest request) {
-        String libraryKey = getLibraryKey();
-        if (libraryKey == null || libraryKey.isBlank()) {
+        List<String> libraryKeys = getLibraryKeys();
+        if (libraryKeys.isEmpty()) {
             log.warn("OverDrive: no library key configured; skipping. Set the library's OverDrive key in metadata provider settings.");
             return List.of();
         }
 
         // 1. ISBN search
         if (request.getIsbn() != null && !request.getIsbn().isBlank()) {
-            List<BookMetadata> byIsbn = search(libraryKey, ParserUtils.cleanIsbn(request.getIsbn()));
+            List<BookMetadata> byIsbn = search(libraryKeys, ParserUtils.cleanIsbn(request.getIsbn()));
             if (!byIsbn.isEmpty()) {
                 return byIsbn;
             }
@@ -91,7 +95,7 @@ public class OverDriveParser implements BookParser {
         // 2. Title + author
         if (title != null && !title.isBlank()) {
             String term = buildTerm(title, author);
-            List<BookMetadata> results = search(libraryKey, term);
+            List<BookMetadata> results = search(libraryKeys, term);
             if (!results.isEmpty()) {
                 return results;
             }
@@ -100,7 +104,7 @@ public class OverDriveParser implements BookParser {
         // 3. Filename fallback
         String fileName = book.getPrimaryFile() != null ? book.getPrimaryFile().getFileName() : null;
         if ((title == null || title.isBlank()) && fileName != null && !fileName.isBlank()) {
-            return search(libraryKey, buildTerm(BookUtils.cleanFileName(fileName), null));
+            return search(libraryKeys, buildTerm(BookUtils.cleanFileName(fileName), null));
         }
 
         return List.of();
@@ -114,25 +118,26 @@ public class OverDriveParser implements BookParser {
         return term;
     }
 
-    private List<BookMetadata> search(String libraryKey, String query) {
-        return fetchItems(libraryKey, query).stream()
+    /**
+     * Search the given library keys and merge the results, deduplicated by OverDrive title id (the same
+     * title surfacing from several libraries is returned once, keeping the first library's copy).
+     */
+    private List<BookMetadata> search(Collection<String> libraryKeys, String query) {
+        Map<String, OverDriveApiResponse.Item> byTitleId = new LinkedHashMap<>();
+        int noIdCounter = 0;
+        for (String libraryKey : libraryKeys) {
+            for (OverDriveApiResponse.Item item : fetchItems(libraryKey, query)) {
+                // Dedupe by title id; items without one can't be deduped, so keep each under a unique key.
+                String key = (item.getId() != null && !item.getId().isBlank())
+                        ? item.getId()
+                        : "noid-" + (noIdCounter++);
+                byTitleId.putIfAbsent(key, item);
+            }
+        }
+        return byTitleId.values().stream()
                 .map(this::toMetadata)
                 .filter(m -> m.getTitle() != null && !m.getTitle().isBlank())
                 .toList();
-    }
-
-    /**
-     * Raw catalog search returning the underlying Thunder items (which carry the OverDrive title id and
-     * per-format ids needed to borrow), for callers that need more than {@link BookMetadata} exposes.
-     * Returns an empty list when no library key is configured or the request fails.
-     */
-    public List<OverDriveApiResponse.Item> searchCatalog(String query) {
-        String libraryKey = getLibraryKey();
-        if (libraryKey == null || libraryKey.isBlank()) {
-            log.warn("OverDrive: no library key configured; skipping catalog search.");
-            return List.of();
-        }
-        return fetchItems(libraryKey, query);
     }
 
     /**
@@ -252,6 +257,44 @@ public class OverDriveParser implements BookParser {
             return item != null ? toMetadata(item) : null;
         } catch (IOException e) {
             log.warn("OverDrive: failed to fetch media metadata for {}: {}", titleId, e.getMessage());
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
+    /**
+     * Fetch a single title's catalog item (including per-library availability) at a specific library via
+     * {@code /v2/libraries/{key}/media/{titleId}}. No auth required. Returns null on any failure. Used to
+     * check whether a held title is borrowable at another of the user's libraries.
+     */
+    public OverDriveApiResponse.Item fetchTitleAtLibrary(String libraryKey, String titleId) {
+        if (libraryKey == null || libraryKey.isBlank() || titleId == null || titleId.isBlank()) {
+            return null;
+        }
+        try {
+            waitForRateLimit();
+            URI uri = UriComponentsBuilder.fromUriString(THUNDER_BASE_URL)
+                    .pathSegment(libraryKey, "media", titleId)
+                    .queryParam("includedFacets", "availability")
+                    .build()
+                    .encode()
+                    .toUri();
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(uri)
+                    .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.warn("OverDrive: title {} at library {} returned status {}", titleId, libraryKey, response.statusCode());
+                return null;
+            }
+            return objectMapper.readValue(response.body(), OverDriveApiResponse.Item.class);
+        } catch (IOException e) {
+            log.warn("OverDrive: failed to fetch title {} at library {}: {}", titleId, libraryKey, e.getMessage());
             return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -390,12 +433,19 @@ public class OverDriveParser implements BookParser {
         }
     }
 
-    private String getLibraryKey() {
+    /** The distinct, ordered, non-blank OverDrive library keys to search for metadata. */
+    private List<String> getLibraryKeys() {
         MetadataProviderSettings settings = appSettingService.getAppSettings().getMetadataProviderSettings();
-        if (settings == null || settings.getOverdrive() == null) {
-            return null;
+        if (settings == null || settings.getOverdrive() == null || settings.getOverdrive().getLibraryKeys() == null) {
+            return List.of();
         }
-        return settings.getOverdrive().getLibraryKey();
+        Set<String> keys = new LinkedHashSet<>();
+        for (String key : settings.getOverdrive().getLibraryKeys()) {
+            if (key != null && !key.isBlank()) {
+                keys.add(key.trim());
+            }
+        }
+        return new ArrayList<>(keys);
     }
 
     private void waitForRateLimit() {

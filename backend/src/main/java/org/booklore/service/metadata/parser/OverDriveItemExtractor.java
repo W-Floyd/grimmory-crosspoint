@@ -4,6 +4,9 @@ import org.booklore.model.dto.response.OverDriveApiResponse;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Shared extraction of fields from an OverDrive Thunder catalog {@link OverDriveApiResponse.Item}.
@@ -43,19 +46,46 @@ public final class OverDriveItemExtractor {
         return authors == null || authors.isEmpty() ? null : authors.getFirst();
     }
 
-    /** Best cover href, largest first (510 → 300 → 150 wide), or null. */
+    /** Href of the largest available cover rendition (by width), determined at runtime, or null. */
     public static String coverHref(OverDriveApiResponse.Item.Covers covers) {
         if (covers == null) {
             return null;
         }
-        for (OverDriveApiResponse.Item.Covers.Cover cover : List.of(
-                nullSafe(covers.getCover510Wide()), nullSafe(covers.getCover300Wide()), nullSafe(covers.getCover150Wide()))) {
-            if (cover.getHref() != null && !cover.getHref().isBlank()) {
-                return encodeCoverUrl(cover.getHref());
+        String bestHref = null;
+        int bestWidth = -1;
+        for (Map.Entry<String, OverDriveApiResponse.Item.Covers.Cover> entry : covers.getVariants().entrySet()) {
+            OverDriveApiResponse.Item.Covers.Cover cover = entry.getValue();
+            if (cover == null || cover.getHref() == null || cover.getHref().isBlank()) {
+                continue;
+            }
+            int width = coverWidth(entry.getKey(), cover.getWidth());
+            if (width > bestWidth) {
+                bestWidth = width;
+                bestHref = cover.getHref();
             }
         }
-        return null;
+        return bestHref != null ? encodeCoverUrl(bestHref) : null;
     }
+
+    /**
+     * The pixel width of a cover rendition: its explicit {@code width} when present, otherwise parsed
+     * from the OverDrive key convention ({@code coverNNNWide} → NNN), else 0. Lets callers pick the
+     * largest rendition without hardcoding which sizes exist.
+     */
+    public static int coverWidth(String key, Integer explicitWidth) {
+        if (explicitWidth != null && explicitWidth > 0) {
+            return explicitWidth;
+        }
+        if (key != null) {
+            Matcher matcher = COVER_WIDTH_PATTERN.matcher(key);
+            if (matcher.find()) {
+                return Integer.parseInt(matcher.group(1));
+            }
+        }
+        return 0;
+    }
+
+    private static final Pattern COVER_WIDTH_PATTERN = Pattern.compile("(\\d+)");
 
     /**
      * Percent-encode characters OverDrive leaves literal in cover URLs (the {@code {crid}} braces, and
@@ -109,7 +139,4 @@ public final class OverDriveItemExtractor {
         return candidates;
     }
 
-    private static OverDriveApiResponse.Item.Covers.Cover nullSafe(OverDriveApiResponse.Item.Covers.Cover cover) {
-        return cover != null ? cover : new OverDriveApiResponse.Item.Covers.Cover();
-    }
 }

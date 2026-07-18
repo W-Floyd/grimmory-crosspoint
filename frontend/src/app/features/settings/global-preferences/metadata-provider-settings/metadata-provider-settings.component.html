@@ -157,27 +157,7 @@
               @if (overdriveEnabled) {
                 <div class="setting-options">
                   <div class="config-field">
-                    <span class="config-label">{{ t('overdriveLibraryKey') }}</span>
-                    <input
-                      type="text"
-                      pInputText
-                      [placeholder]="t('overdriveLibraryKeyPlaceholder')"
-                      [(ngModel)]="overdriveLibraryKey"
-                      class="config-input"/>
-                  </div>
-                  <div class="config-field">
-                    <span class="config-label">{{ t('overdriveFormatPreference') }}</span>
-                    <small class="config-help">{{ t('overdriveFormatPreferenceHelp') }}</small>
-                    <p-orderList [value]="overdriveFormatPreference" [dragdrop]="true" [responsive]="true">
-                      <ng-template let-format pTemplate="item">
-                        <span [class.format-unsupported]="isFormatUnsupported(format.id)">
-                          {{ format.label }}
-                          @if (isFormatUnsupported(format.id)) {
-                            <em class="format-unsupported-note">— {{ t('overdriveFormatUnsupported') }}</em>
-                          }
-                        </span>
-                      </ng-template>
-                    </p-orderList>
+                    <small class="config-help">{{ t('overdriveConfigNote') }}</small>
                   </div>
                 </div>
               }

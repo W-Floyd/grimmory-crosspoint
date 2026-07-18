@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,9 +41,20 @@ class OverDriveParserTest {
     }
 
     private void settings(String libraryKey) {
+        settings(libraryKey, null);
+    }
+
+    private void settings(String libraryKey, List<String> extraKeys) {
         MetadataProviderSettings.Overdrive overdrive = new MetadataProviderSettings.Overdrive();
         overdrive.setEnabled(true);
-        overdrive.setLibraryKey(libraryKey);
+        List<String> keys = new ArrayList<>();
+        if (libraryKey != null) {
+            keys.add(libraryKey);
+        }
+        if (extraKeys != null) {
+            keys.addAll(extraKeys);
+        }
+        overdrive.setLibraryKeys(keys);
         MetadataProviderSettings provider = new MetadataProviderSettings();
         provider.setOverdrive(overdrive);
         when(appSettingService.getAppSettings())
@@ -102,6 +114,63 @@ class OverDriveParserTest {
         assertThat(m.getRating()).isEqualTo(4.5);
         // A Libby share link (from the title id) so the results UI can build a provider link.
         assertThat(m.getExternalUrl()).isEqualTo("https://share.libbyapp.com/title/123");
+    }
+
+    @Test
+    void fetchMetadata_picksLargestCoverByWidthIncludingUnhardcodedSizes() throws Exception {
+        // A size the old code never knew about (cover1080Wide) plus an explicit width both win at runtime.
+        mockResponse("""
+                {"items": [{
+                  "id": "1", "title": "Book",
+                  "covers": {
+                    "cover150Wide": {"href": "https://img/150.jpg", "width": 150},
+                    "cover510Wide": {"href": "https://img/510.jpg", "width": 510},
+                    "cover1080Wide": {"href": "https://img/1080.jpg", "width": 1080}
+                  }
+                }]}
+                """);
+
+        BookMetadata m = parser.fetchMetadata(Book.builder().build(),
+                FetchMetadataRequest.builder().title("Book").build()).getFirst();
+
+        assertThat(m.getThumbnailUrl()).isEqualTo("https://img/1080.jpg");
+    }
+
+    @Test
+    void fetchMetadata_fallsBackToWidthParsedFromKeyWhenAbsent() throws Exception {
+        // No explicit width fields → width parsed from the OverDrive key convention (coverNNNWide).
+        mockResponse("""
+                {"items": [{
+                  "id": "1", "title": "Book",
+                  "covers": {
+                    "cover300Wide": {"href": "https://img/300.jpg"},
+                    "cover720Wide": {"href": "https://img/720.jpg"}
+                  }
+                }]}
+                """);
+
+        BookMetadata m = parser.fetchMetadata(Book.builder().build(),
+                FetchMetadataRequest.builder().title("Book").build()).getFirst();
+
+        assertThat(m.getThumbnailUrl()).isEqualTo("https://img/720.jpg");
+    }
+
+    @Test
+    void fetchMetadata_searchesAllConfiguredLibraryKeysAndDedupesByTitleId() throws Exception {
+        settings("lapl", List.of("bpl"));
+        parser = new OverDriveParser(new ObjectMapper(), appSettingService, httpClient);
+        // Both libraries return the same title id → the merged result is deduplicated to one.
+        mockResponse("""
+                {"items": [{"id": "123", "title": "Dune", "creators": [{"name": "Frank Herbert", "role": "Author"}]}]}
+                """);
+
+        List<BookMetadata> results = parser.fetchMetadata(Book.builder().build(),
+                FetchMetadataRequest.builder().title("Dune").build());
+
+        assertThat(results).hasSize(1);
+        assertThat(results.getFirst().getTitle()).isEqualTo("Dune");
+        // One query per configured library key (lapl + bpl).
+        verify(httpClient, times(2)).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
     }
 
     @Test

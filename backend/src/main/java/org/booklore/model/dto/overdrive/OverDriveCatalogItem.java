@@ -13,6 +13,11 @@ package org.booklore.model.dto.overdrive;
  * <p>{@code formats} lists the importable formats this title offers, in the operator's preference
  * order (see {@code formatPreference()}); {@code formatId} is the default (first) one. The UI shows
  * the list so the user may borrow a non-default version.
+ *
+ * <p>The scalar availability fields are the <b>aggregate</b> across every library the title surfaced
+ * from (available if available at <i>any</i> of them). {@code availability} breaks that down
+ * per-library so the UI can offer only the cards whose library actually has a copy available now
+ * (borrow) or holdable (hold).
  */
 public record OverDriveCatalogItem(
         String titleId,
@@ -30,6 +35,8 @@ public record OverDriveCatalogItem(
         Integer estimatedWaitDays,
         boolean preRelease,
         java.util.List<String> formats,
+        /** Per-library availability (one entry per library the title surfaced from). */
+        java.util.List<OverDriveLibraryAvailability> availability,
         /** Id of an existing library book this title matches (by ISBN), or null if not in the library. */
         Long bookId
 ) {}

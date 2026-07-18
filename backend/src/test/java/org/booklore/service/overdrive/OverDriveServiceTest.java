@@ -123,13 +123,12 @@ class OverDriveServiceTest {
         epub.setIsbn("9780441013593");
         item.setFormats(List.of(pdf, epub));
 
-        // No admin key (settings unstubbed → null); one linked card library "lapl".
         authAs(7L);
-        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
         when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(item));
 
-        var results = service.searchCatalog("dune");
+        var results = service.searchCatalog("dune", List.of("card-1"));
 
         assertThat(results).hasSize(1);
         assertThat(results.getFirst().titleId()).isEqualTo("title-1");
@@ -181,11 +180,11 @@ class OverDriveServiceTest {
         item.setPreRelease(false);
 
         authAs(7L);
-        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
         when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(item));
 
-        var result = service.searchCatalog("dune").getFirst();
+        var result = service.searchCatalog("dune", List.of("card-1")).getFirst();
 
         assertThat(result.available()).isTrue();
         assertThat(result.holdable()).isTrue();
@@ -203,11 +202,11 @@ class OverDriveServiceTest {
         item.setTitle("Dune"); // no availability fields set → all null
 
         authAs(7L);
-        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
         when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(item));
 
-        var result = service.searchCatalog("dune").getFirst();
+        var result = service.searchCatalog("dune", List.of("card-1")).getFirst();
 
         assertThat(result.available()).isFalse();
         assertThat(result.holdable()).isFalse();
@@ -228,21 +227,21 @@ class OverDriveServiceTest {
         available.setAvailable(true);
 
         authAs(7L);
-        when(appSettingService.getAppSettings()).thenReturn(null);
-        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
-                OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build(),
+        when(tokenRepository.findByUserIdAndIdentity(7L, "c1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build()));
+        when(tokenRepository.findByUserIdAndIdentity(7L, "c2")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("c2").libraryKey("bpl").token("t").build()));
         when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(unavailable));
         when(overDriveParser.searchLibrary("bpl", "dune")).thenReturn(List.of(available));
 
-        var results = service.searchCatalog("dune");
+        var results = service.searchCatalog("dune", List.of("c1", "c2"));
 
         assertThat(results).hasSize(1);
         assertThat(results.getFirst().available()).isTrue();
     }
 
     @Test
-    void searchCatalog_unionsAdminAndCardLibrariesDedupedByTitle() {
+    void searchCatalog_mergesCardLibrariesDedupedByTitle() {
         var itemA = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
         itemA.setId("title-1");
         itemA.setTitle("Dune");
@@ -254,16 +253,93 @@ class OverDriveServiceTest {
         itemB.setTitle("Dune Messiah");
 
         authAs(7L);
-        when(appSettingService.getAppSettings()).thenReturn(null); // no admin key path
-        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
-                OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build(),
+        when(tokenRepository.findByUserIdAndIdentity(7L, "c1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build()));
+        when(tokenRepository.findByUserIdAndIdentity(7L, "c2")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("c2").libraryKey("bpl").token("t").build()));
         when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(itemA));
         when(overDriveParser.searchLibrary("bpl", "dune")).thenReturn(List.of(itemDup, itemB));
 
-        var results = service.searchCatalog("dune");
+        var results = service.searchCatalog("dune", List.of("c1", "c2"));
 
         assertThat(results).extracting(c -> c.titleId()).containsExactly("title-1", "title-2");
+    }
+
+    @Test
+    void searchCatalog_withoutCards_returnsEmptyAndDoesNotSearch() {
+        assertThat(service.searchCatalog("dune", null)).isEmpty();
+        assertThat(service.searchCatalog("dune", List.of())).isEmpty();
+        verifyNoInteractions(overDriveParser);
+    }
+
+    @Test
+    void searchCatalog_scopedToSelectedCards_searchesOnlyThoseLibraries() {
+        var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        item.setId("title-1");
+        item.setTitle("Dune");
+
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "c1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(item));
+
+        var results = service.searchCatalog("dune", List.of("c1"));
+
+        assertThat(results).extracting(c -> c.titleId()).containsExactly("title-1");
+        // Only the selected card's library was searched: no admin-key path, no other cards.
+        verify(overDriveParser).searchLibrary("lapl", "dune");
+        verifyNoInteractions(appSettingService);
+    }
+
+    @Test
+    void searchCatalog_scopedToSelectedCards_ignoresForeignOrUnknownCardIds() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "ghost")).thenReturn(Optional.empty());
+
+        var results = service.searchCatalog("dune", List.of("ghost"));
+
+        assertThat(results).isEmpty();
+        verifyNoInteractions(overDriveParser);
+    }
+
+    @Test
+    void searchCatalog_mergesPerLibraryAvailabilityAcrossSelectedCards() {
+        var holdableOnly = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        holdableOnly.setId("title-1");
+        holdableOnly.setTitle("Dune");
+        holdableOnly.setAvailable(false);
+        holdableOnly.setHoldable(true);
+        var availableHere = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        availableHere.setId("title-1"); // same title, borrowable in the other library
+        availableHere.setTitle("Dune");
+        availableHere.setAvailable(true);
+        availableHere.setHoldable(false);
+
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "c1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build()));
+        when(tokenRepository.findByUserIdAndIdentity(7L, "c2")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("c2").libraryKey("bpl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(holdableOnly));
+        when(overDriveParser.searchLibrary("bpl", "dune")).thenReturn(List.of(availableHere));
+
+        var result = service.searchCatalog("dune", List.of("c1", "c2")).getFirst();
+
+        // Aggregate: available at some library, holdable at some library.
+        assertThat(result.available()).isTrue();
+        assertThat(result.holdable()).isTrue();
+        // Per-library breakdown keeps both entries with their own flags.
+        assertThat(result.availability()).hasSize(2);
+        assertThat(result.availability()).anySatisfy(a -> {
+            assertThat(a.libraryKey()).isEqualTo("lapl");
+            assertThat(a.available()).isFalse();
+            assertThat(a.holdable()).isTrue();
+        });
+        assertThat(result.availability()).anySatisfy(a -> {
+            assertThat(a.libraryKey()).isEqualTo("bpl");
+            assertThat(a.available()).isTrue();
+            assertThat(a.holdable()).isFalse();
+        });
     }
 
     @Test

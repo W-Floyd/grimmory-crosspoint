@@ -109,11 +109,10 @@ export interface Audible {
 
 export interface Overdrive {
   enabled: boolean;
-  libraryKey: string;
+  /** OverDrive library keys used for metadata search (deduped). Managed on the Settings → OverDrive page. */
+  libraryKeys?: string[];
   sentryBaseUrl: string;
   clientId: string;
-  autoBorrow: boolean;
-  autoReturn: boolean;
   formatPreference?: string[];
 }
 

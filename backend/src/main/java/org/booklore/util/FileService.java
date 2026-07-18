@@ -264,6 +264,14 @@ public class FileService {
         throw new IOException("Unable to decode image, likely unsupported format");
     }
 
+    /** True when the bytes start with the JPEG magic marker (FF D8 FF). */
+    private static boolean isJpeg(byte[] data) {
+        return data != null && data.length >= 3
+                && (data[0] & 0xFF) == 0xFF
+                && (data[1] & 0xFF) == 0xD8
+                && (data[2] & 0xFF) == 0xFF;
+    }
+
     public static BufferedImage resizeImage(BufferedImage originalImage, int width, int height) {
         Image tmp = originalImage.getScaledInstance(width, height, Image.SCALE_SMOOTH);
         BufferedImage resizedImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
@@ -295,7 +303,15 @@ public class FileService {
         }
     }
 
+    /** A downloaded image: the decoded {@link BufferedImage} plus the raw source bytes it came from. */
+    public record DownloadedImage(BufferedImage image, byte[] data) {}
+
     public BufferedImage downloadImageFromUrl(String imageUrl) throws IOException {
+        return downloadImage(imageUrl).image();
+    }
+
+    /** Download an image, returning both the decoded image and the original bytes (for verbatim storage). */
+    public DownloadedImage downloadImage(String imageUrl) throws IOException {
         try {
             return downloadImageFromUrlInternal(imageUrl);
         } catch (Exception e) {
@@ -307,7 +323,7 @@ public class FileService {
         }
     }
 
-    private BufferedImage downloadImageFromUrlInternal(String imageUrl) throws IOException {
+    private DownloadedImage downloadImageFromUrlInternal(String imageUrl) throws IOException {
         String currentUrl = imageUrl;
         int redirectCount = 0;
 
@@ -352,7 +368,8 @@ public class FileService {
             );
 
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                return readImage(response.getBody());
+                byte[] body = response.getBody();
+                return new DownloadedImage(readImage(body), body);
             } else if (response.getStatusCode().is3xxRedirection()) {
                 String location = response.getHeaders().getFirst(HttpHeaders.LOCATION);
                 if (location == null) {
@@ -482,7 +499,7 @@ public class FileService {
                 log.warn("Skipping thumbnail creation for book {}: image decode failed", bookId);
                 return;
             }
-            boolean success = saveCoverImages(originalImage, bookId);
+            boolean success = saveCoverImages(originalImage, imageBytes, bookId);
             if (!success) {
                 throw ApiError.FILE_READ_ERROR.createException("Failed to save cover images");
             }
@@ -496,12 +513,13 @@ public class FileService {
 
     public void createThumbnailFromUrl(long bookId, String imageUrl) {
         try {
-            BufferedImage originalImage = downloadImageFromUrl(imageUrl);
+            DownloadedImage downloaded = downloadImage(imageUrl);
+            BufferedImage originalImage = downloaded.image();
             if (originalImage == null) {
                 log.warn("Skipping thumbnail creation for book {}: download/decode failed", bookId);
                 return;
             }
-            boolean success = saveCoverImages(originalImage, bookId);
+            boolean success = saveCoverImages(originalImage, downloaded.data(), bookId);
             if (!success) {
                 throw ApiError.FILE_READ_ERROR.createException("Failed to save cover images");
             }
@@ -744,6 +762,16 @@ public class FileService {
     }
 
     public boolean saveCoverImages(BufferedImage coverImage, long bookId) throws IOException {
+        return saveCoverImages(coverImage, null, bookId);
+    }
+
+    /**
+     * Save the full cover and a thumbnail for a book. When {@code originalBytes} is a JPEG that needs no
+     * transformation (no cropping applies and it's within the max dimensions), the full cover is stored
+     * byte-for-byte to preserve the source quality instead of re-compressing it; otherwise the processed
+     * image is written as JPEG. The thumbnail is always derived (resized) from the decoded image.
+     */
+    public boolean saveCoverImages(BufferedImage coverImage, byte[] originalBytes, long bookId) throws IOException {
         BufferedImage rgbImage = null;
         BufferedImage cropped = null;
         BufferedImage resized = null;
@@ -766,7 +794,8 @@ public class FileService {
             // Note: coverImage is not flushed here - caller is responsible for its lifecycle
 
             cropped = applyCoverCropping(rgbImage);
-            if (cropped != rgbImage) {
+            boolean didCrop = cropped != rgbImage;
+            if (didCrop) {
                 rgbImage.flush();
                 rgbImage = cropped;
             }
@@ -776,14 +805,23 @@ public class FileService {
                     (double) MAX_ORIGINAL_WIDTH / rgbImage.getWidth(),
                     (double) MAX_ORIGINAL_HEIGHT / rgbImage.getHeight()
             );
-            if (scale < 1.0) {
+            boolean didResize = scale < 1.0;
+            if (didResize) {
                 resized = resizeImage(rgbImage, (int) (rgbImage.getWidth() * scale), (int) (rgbImage.getHeight() * scale));
                 rgbImage.flush(); // Release resources of the original large image
                 rgbImage = resized;
             }
 
             File originalFile = new File(folder, COVER_FILENAME);
-            boolean originalSaved = ImageIO.write(rgbImage, IMAGE_FORMAT, originalFile);
+            boolean originalSaved;
+            if (originalBytes != null && !didCrop && !didResize && isJpeg(originalBytes)) {
+                // Source is already a suitably-sized JPEG needing no crop/resize — keep it verbatim so we
+                // don't re-compress (and lose quality) for nothing.
+                Files.write(originalFile.toPath(), originalBytes);
+                originalSaved = true;
+            } else {
+                originalSaved = ImageIO.write(rgbImage, IMAGE_FORMAT, originalFile);
+            }
 
             // Determine thumbnail dimensions based on source aspect ratio
             int thumbWidth, thumbHeight;

@@ -6,7 +6,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,9 +30,6 @@ public interface OverDriveLoanRepository extends JpaRepository<OverDriveLoanEnti
      List<OverDriveLoanEntity> findByStateIn(List<String> states);
 
      List<OverDriveLoanEntity> findByIdentityAndStateIn(String identity, List<String> states);
-
-     @Query("SELECT o FROM OverDriveLoanEntity o WHERE o.state = 'BORROWED' AND o.expireDate < :now")
-     List<OverDriveLoanEntity> findExpiredLoans(@Param("now") Instant now);
 
      @Query("SELECT o FROM OverDriveLoanEntity o WHERE o.bookId = :bookId AND o.state IN ('BORROWED', 'ACTIVE')")
      Optional<OverDriveLoanEntity> findActiveLoanForBook(@Param("bookId") Long bookId);

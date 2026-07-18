@@ -1,5 +1,7 @@
 import { Component, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { AppSettingsService } from '../../../shared/service/app-settings.service';
 import { AppSettingKey } from '../../../shared/model/app-settings.model';
 import { InputTextModule } from 'primeng/inputtext';
@@ -10,6 +12,7 @@ import { MessageService } from 'primeng/api';
 import { OverDriveService, OverDriveCard, OverDriveLibraryResolution } from '../../../core/services/overdrive.service';
 import { ButtonModule } from 'primeng/button';
 import { TooltipModule } from 'primeng/tooltip';
+import { OrderListModule } from 'primeng/orderlist';
 
 @Component({
   selector: 'app-overdrive-settings',
@@ -20,7 +23,8 @@ import { TooltipModule } from 'primeng/tooltip';
     MessageModule,
     CardModule,
     ButtonModule,
-    TooltipModule
+    TooltipModule,
+    OrderListModule
 ],
   templateUrl: './overdrive-settings.component.html',
   styleUrl: './overdrive-settings.component.scss',
@@ -31,16 +35,26 @@ export class OverdriveSettingsComponent {
   private readonly overdriveService = inject(OverDriveService);
   private readonly messageService = inject(MessageService);
 
-  libraryKey = signal('');
+  // One or more OverDrive library keys for metadata search (comma/space separated). The first entry is
+  // also kept as the default/admin key used by the legacy catalog path and diagnostics.
+  libraryKeysText = signal('');
+  resolvingKeys = signal(false);
+  keyResolutions = signal<OverDriveLibraryResolution[]>([]);
   setupCode = signal('');
   connecting = signal(false);
   linkedCards = signal<OverDriveCard[]>([]);
   setupError = signal<string | null>(null);
 
   // Link by card number + PIN (produces a fulfillment-capable primary card).
+  // Its own library key, independent of the default key above — the card is authenticated against the
+  // library that issued it, which may differ from the default search library.
+  cardLibraryKey = signal('');
   cardNumber = signal('');
   pin = signal('');
   linkingCard = signal(false);
+  // Validation of the card's library key against the Thunder directory.
+  resolvingCardKey = signal(false);
+  cardResolution = signal<OverDriveLibraryResolution | null>(null);
 
   // Link by pasting a Libby identity token from a signed-in browser.
   identityToken = signal('');
@@ -48,27 +62,29 @@ export class OverdriveSettingsComponent {
 
   // Whether OVERDRIVE_CREDENTIAL_KEY is set (enables encrypted credential storage + auto-relink).
   credentialStorageEnabled = signal(false);
+  // Whether an external ACSM handler is configured; Adobe-DRM formats are unsupported without it.
+  acsmHandlerConfigured = signal(false);
+
+  // Borrow & import format preference (most-preferred first). p-orderList reorders this array in place.
+  readonly formatOptions: { id: string; label: string }[] = [
+    { id: 'ebook-epub-open', label: 'EPUB (DRM-free)' },
+    { id: 'ebook-epub-adobe', label: 'EPUB (Adobe DRM)' },
+    { id: 'ebook-pdf-open', label: 'PDF (DRM-free)' },
+    { id: 'ebook-pdf-adobe', label: 'PDF (Adobe DRM)' }
+  ];
+  formatPreference: { id: string; label: string }[] = [...this.formatOptions];
 
   // Diagnostics: a passive, read-only state snapshot (no live OverDrive calls, no inputs).
   diagnosticsJson = signal<string | null>(null);
   runningDiagnostics = signal(false);
 
-  // Library-key validation against the Thunder directory.
-  resolving = signal(false);
-  resolution = signal<OverDriveLibraryResolution | null>(null);
-  // Guards the effect from re-resolving the same key on every settings change.
-  private lastAutoResolvedKey = '';
-
   constructor() {
     effect(() => {
       const overdrive = this.appSettingsService.appSettings()?.metadataProviderSettings?.overdrive;
       if (overdrive) {
-        const key = overdrive.libraryKey ?? '';
-        this.libraryKey.set(key);
-        if (key && key !== this.lastAutoResolvedKey) {
-          this.lastAutoResolvedKey = key;
-          this.checkKey();
-        }
+        const keys = this.parseKeys((overdrive.libraryKeys ?? []).join(', '));
+        this.libraryKeysText.set(keys.join(', '));
+        this.formatPreference = this.orderFormatPreference(overdrive.formatPreference);
       }
     });
     this.overdriveService.cards().subscribe({
@@ -76,13 +92,47 @@ export class OverdriveSettingsComponent {
       error: () => this.linkedCards.set([])
     });
     this.overdriveService.capabilities().subscribe({
-      next: (c) => this.credentialStorageEnabled.set(!!c?.credentialStorageEnabled),
-      error: () => this.credentialStorageEnabled.set(false)
+      next: (c) => {
+        this.credentialStorageEnabled.set(!!c?.credentialStorageEnabled);
+        this.acsmHandlerConfigured.set(!!c?.acsmHandlerConfigured);
+      },
+      error: () => {
+        this.credentialStorageEnabled.set(false);
+        this.acsmHandlerConfigured.set(false);
+      }
     });
+  }
+
+  /** True for Adobe-DRM formats that cannot be imported without a configured ACSM handler. */
+  isFormatUnsupported(formatId: string): boolean {
+    return formatId.endsWith('-adobe') && !this.acsmHandlerConfigured();
+  }
+
+  /** Order the known format options by the saved preference ids, appending any not listed. */
+  private orderFormatPreference(saved: string[] | null | undefined): { id: string; label: string }[] {
+    if (!saved || saved.length === 0) {
+      return [...this.formatOptions];
+    }
+    const byId = new Map(this.formatOptions.map(o => [o.id, o]));
+    const ordered = saved.map(id => byId.get(id)).filter((o): o is { id: string; label: string } => !!o);
+    const remaining = this.formatOptions.filter(o => !saved.includes(o.id));
+    return [...ordered, ...remaining];
   }
 
   cardLabel(card: OverDriveCard): string {
     return card.name ? `${card.name} (${card.cardId})` : card.cardId;
+  }
+
+  /**
+   * Reload the full linked-card list from the server. The link endpoints only return the cards on the
+   * just-linked account's token, so replacing the list with that would visually drop previously-linked
+   * cards until reload — always re-fetch the authoritative set instead.
+   */
+  private reloadLinkedCards(): void {
+    this.overdriveService.cards().subscribe({
+      next: (cards) => this.linkedCards.set(cards ?? []),
+      error: () => { /* keep whatever we have */ }
+    });
   }
 
   /** Unlink a card (clear its stored token/credentials). */
@@ -116,29 +166,33 @@ export class OverdriveSettingsComponent {
     });
   }
 
-  /** Update the key and clear any stale validation result so the UI doesn't show a mismatched name. */
-  onKeyChange(value: string): void {
-    this.libraryKey.set(value);
-    this.resolution.set(null);
+  /** Split the library-keys text into distinct, trimmed, non-blank keys (order preserved). */
+  private parseKeys(text: string): string[] {
+    const keys = text.split(/[\s,]+/).map(k => k.trim()).filter(k => k.length > 0);
+    return [...new Set(keys)];
   }
 
-  /** Validate the entered library key against the Thunder directory and show the resolved name. */
-  checkKey(): void {
-    const key = this.libraryKey().trim();
-    if (!key) {
-      this.resolution.set(null);
+  onLibraryKeysChange(value: string): void {
+    this.libraryKeysText.set(value);
+    this.keyResolutions.set([]);
+  }
+
+  /** Validate each library key against the Thunder directory and show the resolved names. */
+  checkKeys(): void {
+    const keys = this.parseKeys(this.libraryKeysText());
+    if (keys.length === 0) {
+      this.keyResolutions.set([]);
       return;
     }
-    this.resolving.set(true);
-    this.overdriveService.resolveLibrary(key).subscribe({
+    this.resolvingKeys.set(true);
+    forkJoin(keys.map(k => this.overdriveService.resolveLibrary(k).pipe(
+      catchError(() => of({ valid: false, libraryKey: k, name: null } as OverDriveLibraryResolution))
+    ))).subscribe({
       next: (res) => {
-        this.resolution.set(res);
-        this.resolving.set(false);
+        this.keyResolutions.set(res);
+        this.resolvingKeys.set(false);
       },
-      error: () => {
-        this.resolution.set({ valid: false, libraryKey: key, name: null });
-        this.resolving.set(false);
-      }
+      error: () => this.resolvingKeys.set(false)
     });
   }
 
@@ -154,7 +208,7 @@ export class OverdriveSettingsComponent {
 
     this.overdriveService.redeemSetupCode(code).subscribe({
       next: (cards) => {
-        this.linkedCards.set(cards ?? []);
+        this.reloadLinkedCards();
         this.messageService.add({
           severity: 'success',
           summary: 'Connected',
@@ -171,12 +225,38 @@ export class OverdriveSettingsComponent {
     });
   }
 
-  /** Link a card by number + PIN using the configured library key. */
+  /** Update the card-link library key and clear any stale validation result. */
+  onCardKeyChange(value: string): void {
+    this.cardLibraryKey.set(value);
+    this.cardResolution.set(null);
+  }
+
+  /** Validate the card-link library key against the Thunder directory and show the resolved name. */
+  checkCardKey(): void {
+    const key = this.cardLibraryKey().trim();
+    if (!key) {
+      this.cardResolution.set(null);
+      return;
+    }
+    this.resolvingCardKey.set(true);
+    this.overdriveService.resolveLibrary(key).subscribe({
+      next: (res) => {
+        this.cardResolution.set(res);
+        this.resolvingCardKey.set(false);
+      },
+      error: () => {
+        this.cardResolution.set({ valid: false, libraryKey: key, name: null });
+        this.resolvingCardKey.set(false);
+      }
+    });
+  }
+
+  /** Link a card by number + PIN against the card's own library key. */
   onLinkCard(): void {
-    const key = this.libraryKey().trim();
+    const key = this.cardLibraryKey().trim();
     const card = this.cardNumber().trim();
     if (!key) {
-      this.setupError.set('Set and save the library key first');
+      this.setupError.set('Enter the library key for this card first');
       return;
     }
     if (!card) {
@@ -187,7 +267,7 @@ export class OverdriveSettingsComponent {
     this.setupError.set(null);
     this.overdriveService.linkCard(key, card, this.pin().trim()).subscribe({
       next: (cards) => {
-        this.linkedCards.set(cards ?? []);
+        this.reloadLinkedCards();
         this.messageService.add({
           severity: 'success',
           summary: 'Card linked',
@@ -212,7 +292,7 @@ export class OverdriveSettingsComponent {
     this.setupError.set(null);
     this.overdriveService.linkToken(token).subscribe({
       next: (cards) => {
-        this.linkedCards.set(cards ?? []);
+        this.reloadLinkedCards();
         this.messageService.add({
           severity: 'success',
           summary: 'Token linked',
@@ -320,7 +400,8 @@ export class OverdriveSettingsComponent {
       ...metadata,
       overdrive: {
         ...metadata.overdrive,
-        libraryKey: this.libraryKey()
+        libraryKeys: this.parseKeys(this.libraryKeysText()),
+        formatPreference: this.formatPreference.map(o => o.id)
       }
     };
 
@@ -333,8 +414,6 @@ export class OverdriveSettingsComponent {
           summary: 'Saved',
           detail: 'OverDrive settings saved'
         });
-        this.lastAutoResolvedKey = this.libraryKey().trim();
-        this.checkKey();
       },
       error: (err) => {
         this.messageService.add({

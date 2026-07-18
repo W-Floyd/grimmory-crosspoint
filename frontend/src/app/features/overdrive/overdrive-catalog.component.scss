@@ -8,6 +8,43 @@
   overflow-y: auto;
   box-sizing: border-box;
 
+  // Flex column so the active tab's table can grow to fill the remaining viewport height
+  // (with its paginator pinned at the bottom) instead of floating near the top.
+  display: flex;
+  flex-direction: column;
+
+  // Let the tabs region fill the leftover space, and cascade that height down to the table so
+  // PrimeNG's scrollHeight="flex" tables can size their scroll body to it.
+  ::ng-deep .p-tabs {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  // Keep the tab headers at their natural height — without this they shrink to nothing when a tab's
+  // content is tall (e.g. a long search result list).
+  ::ng-deep .p-tablist {
+    flex: 0 0 auto;
+  }
+
+  ::ng-deep .p-tabpanels {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+
+    // Tab content already has breathing room from the container padding.
+    padding-inline: 0;
+  }
+
+  ::ng-deep .p-tabpanel {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
   // Tighten PrimeNG card padding so the stacked sections aren't so vertically spread out.
   ::ng-deep .p-card .p-card-body {
     padding: 1rem 1.25rem;
@@ -154,5 +191,13 @@
       font-style: italic;
       opacity: 0.75;
     }
+  }
+
+  // "sooner" hint next to Place/Also hold when another library's estimated wait is shorter.
+  .sooner-hint {
+    font-size: 0.8rem;
+    font-weight: 500;
+    white-space: nowrap;
+    color: var(--green-500, #22c55e);
   }
 }
