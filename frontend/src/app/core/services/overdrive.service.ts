@@ -108,6 +108,8 @@ export interface OverDriveLibraryAvailability {
   ownedCopies?: number | null;
   holdsCount?: number | null;
   estimatedWaitDays?: number | null;
+  /** "Lucky Day" copies at this library, borrowable now without a hold. */
+  luckyDayAvailableCopies?: number | null;
 }
 
 export interface OverDriveCatalogItem {
@@ -127,6 +129,8 @@ export interface OverDriveCatalogItem {
   ownedCopies?: number | null;
   holdsCount?: number | null;
   estimatedWaitDays?: number | null;
+  /** "Lucky Day" copies available now (aggregate across libraries), borrowable without a hold. */
+  luckyDayAvailableCopies?: number | null;
   /** Importable formats this title offers, in the operator's preference order; formatId is the default (first). */
   formats?: string[];
   /** Not yet released; neither borrowable nor holdable. */

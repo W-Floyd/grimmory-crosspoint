@@ -1097,10 +1097,19 @@ public class OverDriveService {
                 display.ownedCopies(),
                 display.holdsCount(),
                 display.estimatedWaitDays(),
+                sumNullable(existing.luckyDayAvailableCopies(), incoming.luckyDayAvailableCopies()),
                 existing.preRelease() && incoming.preRelease(),
                 display.formats(),
                 availability,
                 display.bookId());
+      }
+
+      /** Sum two nullable copy counts, treating null as zero; null when both are null. */
+      private static Integer sumNullable(Integer a, Integer b) {
+        if (a == null && b == null) {
+            return null;
+        }
+        return (a == null ? 0 : a) + (b == null ? 0 : b);
       }
 
       /**
@@ -1370,7 +1379,8 @@ public class OverDriveService {
                 item.getAvailableCopies(),
                 item.getOwnedCopies(),
                 item.getHoldsCount(),
-                item.getEstimatedWaitDays());
+                item.getEstimatedWaitDays(),
+                item.getLuckyDayAvailableCopies());
         return new OverDriveCatalogItem(
                 item.getId(),
                 formats.isEmpty() ? pickBorrowFormatId(item) : formats.getFirst(),
@@ -1385,6 +1395,7 @@ public class OverDriveService {
                 item.getOwnedCopies(),
                 item.getHoldsCount(),
                 item.getEstimatedWaitDays(),
+                item.getLuckyDayAvailableCopies(),
                 Boolean.TRUE.equals(item.getPreRelease()),
                 formats,
                 new ArrayList<>(List.of(availability)),
@@ -1634,7 +1645,8 @@ public class OverDriveService {
                         item.getAvailableCopies(),
                         item.getOwnedCopies(),
                         item.getHoldsCount(),
-                        item.getEstimatedWaitDays()));
+                        item.getEstimatedWaitDays(),
+                        item.getLuckyDayAvailableCopies()));
             }
         }
         return result;

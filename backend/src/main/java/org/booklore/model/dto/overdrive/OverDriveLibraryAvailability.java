@@ -13,5 +13,7 @@ public record OverDriveLibraryAvailability(
         Integer availableCopies,
         Integer ownedCopies,
         Integer holdsCount,
-        Integer estimatedWaitDays
+        Integer estimatedWaitDays,
+        /** "Lucky Day" copies at this library, borrowable now without a hold. */
+        Integer luckyDayAvailableCopies
 ) {}

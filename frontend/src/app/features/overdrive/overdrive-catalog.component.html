@@ -144,6 +144,9 @@
                         · ~{{ holdWaitDays(item) }} day wait
                       }
                     </span>
+                    @if (hasLuckyDay(item)) {
+                      <span class="availability lucky-day" pTooltip="A skip-the-line copy is available to borrow now, without giving up your hold">· Lucky Day copy available</span>
+                    }
                   }
                   @if (!isOnHold(item)) {
                     @if (item.available) {
@@ -153,7 +156,10 @@
                       }
                     </span>
                   }
-                  @if (!item.available) {
+                  @if (!item.available && hasLuckyDay(item)) {
+                    <span class="availability lucky-day" pTooltip="A skip-the-line copy is available to borrow now without a hold">Lucky Day copy available</span>
+                  }
+                  @if (!item.available && !hasLuckyDay(item)) {
                     <span class="availability waitlisted">
                       @if (item.holdable) {
                         Wait list

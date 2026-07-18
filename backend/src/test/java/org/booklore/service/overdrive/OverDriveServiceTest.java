@@ -196,6 +196,28 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void searchCatalog_carriesLuckyDayCopies() {
+        var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        item.setId("title-1");
+        item.setTitle("Dune");
+        item.setAvailable(false); // no regular copies free…
+        item.setHoldable(true);
+        item.setLuckyDayAvailableCopies(2); // …but two skip-the-line copies
+
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune")).thenReturn(List.of(item));
+
+        var result = service.searchCatalog("dune", List.of("card-1")).getFirst();
+
+        assertThat(result.available()).isFalse(); // regular availability unchanged
+        assertThat(result.luckyDayAvailableCopies()).isEqualTo(2);
+        assertThat(result.availability()).singleElement()
+                .satisfies(a -> assertThat(a.luckyDayAvailableCopies()).isEqualTo(2));
+    }
+
+    @Test
     void searchCatalog_defaultsAvailabilityToSafeValuesWhenAbsent() {
         var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
         item.setId("title-1");

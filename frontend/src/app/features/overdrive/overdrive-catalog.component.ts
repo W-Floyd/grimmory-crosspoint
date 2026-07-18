@@ -360,9 +360,22 @@ export class OverdriveCatalogComponent {
 
    // --- Eligible cards + default selection ---
 
-   /** Cards (among the selected set) whose library has this title available to borrow now, under loan limit. */
+   /** True when a per-library availability entry offers a borrow now — a regular copy or a Lucky Day copy. */
+   private borrowableAt(a: OverDriveLibraryAvailability): boolean {
+     return a.available || (a.luckyDayAvailableCopies ?? 0) > 0;
+   }
+
+   /** True when this title has a "Lucky Day" (skip-the-line) copy available now at some selected library. */
+   hasLuckyDay(item: OverDriveCatalogItem): boolean {
+     return (item.luckyDayAvailableCopies ?? 0) > 0;
+   }
+
+   /**
+    * Cards (among the selected set) whose library has this title borrowable now — a regular available
+    * copy or a Lucky Day copy — and that aren't at their loan limit.
+    */
    borrowEligibleCards(item: OverDriveCatalogItem): OverDriveCard[] {
-     const keys = new Set((item.availability ?? []).filter(a => a.available).map(a => a.libraryKey));
+     const keys = new Set((item.availability ?? []).filter(a => this.borrowableAt(a)).map(a => a.libraryKey));
      return this.selectedCards().filter(c => c.libraryKey != null && keys.has(c.libraryKey) && !this.atLoanLimitFor(c.cardId));
    }
 
@@ -668,9 +681,9 @@ export class OverdriveCatalogComponent {
      return this.heldHold(item)?.ready === true;
      }
 
-   /** Borrowable right now: catalog-available, or a ready hold reserved for the user. */
+   /** Borrowable right now: catalog-available, a Lucky Day copy, or a ready hold reserved for the user. */
    borrowableNow(item: OverDriveCatalogItem): boolean {
-     return item.available || this.isHoldReady(item);
+     return item.available || this.hasLuckyDay(item) || this.isHoldReady(item);
      }
 
    /** Estimated wait (days) for the user's hold on a title, or null. */
@@ -792,7 +805,7 @@ export class OverdriveCatalogComponent {
     */
    availableElsewhere(hold: OverDriveHold): OverDriveCard | null {
      const avails = this.holdAvailability()[hold.id] ?? [];
-     const availableKeys = new Set(avails.filter(a => a.available).map(a => a.libraryKey));
+     const availableKeys = new Set(avails.filter(a => a.available || (a.luckyDayAvailableCopies ?? 0) > 0).map(a => a.libraryKey));
      return this.otherCardsForHold(hold).find(c => c.libraryKey != null && availableKeys.has(c.libraryKey)) ?? null;
    }
 

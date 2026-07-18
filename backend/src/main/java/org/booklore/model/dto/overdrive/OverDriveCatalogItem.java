@@ -33,6 +33,8 @@ public record OverDriveCatalogItem(
         Integer ownedCopies,
         Integer holdsCount,
         Integer estimatedWaitDays,
+        /** "Lucky Day" copies available now (aggregate across libraries), borrowable without a hold. */
+        Integer luckyDayAvailableCopies,
         boolean preRelease,
         java.util.List<String> formats,
         /** Per-library availability (one entry per library the title surfaced from). */

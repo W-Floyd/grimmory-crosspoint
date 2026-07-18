@@ -52,6 +52,8 @@ public class OverDriveApiResponse {
         private Integer holdsCount;
         private Integer estimatedWaitDays;
         private String availabilityType;
+        /** "Lucky Day" / skip-the-line copies: borrowable now without a hold, outside the regular pool. */
+        private Integer luckyDayAvailableCopies;
 
         @Data
         @JsonIgnoreProperties(ignoreUnknown = true)

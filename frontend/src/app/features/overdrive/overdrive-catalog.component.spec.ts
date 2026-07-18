@@ -188,6 +188,23 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.chosenHoldWaitDays(it1)).toBe(10);
   });
 
+  it('treats a Lucky Day copy as borrowable now, even with no regular copies', () => {
+    setup();
+    const it1 = item({
+      available: false,
+      holdable: true,
+      luckyDayAvailableCopies: 1,
+      availability: [
+        {libraryKey: 'lapl', available: false, holdable: true, luckyDayAvailableCopies: 1},
+        {libraryKey: 'bpl', available: false, holdable: true, luckyDayAvailableCopies: 0},
+      ],
+    });
+    expect(component.hasLuckyDay(it1)).toBe(true);
+    expect(component.borrowableNow(it1)).toBe(true);
+    // Only the library with a Lucky Day copy is borrow-eligible.
+    expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c1']);
+  });
+
   it('scopes the search request to the selected card ids', () => {
     const {c1, c2} = setup();
     overdriveService.search.mockReturnValue(of([]));
