@@ -53,8 +53,8 @@
     <p-tabs [value]="activeTab()" (valueChange)="activeTab.set($event ?? 'search')">
       <p-tablist>
         <p-tab value="search">Search &amp; Borrow</p-tab>
-        <p-tab value="loans">Loans ({{ loans().length }})</p-tab>
-        <p-tab value="holds">Holds ({{ holds().length }})</p-tab>
+        <p-tab value="loans">{{ loansTabLabel() }}</p-tab>
+        <p-tab value="holds">{{ holdsTabLabel() }}</p-tab>
       </p-tablist>
       <p-tabpanels>
         <p-tabpanel value="search">
@@ -95,6 +95,18 @@
           />
         <p-button label="Search" icon="pi pi-search" [loading]="searching()" (onClick)="onSearch()" />
       </div>
+      @if (atLoanLimit()) {
+        <p-message severity="warn" styleClass="mb-3">You've reached your loan limit ({{ loanLimit() }}). Return a loan to borrow more.</p-message>
+      }
+      @if (atHoldLimit()) {
+        <p-message severity="warn" styleClass="mb-3">
+          @if (!canPlaceHolds()) {
+            This card can't place holds.
+          } @else {
+            You've reached your hold limit ({{ holdLimit() }}). Cancel a hold to place more.
+          }
+        </p-message>
+      }
       @if (results().length > 0) {
         <p-table [value]="results()">
           <ng-template pTemplate="header">
@@ -209,7 +221,7 @@
                       icon="pi pi-download"
                       [severity]="isInLibrary(item) ? 'warn' : null"
                       [pTooltip]="isInLibrary(item) ? 'You already have this book — borrow and import another copy' : 'Borrow this title and import it (server-side) into the selected library, or into Bookdrop if none is selected'"
-                      [disabled]="!item.titleId || importingTitleId() !== null"
+                      [disabled]="!item.titleId || importingTitleId() !== null || atLoanLimit()"
                       [loading]="importingTitleId() === item.titleId"
                       (onClick)="onBorrowImport(item)" />
                     <p-button
@@ -218,7 +230,7 @@
                       severity="secondary"
                       [outlined]="true"
                       pTooltip="Borrow to your Libby account only — don't import into grimmory"
-                      [disabled]="!item.titleId || importingTitleId() !== null"
+                      [disabled]="!item.titleId || importingTitleId() !== null || atLoanLimit()"
                       [loading]="importingTitleId() === item.titleId"
                       (onClick)="onBorrowOnly(item)" />
                   }
@@ -229,7 +241,7 @@
                       label="Place Hold"
                       icon="pi pi-clock"
                       severity="secondary"
-                      [disabled]="!item.titleId"
+                      [disabled]="!item.titleId || atHoldLimit()"
                       (onClick)="onPlaceHold(item)" />
                   }
                   @if (isOnHold(item)) {
@@ -248,7 +260,7 @@
                     icon="pi pi-exclamation-triangle"
                     severity="warn"
                     [pTooltip]="unsupportedBorrowTooltip()"
-                    [disabled]="!item.titleId || importingTitleId() !== null"
+                    [disabled]="!item.titleId || importingTitleId() !== null || atLoanLimit()"
                     [loading]="importingTitleId() === item.titleId"
                     (onClick)="onBorrowImport(item)" />
                 }
@@ -259,7 +271,7 @@
                       icon="pi pi-exclamation-triangle"
                       severity="warn"
                       [pTooltip]="unsupportedHoldTooltip()"
-                      [disabled]="!item.titleId"
+                      [disabled]="!item.titleId || atHoldLimit()"
                       (onClick)="onPlaceHold(item)" />
                   }
                   @if (isOnHold(item)) {
@@ -370,7 +382,7 @@
               <p-button label="Borrow" icon="pi pi-download" severity="success"
                 pTooltip="Borrow this ready hold and import it (or drop to Bookdrop)"
                 tooltipPosition="top"
-                [disabled]="importingTitleId() !== null"
+                [disabled]="importingTitleId() !== null || atLoanLimit()"
                 [loading]="importingTitleId() === hold.id"
                 (onClick)="onBorrowHold(hold)"
                 class="mr-2" />

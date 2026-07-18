@@ -194,7 +194,7 @@ public class OverDriveController {
     ) {
         requireEnabled();
         OverDriveSyncResponse sync = overDriveService.sync(identity, token);
-        return ResponseEntity.ok(convertSync(sync));
+        return ResponseEntity.ok(convertSync(identity, sync));
     }
 
     // ── Loans ────────────────────────────────────────────────────────────
@@ -521,7 +521,7 @@ public class OverDriveController {
 
     // ── DTO Converters ───────────────────────────────────────────────────
 
-    private OverDriveSyncResult convertSync(OverDriveSyncResponse sync) {
+    private OverDriveSyncResult convertSync(String identity, OverDriveSyncResponse sync) {
         List<OverDriveLoan> loans = sync.getLoans() != null ? sync.getLoans() : List.of();
         List<OverDriveHold> holds = sync.getHolds() != null ? sync.getHolds() : List.of();
         List<OverDriveLibrary> libraries = sync.getLibraries() != null ? sync.getLibraries() : List.of();
@@ -534,7 +534,30 @@ public class OverDriveController {
                 .map(this::holdToDto)
                 .toList();
 
-        return new OverDriveSyncResult(loanDtos, holdDtos, libraries);
+        // The card's loan/hold usage vs. its limits, so the UI can show "5 of 10" and stop at the cap.
+        Integer loanCount = null;
+        Integer loanLimit = null;
+        Integer holdCount = null;
+        Integer holdLimit = null;
+        boolean canPlaceHolds = true;
+        if (sync.getCards() != null && !sync.getCards().isEmpty()) {
+            OverDriveSyncResponse.Card card = sync.getCards().stream()
+                    .filter(c -> identity != null && identity.equals(c.getCardId()))
+                    .findFirst()
+                    .orElse(sync.getCards().getFirst());
+            if (card.getCounts() != null) {
+                loanCount = card.getCounts().getLoan();
+                holdCount = card.getCounts().getHold();
+            }
+            if (card.getLimits() != null) {
+                loanLimit = card.getLimits().getLoan();
+                holdLimit = card.getLimits().getHold();
+            }
+            canPlaceHolds = card.getCanPlaceHolds() == null || card.getCanPlaceHolds();
+        }
+
+        return new OverDriveSyncResult(loanDtos, holdDtos, libraries,
+                loanCount, loanLimit, holdCount, holdLimit, canPlaceHolds);
     }
 
     private OverDriveLoanDto loanToDto(OverDriveLoan loan) {
@@ -603,7 +626,12 @@ public class OverDriveController {
     record OverDriveSyncResult(
             List<OverDriveLoanDto> loans,
             List<OverDriveHoldDto> holds,
-            List<OverDriveLibrary> libraries
+            List<OverDriveLibrary> libraries,
+            Integer loanCount,
+            Integer loanLimit,
+            Integer holdCount,
+            Integer holdLimit,
+            boolean canPlaceHolds
     ) {}
 
     record OverDriveLoanDto(

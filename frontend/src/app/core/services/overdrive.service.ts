@@ -64,6 +64,12 @@ export interface OverDriveSyncResult {
   loans: OverDriveLoan[];
   holds: OverDriveHold[];
   libraries: OverDriveLibrary[];
+  /** Active card's loan/hold usage vs. limits (null when the sync didn't report them). */
+  loanCount?: number | null;
+  loanLimit?: number | null;
+  holdCount?: number | null;
+  holdLimit?: number | null;
+  canPlaceHolds?: boolean;
 }
 
 export interface OverDriveLibrary {

@@ -52,6 +52,12 @@ export class OverdriveCatalogComponent {
   lastSynced = signal<Date | null>(null);
   // Active tab on the catalog (search / loans / holds).
   activeTab = signal<string | number>('search');
+  // Active card's loan/hold usage vs. limits (null when the sync didn't report them).
+  loanCount = signal<number | null>(null);
+  loanLimit = signal<number | null>(null);
+  holdCount = signal<number | null>(null);
+  holdLimit = signal<number | null>(null);
+  canPlaceHolds = signal(true);
 
    // Linked Libby cards (per user); the selected card drives sync/borrow/return. Linking/unlinking and
    // diagnostics live on the OverDrive settings page — this page is browse/borrow only.
@@ -86,6 +92,32 @@ export class OverdriveCatalogComponent {
      if (!card) return '';
      return card.name ? `${card.name} (${card.cardId})` : card.cardId;
    }
+
+   /** True when the card has reached its loan limit — borrowing is blocked until a loan is returned. */
+   atLoanLimit(): boolean {
+     const c = this.loanCount();
+     const l = this.loanLimit();
+     return c !== null && l !== null && c >= l;
+     }
+
+   /** True when the card can't place more holds (at its hold limit, or holds are disabled). */
+   atHoldLimit(): boolean {
+     if (!this.canPlaceHolds()) return true;
+     const c = this.holdCount();
+     const l = this.holdLimit();
+     return c !== null && l !== null && c >= l;
+     }
+
+   /** Tab label with usage vs. limit when known, e.g. "Loans (5 / 10)". */
+   loansTabLabel(): string {
+     const count = this.loanCount() ?? this.loans().length;
+     return this.loanLimit() !== null ? `Loans (${count} / ${this.loanLimit()})` : `Loans (${this.loans().length})`;
+     }
+
+   holdsTabLabel(): string {
+     const count = this.holdCount() ?? this.holds().length;
+     return this.holdLimit() !== null ? `Holds (${count} / ${this.holdLimit()})` : `Holds (${this.holds().length})`;
+     }
 
    /** "Last synced" label: time only when it was today, otherwise date + time to avoid ambiguity. */
    syncedLabel(): string | null {
@@ -165,6 +197,11 @@ export class OverdriveCatalogComponent {
          this.loans.set(result.loans ?? []);
          this.holds.set(result.holds ?? []);
          this.libraries.set(result.libraries ?? []);
+         this.loanCount.set(result.loanCount ?? null);
+         this.loanLimit.set(result.loanLimit ?? null);
+         this.holdCount.set(result.holdCount ?? null);
+         this.holdLimit.set(result.holdLimit ?? null);
+         this.canPlaceHolds.set(result.canPlaceHolds ?? true);
          this.lastSynced.set(new Date());
          this.loading.set(false);
          },
