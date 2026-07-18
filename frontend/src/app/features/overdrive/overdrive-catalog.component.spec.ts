@@ -229,6 +229,20 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.limitBlockedLibraryLabel(it1)).toBe('LAPL');
   });
 
+  it('builds a per-library availability breakdown for the hover tooltip', () => {
+    setup();
+    const it1 = item({
+      available: true,
+      availability: [
+        {libraryKey: 'lapl', available: true, holdable: false, availableCopies: 1},
+        {libraryKey: 'bpl', available: false, holdable: true, estimatedWaitDays: 14, holdsCount: 3},
+      ],
+    });
+    expect(component.availabilityBreakdown(it1)).toBe(
+      'LAPL: Available (1 copy)\nBPL: Wait list · ~14 day wait · 3 holds'
+    );
+  });
+
   it('scopes the search request to the selected card ids', () => {
     const {c1, c2} = setup();
     overdriveService.search.mockReturnValue(of([]));

@@ -370,6 +370,40 @@ export class OverdriveCatalogComponent {
      return (item.luckyDayAvailableCopies ?? 0) > 0;
    }
 
+   /** Per-library availability breakdown (one line each) for the Availability cell's hover tooltip. */
+   availabilityBreakdown(item: OverDriveCatalogItem): string {
+     return (item.availability ?? [])
+       .map(a => `${this.libraryLabelForKey(a.libraryKey)}: ${this.availabilityLineFor(a)}`)
+       .join('\n');
+   }
+
+   /** Friendly label for a library key: the matching selected card's name, else the key itself. */
+   private libraryLabelForKey(libraryKey: string): string {
+     const card = this.selectedCards().find(c => c.libraryKey === libraryKey);
+     return card ? (card.name || card.cardId) : libraryKey;
+   }
+
+   /** One-line availability summary for a single library. */
+   private availabilityLineFor(a: OverDriveLibraryAvailability): string {
+     if (a.available) {
+       const copies = a.availableCopies != null
+         ? ` (${a.availableCopies} ${a.availableCopies === 1 ? 'copy' : 'copies'})`
+         : '';
+       const lucky = (a.luckyDayAvailableCopies ?? 0) > 0 ? ' · Lucky Day' : '';
+       return `Available${copies}${lucky}`;
+     }
+     if ((a.luckyDayAvailableCopies ?? 0) > 0) {
+       return 'Lucky Day copy available';
+     }
+     if (a.holdable) {
+       let s = 'Wait list';
+       if (a.estimatedWaitDays != null) s += ` · ~${a.estimatedWaitDays} day wait`;
+       if (a.holdsCount != null) s += ` · ${a.holdsCount} holds`;
+       return s;
+     }
+     return 'Unavailable';
+   }
+
    /**
     * Cards (among the selected set) whose library has this title borrowable now — a regular available
     * copy or a Lucky Day copy — and that aren't at their loan limit.

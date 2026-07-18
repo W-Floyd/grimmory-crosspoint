@@ -16,3 +16,8 @@
 @include meta.load-css("assets/styles/utilities");
 @include meta.load-css("assets/styles/connected-group");
 @include meta.load-css("assets/styles/compat");
+
+// Multi-line OverDrive availability tooltip: preserve the per-library line breaks.
+.availability-tooltip .p-tooltip-text {
+  white-space: pre-line;
+}

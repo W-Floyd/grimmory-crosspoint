@@ -127,7 +127,7 @@
                   [libbyUrl]="libbyUrl(item.titleId, chosenCard(item)?.libraryKey)" />
               </td>
               <td>{{ item.author }}</td>
-              <td>
+              <td [pTooltip]="availabilityBreakdown(item)" tooltipPosition="top" tooltipStyleClass="availability-tooltip">
                 @if (item.preRelease) {
                   <span class="availability pre-release">Not yet released</span>
                 }
