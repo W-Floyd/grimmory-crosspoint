@@ -426,7 +426,18 @@ export class OverdriveCatalogComponent {
     */
    borrowEligibleCards(item: OverDriveCatalogItem): OverDriveCard[] {
      const keys = new Set((item.availability ?? []).filter(a => this.borrowableAt(a)).map(a => a.libraryKey));
-     return this.selectedCards().filter(c => c.libraryKey != null && keys.has(c.libraryKey) && !this.atLoanLimitFor(c.cardId));
+     return this.selectedCards()
+       .filter(c => c.libraryKey != null && keys.has(c.libraryKey) && !this.atLoanLimitFor(c.cardId))
+       // Most remaining loan capacity first (limit - count), so cards with different limits compare
+       // fairly — a 14/50 card (36 left) beats a 13/15 card (2 left).
+       .sort((a, b) => this.loanRemainingFor(b.cardId) - this.loanRemainingFor(a.cardId));
+   }
+
+   /** Remaining loan capacity for a card (limit − count); an unreported limit is treated as unlimited. */
+   private loanRemainingFor(cardId: string): number {
+     const count = this.loanCountFor(cardId);
+     const limit = this.loanLimitFor(cardId);
+     return count != null && limit != null ? limit - count : Number.POSITIVE_INFINITY;
    }
 
    /**
@@ -437,8 +448,17 @@ export class OverdriveCatalogComponent {
    holdEligibleCards(item: OverDriveCatalogItem): OverDriveCard[] {
      const keys = new Set((item.availability ?? []).filter(a => a.holdable).map(a => a.libraryKey));
      const held = this.heldCardIds(item);
-     return this.selectedCards().filter(c =>
-       c.libraryKey != null && keys.has(c.libraryKey) && !held.has(c.cardId) && !this.atHoldLimitFor(c.cardId));
+     return this.selectedCards()
+       .filter(c => c.libraryKey != null && keys.has(c.libraryKey) && !held.has(c.cardId) && !this.atHoldLimitFor(c.cardId))
+       // Shortest estimated wait first (so the default and dropdown order favour the sooner queue); ties
+       // broken by fewest current holds on the card.
+       .sort((a, b) => (this.holdWaitForCard(item, a) - this.holdWaitForCard(item, b))
+         || ((this.holdCountFor(a.cardId) ?? 0) - (this.holdCountFor(b.cardId) ?? 0)));
+   }
+
+   /** Estimated hold wait (days) at a card's library for this title; unknown waits sort last. */
+   private holdWaitForCard(item: OverDriveCatalogItem, card: OverDriveCard): number {
+     return this.availabilityForCard(item, card)?.estimatedWaitDays ?? Number.POSITIVE_INFINITY;
    }
 
    /** Card ids (among selected) that already hold this title. */
@@ -483,16 +503,12 @@ export class OverdriveCatalogComponent {
      return this.eligibleCards(item).map(c => ({ label: c.name || c.cardId, value: c.cardId }));
    }
 
-   /** The default card for a title: fewest loans (borrow) / fewest holds (hold), stable by selection order. */
+   /**
+    * The default card for a title: the first eligible card, which is already ordered best-first — most
+    * remaining loan capacity for a borrow, shortest estimated wait for a hold.
+    */
    private defaultActionCard(item: OverDriveCatalogItem): OverDriveCard | null {
-     const borrow = this.borrowableNow(item);
-     const eligible = borrow ? this.borrowEligibleCards(item) : this.holdEligibleCards(item);
-     if (eligible.length === 0) return null;
-     return eligible.reduce((best, c) => {
-       const bestCount = (borrow ? this.loanCountFor(best.cardId) : this.holdCountFor(best.cardId)) ?? 0;
-       const cCount = (borrow ? this.loanCountFor(c.cardId) : this.holdCountFor(c.cardId)) ?? 0;
-       return cCount < bestCount ? c : best;
-     });
+     return this.eligibleCards(item)[0] ?? null;
    }
 
    /** The chosen card for a title: the user's per-title override if still eligible, else the default. */

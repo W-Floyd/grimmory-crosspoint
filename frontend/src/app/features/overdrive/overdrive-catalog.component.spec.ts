@@ -108,8 +108,9 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c2']);
   });
 
-  it('defaults the borrow card to the eligible card with the fewest current loans', () => {
-    setup({lapl: {loanCount: 4, loanLimit: 10}, bpl: {loanCount: 1, loanLimit: 10}});
+  it('defaults the borrow card to the one with the most remaining loan capacity', () => {
+    // Different limits: lapl 13/15 = 2 left, bpl 14/50 = 36 left → prefer bpl despite MORE loans.
+    setup({lapl: {loanCount: 13, loanLimit: 15}, bpl: {loanCount: 14, loanLimit: 50}});
     const it1 = item({
       available: true,
       availability: [
@@ -117,7 +118,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
         {libraryKey: 'bpl', available: true, holdable: false},
       ],
     });
-    expect(component.chosenCardId(it1)).toBe('c2'); // bpl has fewer loans
+    expect(component.chosenCardId(it1)).toBe('c2');
   });
 
   it('defaults the hold card to the eligible card with the fewest current holds', () => {
@@ -272,6 +273,21 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     // No restriction → no warning.
     component.selectedLibrary.set({id: 2, name: 'Anything', allowedFormats: []} as unknown as Library);
     expect(component.destinationRejectsFormat(pdf)).toBe(false);
+  });
+
+  it('orders hold-eligible cards by shortest wait and defaults to the soonest', () => {
+    setup();
+    const it1 = item({
+      available: false,
+      holdable: true,
+      availability: [
+        {libraryKey: 'lapl', available: false, holdable: true, estimatedWaitDays: 40},
+        {libraryKey: 'bpl', available: false, holdable: true, estimatedWaitDays: 12},
+      ],
+    });
+    // bpl (12d) sorts before lapl (40d); default is the shortest wait.
+    expect(component.holdEligibleCards(it1).map(c => c.cardId)).toEqual(['c2', 'c1']);
+    expect(component.chosenCardId(it1)).toBe('c2');
   });
 
   it('scopes the search request to the selected card ids', () => {
