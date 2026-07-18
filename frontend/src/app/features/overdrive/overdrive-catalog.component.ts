@@ -881,6 +881,11 @@ export class OverdriveCatalogComponent {
            ? `"${loan.title}" imported (book #${book.id})`
            : `"${loan.title}" dropped into Bookdrop for review`;
          this.messageService.add({ severity: 'success', summary: book?.id != null ? 'Imported' : 'Sent to Bookdrop', detail });
+         if (book?.id != null) {
+           // Stamp the new book id onto the loan so the title cell shows the "In your library"
+           // link and the Import button flips to "Import again".
+           this.loans.update((rows) => rows.map((r) => r === loan ? { ...r, bookId: book.id } : r));
+         }
          this.setOutcome(loan.id, 'success');
          this.importingTitleId.set(null);
          },

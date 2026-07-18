@@ -36,6 +36,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     capabilities: vi.fn(() => of({acsmHandlerConfigured: false, credentialStorageEnabled: false})),
     sync: vi.fn(),
     search: vi.fn(),
+    borrowAndImport: vi.fn(),
   };
   const libraryService = {libraries: () => []};
 
@@ -319,6 +320,22 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.isOnLoan(item({titleId: 'title-1'}))).toBe(true);
     expect(component.loanLibraryLabel(item({titleId: 'title-1'}))).toBe('LAPL');
     expect(component.isOnLoan(item({titleId: 'other'}))).toBe(false);
+  });
+
+  it('stamps the new book id onto the loan after import so the library link appears', () => {
+    setup();
+    component.loans.set([{id: 'title-1', title: 'Black', expireDate: '2026-08-08', cardId: 'c1'}]);
+    overdriveService.borrowAndImport.mockReturnValue(of({id: 42}));
+    component.onImportLoan(component.loans()[0]);
+    expect(component.loans()[0].bookId).toBe(42);
+  });
+
+  it('leaves the loan without a book id when the import drops to Bookdrop', () => {
+    setup();
+    component.loans.set([{id: 'title-1', title: 'Black', expireDate: '2026-08-08', cardId: 'c1'}]);
+    overdriveService.borrowAndImport.mockReturnValue(of({id: null}));
+    component.onImportLoan(component.loans()[0]);
+    expect(component.loans()[0].bookId ?? null).toBeNull();
   });
 
   it('scopes the search request to the selected card ids', () => {
