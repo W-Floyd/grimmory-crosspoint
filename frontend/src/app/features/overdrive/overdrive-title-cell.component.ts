@@ -18,6 +18,7 @@ import { TooltipModule } from 'primeng/tooltip';
 export class OverdriveTitleCellComponent {
   readonly title = input<string>('');
   readonly subtitle = input<string | null>();
-  /** Id of the matched library book; when set, an "In your library" link is shown. */
-  readonly bookId = input<number | null>();
+  /** Id of the matched library book; when set, an "In your library" link is shown. Defaults to null
+   * (not undefined) so an unbound bookId — e.g. on the holds table — doesn't render a bogus link. */
+  readonly bookId = input<number | null>(null);
 }
