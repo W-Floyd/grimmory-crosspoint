@@ -430,7 +430,7 @@ export class OverdriveCatalogComponent {
 
    /** {label,value} options for a title's eligible-card dropdown (value = cardId). */
    eligibleCardOptions(item: OverDriveCatalogItem): { label: string; value: string }[] {
-     return this.eligibleCards(item).map(c => ({ label: this.cardLabel(c), value: c.cardId }));
+     return this.eligibleCards(item).map(c => ({ label: c.name || c.cardId, value: c.cardId }));
    }
 
    /** The default card for a title: fewest loans (borrow) / fewest holds (hold), stable by selection order. */

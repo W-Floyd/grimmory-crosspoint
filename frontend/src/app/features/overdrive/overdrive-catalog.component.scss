@@ -199,6 +199,35 @@
     }
   }
 
+  // Card slot: fixed width so the picker (dropdown) and the read-only single-card label take the same
+  // space, keeping the borrow buttons aligned across rows regardless of library-name length.
+  .card-select,
+  .card-single {
+    flex: 0 0 13rem;
+    min-width: 13rem;
+    max-width: 13rem;
+  }
+
+  .card-single {
+    font-size: 0.85rem;
+    color: var(--text-color-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    &.none {
+      font-style: italic;
+      opacity: 0.75;
+    }
+  }
+
+  // Truncate the dropdown's selected-value label instead of letting a long name widen the control.
+  ::ng-deep .card-select .p-select-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   // "sooner" hint next to Place/Also hold when another library's estimated wait is shorter.
   .sooner-hint {
     font-size: 0.8rem;

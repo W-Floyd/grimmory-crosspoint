@@ -39,6 +39,8 @@ import java.time.OffsetDateTime;
 import java.time.Duration;
 import java.time.format.DateTimeParseException;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -1058,10 +1060,21 @@ public class OverDriveService {
                     .ifPresent(libraryKeys::add);
         }
 
+        // A query that is an OverDrive title id (or a Libby/OverDrive URL containing one) looks the
+        // title up directly at each library rather than running a text search.
+        String titleId = extractTitleId(query);
+
         // Merge each title across libraries, accumulating one availability entry per library.
         Map<String, OverDriveCatalogItem> byTitleId = new LinkedHashMap<>();
         for (String libraryKey : libraryKeys) {
-            for (OverDriveApiResponse.Item item : overDriveParser.searchLibrary(libraryKey, query)) {
+            List<OverDriveApiResponse.Item> items;
+            if (titleId != null) {
+                OverDriveApiResponse.Item item = overDriveParser.fetchTitleAtLibrary(libraryKey, titleId);
+                items = item != null ? List.of(item) : List.of();
+            } else {
+                items = overDriveParser.searchLibrary(libraryKey, query);
+            }
+            for (OverDriveApiResponse.Item item : items) {
                 OverDriveCatalogItem mapped = toCatalogItem(libraryKey, item);
                 if (mapped.title() == null || mapped.title().isBlank() || mapped.titleId() == null) {
                     continue;
@@ -1070,6 +1083,44 @@ public class OverDriveService {
             }
         }
         return new ArrayList<>(byTitleId.values());
+      }
+
+      /** OverDrive title id inside a Libby/OverDrive URL, e.g. share.libbyapp.com/title/618973. */
+      private static final Pattern TITLE_ID_IN_URL = Pattern.compile("/(?:title|media)/(\\d+)");
+
+      /**
+       * Extract an OverDrive title id from a search query:
+       * <ul>
+       *   <li>a bare numeric id (digit strings of ISBN length 10/13 are treated as ISBNs, not ids);</li>
+       *   <li>a share/Thunder URL with {@code /title/{id}} or {@code /media/{id}};</li>
+       *   <li>any other Libby/OverDrive URL — the title id is the <b>last purely-numeric path segment</b>
+       *       (e.g. {@code .../series-531761/.../page-1/786873} → {@code 786873}, not the series id).</li>
+       * </ul>
+       * Returns null when the query isn't an id (so a normal text search runs instead).
+       */
+      static String extractTitleId(String query) {
+        if (query == null) {
+            return null;
+        }
+        String q = query.trim();
+        if (q.matches("\\d+")) {
+            return (q.length() != 10 && q.length() != 13) ? q : null;
+        }
+        Matcher m = TITLE_ID_IN_URL.matcher(q);
+        if (m.find()) {
+            return m.group(1);
+        }
+        if (q.contains("libbyapp.com") || q.contains("overdrive.com")) {
+            // Title id is the last numeric path segment; skip query/fragment and non-numeric segments
+            // like "series-531761", "language-en" or "page-1".
+            String[] segments = q.replaceAll("[?#].*$", "").split("/");
+            for (int i = segments.length - 1; i >= 0; i--) {
+                if (segments[i].matches("\\d+")) {
+                    return segments[i];
+                }
+            }
+        }
+        return null;
       }
 
       /**

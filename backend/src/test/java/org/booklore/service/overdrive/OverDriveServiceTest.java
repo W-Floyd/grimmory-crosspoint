@@ -20,6 +20,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -292,6 +294,44 @@ class OverDriveServiceTest {
         assertThat(service.searchCatalog("dune", null)).isEmpty();
         assertThat(service.searchCatalog("dune", List.of())).isEmpty();
         verifyNoInteractions(overDriveParser);
+    }
+
+    @Test
+    void extractTitleId_detectsIdsAndUrlsButNotIsbns() {
+        assertThat(OverDriveService.extractTitleId("618973")).isEqualTo("618973");
+        assertThat(OverDriveService.extractTitleId("  5183634 ")).isEqualTo("5183634");
+        assertThat(OverDriveService.extractTitleId("https://share.libbyapp.com/title/618973")).isEqualTo("618973");
+        assertThat(OverDriveService.extractTitleId("https://thunder.api.overdrive.com/v2/media/618973")).isEqualTo("618973");
+        // Libby detail URL: last numeric path segment is the title id, not the series id (531761).
+        assertThat(OverDriveService.extractTitleId(
+                "https://libbyapp.com/library/kclibrary/series-531761/scope-deep/books/language-en/fulfillable-ebook-epub-open/page-1/786873"))
+                .isEqualTo("786873");
+        assertThat(OverDriveService.extractTitleId(
+                "https://libbyapp.com/library/kclibrary/everything/page-1/618973")).isEqualTo("618973");
+        assertThat(OverDriveService.extractTitleId("9780441013593")).isNull(); // ISBN-13
+        assertThat(OverDriveService.extractTitleId("0441013597")).isNull();    // ISBN-10
+        assertThat(OverDriveService.extractTitleId("Dune")).isNull();
+        assertThat(OverDriveService.extractTitleId(null)).isNull();
+    }
+
+    @Test
+    void searchCatalog_byTitleId_looksTitleUpDirectlyAtEachLibrary() {
+        var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        item.setId("618973");
+        item.setTitle("Dune");
+        item.setAvailable(true);
+
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
+        when(overDriveParser.fetchTitleAtLibrary("lapl", "618973")).thenReturn(item);
+
+        var results = service.searchCatalog("618973", List.of("card-1"));
+
+        assertThat(results).singleElement().satisfies(r -> assertThat(r.titleId()).isEqualTo("618973"));
+        // Direct id lookup, not a text search.
+        verify(overDriveParser).fetchTitleAtLibrary("lapl", "618973");
+        verify(overDriveParser, never()).searchLibrary(any(), any());
     }
 
     @Test

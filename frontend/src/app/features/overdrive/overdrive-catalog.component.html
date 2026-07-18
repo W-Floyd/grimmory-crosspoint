@@ -91,7 +91,7 @@
           [ngModel]="searchQuery()"
           (ngModelChange)="searchQuery.set($event)"
           [ngModelOptions]="{ standalone: true }"
-          placeholder="Search the OverDrive catalog by title, author, or ISBN"
+          placeholder="Search by title, author, ISBN, or an OverDrive title id / Libby link"
           class="w-full"
           (keyup.enter)="onSearch()"
           />
