@@ -89,6 +89,73 @@
     white-space: nowrap;
   }
 
+  // Per-card loan/hold capacity meters (at-a-glance usage vs. limit).
+  .card-capacity {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+  }
+
+  .capacity-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+
+    .capacity-card {
+      flex: 0 0 12rem;
+      max-width: 12rem;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .meter {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.8rem;
+    }
+
+    .meter-label {
+      width: 3rem;
+      color: var(--text-color-secondary);
+    }
+
+    .meter-track {
+      display: inline-block;
+      width: 6rem;
+      height: 0.5rem;
+      border-radius: 0.25rem;
+      background: var(--surface-200, rgb(255 255 255 / 12%));
+      overflow: hidden;
+    }
+
+    .meter-fill {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--green-500, #22c55e);
+      transition: width 0.2s ease;
+
+      &.full {
+        background: var(--orange-500, #f97316);
+      }
+    }
+
+    .meter-value {
+      color: var(--text-color-secondary);
+      white-space: nowrap;
+
+      &.full {
+        color: var(--orange-500, #f97316);
+        font-weight: 500;
+      }
+    }
+  }
+
   // Inline per-row outcome of the last borrow/import/hold action.
   .action-status {
     display: inline-flex;

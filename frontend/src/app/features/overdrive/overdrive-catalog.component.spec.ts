@@ -243,6 +243,20 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     );
   });
 
+  it('computes loan/hold capacity bars per card', () => {
+    setup({lapl: {loanCount: 5, loanLimit: 10, holdCount: 10, holdLimit: 10}});
+    const loan = component.loanBar('c1');
+    expect(loan.count).toBe(5);
+    expect(loan.limit).toBe(10);
+    expect(loan.pct).toBe(50);
+    expect(loan.atLimit).toBe(false);
+
+    const hold = component.holdBar('c1');
+    expect(hold.pct).toBe(100);
+    expect(hold.atLimit).toBe(true);
+    expect(hold.canHold).toBe(true);
+  });
+
   it('scopes the search request to the selected card ids', () => {
     const {c1, c2} = setup();
     overdriveService.search.mockReturnValue(of([]));

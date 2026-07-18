@@ -17,7 +17,11 @@
 @include meta.load-css("assets/styles/connected-group");
 @include meta.load-css("assets/styles/compat");
 
-// Multi-line OverDrive availability tooltip: preserve the per-library line breaks.
+// Multi-line OverDrive availability tooltip: preserve the per-library line breaks and give it room so
+// each "Library: status" entry stays on its own line instead of wrapping in the default narrow tooltip.
 .availability-tooltip .p-tooltip-text {
   white-space: pre-line;
+  max-width: min(90vw, 32rem);
+  width: max-content;
+  line-height: 1.5;
 }

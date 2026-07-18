@@ -163,6 +163,22 @@ export class OverdriveCatalogComponent {
      return cards.length > 0 && cards.every(c => this.atHoldLimitFor(c.cardId));
    }
 
+   /** Loan capacity for a card's at-a-glance bar: count, limit, fill % and whether it's at the limit. */
+   loanBar(cardId: string): { count: number | null; limit: number | null; pct: number; atLimit: boolean } {
+     const count = this.loanCountFor(cardId);
+     const limit = this.loanLimitFor(cardId);
+     const pct = count != null && limit != null && limit > 0 ? Math.min(100, (count / limit) * 100) : 0;
+     return { count, limit, pct, atLimit: this.atLoanLimitFor(cardId) };
+   }
+
+   /** Hold capacity for a card's at-a-glance bar. `canHold` is false when the card can't place holds. */
+   holdBar(cardId: string): { count: number | null; limit: number | null; pct: number; atLimit: boolean; canHold: boolean } {
+     const count = this.holdCountFor(cardId);
+     const limit = this.holdLimitFor(cardId);
+     const pct = count != null && limit != null && limit > 0 ? Math.min(100, (count / limit) * 100) : 0;
+     return { count, limit, pct, atLimit: this.atHoldLimitFor(cardId), canHold: this.canPlaceHoldsFor(cardId) };
+   }
+
    // --- Aggregate tab counts across selected cards ---
 
    private totalCount(pick: (s: OverDriveSyncResult) => number | null | undefined, fallback: number): number {
