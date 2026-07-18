@@ -110,7 +110,8 @@
             optionLabel="name"
             [ngModel]="selectedLibrary()"
             (ngModelChange)="onLibraryChange($event)"
-            placeholder="Select a library"
+            placeholder="Bookdrop (no library)"
+            [showClear]="true"
             appendTo="body"
             />
           <p-select
