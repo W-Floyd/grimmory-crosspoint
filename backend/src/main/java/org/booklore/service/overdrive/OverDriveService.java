@@ -10,6 +10,7 @@ import org.booklore.model.entity.OverDriveLoanEntity;
 import org.booklore.model.entity.OverDriveTokenEntity;
 import org.booklore.model.enums.BookFileType;
 import org.booklore.config.security.service.AuthenticationService;
+import org.booklore.exception.ApiError;
 import org.booklore.model.dto.BookLoreUser;
 import org.booklore.model.dto.settings.MetadataProviderSettings;
 import org.booklore.repository.BookRepository;
@@ -623,6 +624,11 @@ public class OverDriveService {
                     syncResp != null && syncResp.getLoans() != null ? syncResp.getLoans().size() : 0,
                     syncResp != null && syncResp.getHolds() != null ? syncResp.getHolds().size() : 0);
             return syncResp;
+         } catch (org.springframework.web.client.ResourceAccessException e) {
+            // Transient connectivity error reaching Libby (I/O / connection reset) — a clean gateway
+            // error the client can simply retry, not a server bug worth a full stack trace.
+            log.warn("OverDrive sync: transient I/O error reaching Libby ({}); retryable.", e.getMessage());
+            throw ApiError.OVERDRIVE_UNREACHABLE.createException(e.getMessage());
          } catch (Exception e) {
             log.error("OverDrive sync failed: {}", e.getMessage());
             throw new RestClientException("OverDrive sync failed: " + e.getMessage());

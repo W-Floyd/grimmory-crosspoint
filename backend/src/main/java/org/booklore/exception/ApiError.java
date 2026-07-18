@@ -71,6 +71,8 @@ public enum ApiError {
     OIDC_INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid token from OIDC provider: %s"),
     OIDC_ONLY_MODE(HttpStatus.FORBIDDEN, "Local login is disabled. Use OIDC to sign in."),
     OIDC_INVALID_REDIRECT_URI(HttpStatus.BAD_REQUEST, "Invalid redirect URI"),
+
+    OVERDRIVE_UNREACHABLE(HttpStatus.BAD_GATEWAY, "OverDrive/Libby is temporarily unreachable; please try again. (%s)"),
     OIDC_LOGOUT_REPLAY(HttpStatus.BAD_REQUEST, "Logout token has already been processed"),
     OIDC_LOGOUT_MISSING_JTI(HttpStatus.BAD_REQUEST, "Logout token missing required jti claim"),
     OIDC_INVALID_STATE(HttpStatus.BAD_REQUEST, "Invalid or expired OIDC state parameter"),
