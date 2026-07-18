@@ -329,9 +329,8 @@ public class OverDriveController {
         if (request.getTitleId() == null || request.getTitleId().isBlank()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException("titleId is required");
         }
-        if (request.getLibraryId() == null || request.getPathId() == null) {
-            throw ApiError.GENERIC_BAD_REQUEST.createException("libraryId and pathId are required");
-        }
+        // libraryId/pathId are optional: when omitted (or the library won't keep the format), the
+        // fulfilled book is dropped into Bookdrop for review instead of imported into a library.
 
         try {
             Book book = overDriveService.borrowAndImport(
