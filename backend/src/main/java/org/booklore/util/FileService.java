@@ -341,8 +341,11 @@ public class FileService {
 
             log.debug("Downloading image from: {}", currentUrl);
 
+            // Pass the already-parsed URI (not the String) so RestTemplate uses it verbatim. Passing a
+            // String makes it a URI template: literal '{...}' (e.g. an OverDrive {crid} cover) is read
+            // as a template variable, and existing %-encoding is re-encoded (%7B -> %257B) → 404.
             ResponseEntity<byte[]> response = noRedirectRestTemplate.exchange(
-                    currentUrl,
+                    uri,
                     HttpMethod.GET,
                     entity,
                     byte[].class

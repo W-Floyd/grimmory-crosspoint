@@ -1260,7 +1260,7 @@ class FileServiceTest {
 
                 ResponseEntity<byte[]> responseEntity = ResponseEntity.ok(imageBytes);
                 when(mockRestTemplate.exchange(
-                        anyString(),
+                        any(java.net.URI.class),
                         eq(HttpMethod.GET),
                         any(HttpEntity.class),
                         eq(byte[].class)
@@ -1280,7 +1280,7 @@ class FileServiceTest {
                 String imageUrl = "http://1.1.1.1/image.jpg";
                 ResponseEntity<byte[]> responseEntity = ResponseEntity.ok(null);
                 when(restTemplate.exchange(
-                        anyString(),
+                        any(java.net.URI.class),
                         eq(HttpMethod.GET),
                         any(HttpEntity.class),
                         eq(byte[].class)
@@ -1300,7 +1300,7 @@ class FileServiceTest {
                 RestTemplate noRedirectMock = (RestTemplate) ReflectionTestUtils.getField(fileService, "noRedirectRestTemplate");
 
                 when(noRedirectMock.exchange(
-                        anyString(),
+                        any(java.net.URI.class),
                         eq(HttpMethod.GET),
                         any(HttpEntity.class),
                         eq(byte[].class)
@@ -1316,7 +1316,7 @@ class FileServiceTest {
                 String imageUrl = "http://1.1.1.1/image.jpg";
                 ResponseEntity<byte[]> responseEntity = ResponseEntity.notFound().build();
                 when(restTemplate.exchange(
-                        anyString(),
+                        any(java.net.URI.class),
                         eq(HttpMethod.GET),
                         any(HttpEntity.class),
                         eq(byte[].class)
@@ -1342,7 +1342,7 @@ class FileServiceTest {
                         .header("Location", cdnIpRedirect).build();
                 ResponseEntity<byte[]> imageResponse = ResponseEntity.ok(imageBytes);
 
-                var urlCaptor = ArgumentCaptor.forClass(String.class);
+                var urlCaptor = ArgumentCaptor.forClass(java.net.URI.class);
                 when(mockRestTemplate.exchange(
                         urlCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), eq(byte[].class)
                 )).thenReturn(redirectResponse, imageResponse);
@@ -1350,8 +1350,8 @@ class FileServiceTest {
                 BufferedImage result = testFileService.downloadImageFromUrl(originalUrl);
 
                 assertNotNull(result);
-                assertEquals(originalUrl, urlCaptor.getAllValues().get(0));
-                assertEquals("http://example.com/cover.jpg", urlCaptor.getAllValues().get(1));
+                assertEquals(originalUrl, urlCaptor.getAllValues().get(0).toString());
+                assertEquals("http://example.com/cover.jpg", urlCaptor.getAllValues().get(1).toString());
             }
 
             @Test
@@ -1370,14 +1370,14 @@ class FileServiceTest {
                         .header("Location", cdnIpRedirect).build();
                 ResponseEntity<byte[]> imageResponse = ResponseEntity.ok(imageBytes);
 
-                var urlCaptor = ArgumentCaptor.forClass(String.class);
+                var urlCaptor = ArgumentCaptor.forClass(java.net.URI.class);
                 when(mockRestTemplate.exchange(
                         urlCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), eq(byte[].class)
                 )).thenReturn(redirectResponse, imageResponse);
 
                 testFileService.downloadImageFromUrl(originalUrl);
 
-                assertEquals("http://example.com/cdn/optimized/cover.jpg?token=abc", urlCaptor.getAllValues().get(1));
+                assertEquals("http://example.com/cdn/optimized/cover.jpg?token=abc", urlCaptor.getAllValues().get(1).toString());
             }
 
             @Test
@@ -1396,14 +1396,14 @@ class FileServiceTest {
                         .header("Location", hostnameRedirect).build();
                 ResponseEntity<byte[]> imageResponse = ResponseEntity.ok(imageBytes);
 
-                var urlCaptor = ArgumentCaptor.forClass(String.class);
+                var urlCaptor = ArgumentCaptor.forClass(java.net.URI.class);
                 when(mockRestTemplate.exchange(
                         urlCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), eq(byte[].class)
                 )).thenReturn(redirectResponse, imageResponse);
 
                 testFileService.downloadImageFromUrl(originalUrl);
 
-                assertEquals(hostnameRedirect, urlCaptor.getAllValues().get(1));
+                assertEquals(hostnameRedirect, urlCaptor.getAllValues().get(1).toString());
             }
 
             @Test
@@ -1425,16 +1425,16 @@ class FileServiceTest {
                         .header("Location", ipRedirect).build();
                 ResponseEntity<byte[]> imageResponse = ResponseEntity.ok(imageBytes);
 
-                var urlCaptor = ArgumentCaptor.forClass(String.class);
+                var urlCaptor = ArgumentCaptor.forClass(java.net.URI.class);
                 when(mockRestTemplate.exchange(
                         urlCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), eq(byte[].class)
                 )).thenReturn(redirect1, redirect2, imageResponse);
 
                 testFileService.downloadImageFromUrl(originalUrl);
 
-                assertEquals(originalUrl, urlCaptor.getAllValues().get(0));
-                assertEquals(hostnameRedirect, urlCaptor.getAllValues().get(1));
-                assertEquals("http://www.example.com/cover.jpg", urlCaptor.getAllValues().get(2));
+                assertEquals(originalUrl, urlCaptor.getAllValues().get(0).toString());
+                assertEquals(hostnameRedirect, urlCaptor.getAllValues().get(1).toString());
+                assertEquals("http://www.example.com/cover.jpg", urlCaptor.getAllValues().get(2).toString());
             }
 
             @Test
@@ -1451,7 +1451,7 @@ class FileServiceTest {
                         .build();
 
                 when(mockRestTemplate.exchange(
-                        anyString(), eq(HttpMethod.GET), any(HttpEntity.class), eq(byte[].class)
+                        any(java.net.URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(byte[].class)
                 )).thenReturn(redirectResponse);
 
                 IOException ex = assertThrows(IOException.class, () ->
@@ -1467,7 +1467,7 @@ class FileServiceTest {
 
                 ResponseEntity<byte[]> redirectResponse = ResponseEntity.status(302).build();
                 when(restTemplate.exchange(
-                        anyString(), eq(HttpMethod.GET), any(HttpEntity.class), eq(byte[].class)
+                        any(java.net.URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(byte[].class)
                 )).thenReturn(redirectResponse);
 
                 IOException ex = assertThrows(IOException.class, () ->
@@ -1491,7 +1491,7 @@ class FileServiceTest {
 
                 ResponseEntity<byte[]> responseEntity = ResponseEntity.ok(imageBytes);
                 when(restTemplate.exchange(
-                        anyString(),
+                        any(java.net.URI.class),
                         eq(HttpMethod.GET),
                         any(HttpEntity.class),
                         eq(byte[].class)
@@ -1517,7 +1517,7 @@ class FileServiceTest {
                 long bookId = 42L;
 
                 when(restTemplate.exchange(
-                        anyString(),
+                        any(java.net.URI.class),
                         eq(HttpMethod.GET),
                         any(HttpEntity.class),
                         eq(byte[].class)
