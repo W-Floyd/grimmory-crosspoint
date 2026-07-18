@@ -205,6 +205,30 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c1']);
   });
 
+  it('flags when a title is available but you are at your loan limit', () => {
+    setup({lapl: {loanCount: 5, loanLimit: 5}, bpl: {loanCount: 0, loanLimit: 10}});
+    const it1 = item({
+      available: true,
+      availability: [{libraryKey: 'lapl', available: true, holdable: false}], // only lapl offers it
+    });
+    expect(component.borrowEligibleCards(it1)).toEqual([]);
+    expect(component.noEligibleCard(it1)).toBe(true);
+    expect(component.borrowBlockedByLimit(it1)).toBe(true);
+    expect(component.limitBlockedLibraryLabel(it1)).toBe('LAPL');
+  });
+
+  it('flags when a title is only holdable but you are at your hold limit', () => {
+    setup({lapl: {holdCount: 10, holdLimit: 10}, bpl: {holdCount: 0, holdLimit: 10}});
+    const it1 = item({
+      available: false,
+      holdable: true,
+      availability: [{libraryKey: 'lapl', available: false, holdable: true}], // only lapl offers it
+    });
+    expect(component.holdEligibleCards(it1)).toEqual([]);
+    expect(component.holdBlockedByLimit(it1)).toBe(true);
+    expect(component.limitBlockedLibraryLabel(it1)).toBe('LAPL');
+  });
+
   it('scopes the search request to the selected card ids', () => {
     const {c1, c2} = setup();
     overdriveService.search.mockReturnValue(of([]));

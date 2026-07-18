@@ -211,7 +211,11 @@
               read-only; none → a hint. -->
               @if (needsActionCard(item)) {
                 @if (noEligibleCard(item)) {
-                  <span class="card-single none" [pTooltip]="borrowableNow(item) ? 'No selected card has this available to borrow (or all are at their loan limit)' : 'No selected card can place a hold on this title'">No eligible card</span>
+                  @if (borrowBlockedByLimit(item)) {
+                    <span class="card-single limit" pTooltip="Available at {{ limitBlockedLibraryLabel(item) }}, but you're at your loan limit — return a loan to borrow it">At loan limit · {{ limitBlockedLibraryLabel(item) }}</span>
+                  } @else {
+                    <span class="card-single none" [pTooltip]="borrowableNow(item) ? 'No selected card has this available to borrow' : 'No selected card can place a hold on this title'">No eligible card</span>
+                  }
                 } @else if (eligibleCards(item).length > 1) {
                   <p-select
                     [options]="eligibleCardOptions(item)"
@@ -276,7 +280,11 @@
                     }
                   }
                   @if (!isOnHold(item) && holdEligibleCards(item).length === 0) {
-                    <span class="no-action">—</span>
+                    @if (holdBlockedByLimit(item)) {
+                      <span class="no-action limit" pTooltip="Holdable at {{ limitBlockedLibraryLabel(item) }}, but you're at your hold limit — cancel a hold to place one">At hold limit · {{ limitBlockedLibraryLabel(item) }}</span>
+                    } @else {
+                      <span class="no-action">—</span>
+                    }
                   }
                 }
               }
@@ -309,7 +317,11 @@
                     }
                   }
                   @if (!isOnHold(item) && holdEligibleCards(item).length === 0) {
-                    <span class="no-action">—</span>
+                    @if (holdBlockedByLimit(item)) {
+                      <span class="no-action limit" pTooltip="Holdable at {{ limitBlockedLibraryLabel(item) }}, but you're at your hold limit — cancel a hold to place one">At hold limit · {{ limitBlockedLibraryLabel(item) }}</span>
+                    } @else {
+                      <span class="no-action">—</span>
+                    }
                   }
                 }
               }

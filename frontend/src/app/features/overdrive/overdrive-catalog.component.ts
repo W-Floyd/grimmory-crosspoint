@@ -466,6 +466,36 @@ export class OverdriveCatalogComponent {
      return this.eligibleCards(item).length === 0;
    }
 
+   /** Selected cards whose library has this title borrowable now (regular or Lucky Day), ignoring loan limit. */
+   private borrowableCardsIgnoringLimit(item: OverDriveCatalogItem): OverDriveCard[] {
+     const keys = new Set((item.availability ?? []).filter(a => this.borrowableAt(a)).map(a => a.libraryKey));
+     return this.selectedCards().filter(c => c.libraryKey != null && keys.has(c.libraryKey));
+   }
+
+   /** Selected cards whose library allows a hold on this title (not already held there), ignoring hold limit. */
+   private holdableCardsIgnoringLimit(item: OverDriveCatalogItem): OverDriveCard[] {
+     const keys = new Set((item.availability ?? []).filter(a => a.holdable).map(a => a.libraryKey));
+     const held = this.heldCardIds(item);
+     return this.selectedCards().filter(c => c.libraryKey != null && keys.has(c.libraryKey) && !held.has(c.cardId));
+   }
+
+   /** True when this title is borrowable at a selected library, but every such card is at its loan limit. */
+   borrowBlockedByLimit(item: OverDriveCatalogItem): boolean {
+     return this.borrowEligibleCards(item).length === 0 && this.borrowableCardsIgnoringLimit(item).length > 0;
+   }
+
+   /** True when this title is only holdable, and every card that could hold it is at its hold limit. */
+   holdBlockedByLimit(item: OverDriveCatalogItem): boolean {
+     return !this.borrowableNow(item) && !this.isOnHold(item)
+       && this.holdEligibleCards(item).length === 0 && this.holdableCardsIgnoringLimit(item).length > 0;
+   }
+
+   /** Label of a library where this title is borrowable/holdable but blocked by your loan/hold limit. */
+   limitBlockedLibraryLabel(item: OverDriveCatalogItem): string {
+     const card = this.borrowableCardsIgnoringLimit(item)[0] ?? this.holdableCardsIgnoringLimit(item)[0];
+     return card ? this.shortCardLabel(card.cardId) : '';
+   }
+
    /**
     * Whether an actionable borrow/hold button is shown for this title, so a card must be picked. True
     * when it's borrowable now (available at some selected library, or a ready hold) or holdable and not
@@ -805,8 +835,11 @@ export class OverdriveCatalogComponent {
     */
    availableElsewhere(hold: OverDriveHold): OverDriveCard | null {
      const avails = this.holdAvailability()[hold.id] ?? [];
+     // A Lucky Day copy skips the hold queue but is still a loan — so it, like a regular copy, is only
+     // borrowable on a card that isn't already at its loan limit.
      const availableKeys = new Set(avails.filter(a => a.available || (a.luckyDayAvailableCopies ?? 0) > 0).map(a => a.libraryKey));
-     return this.otherCardsForHold(hold).find(c => c.libraryKey != null && availableKeys.has(c.libraryKey)) ?? null;
+     return this.otherCardsForHold(hold).find(c =>
+       c.libraryKey != null && availableKeys.has(c.libraryKey) && !this.atLoanLimitFor(c.cardId)) ?? null;
    }
 
    /**
