@@ -1,0 +1,28 @@
+.cover-thumb {
+  position: relative;
+  display: inline-block;
+
+  .cover-img {
+    display: block;
+    width: 40px;
+    height: auto;
+    border-radius: 2px;
+  }
+
+  .cover-preview {
+    position: absolute;
+    top: 0;
+    left: calc(100% + 0.5rem);
+    z-index: 1000;
+    display: none;
+    width: 220px;
+    height: auto;
+    border-radius: 4px;
+    box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 45%);
+    pointer-events: none;
+  }
+
+  &:hover .cover-preview {
+    display: block;
+  }
+}

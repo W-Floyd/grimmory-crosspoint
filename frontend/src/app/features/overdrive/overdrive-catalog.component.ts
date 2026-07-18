@@ -16,12 +16,14 @@ import { TabsModule } from 'primeng/tabs';
 import { LibraryService } from '../../features/book/service/library.service';
 import { Library, LibraryPath } from '../../features/book/model/library.model';
 import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
+import { OverdriveCoverComponent } from './overdrive-cover.component';
 
 @Component({
   selector: 'app-overdrive-catalog',
   standalone: true,
   imports: [
     OverdriveTitleCellComponent,
+    OverdriveCoverComponent,
     FormsModule,
     ButtonModule,
     MessageModule,

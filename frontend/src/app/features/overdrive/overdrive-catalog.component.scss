@@ -83,11 +83,6 @@
     }
   }
 
-  .result-cover {
-    width: 40px;
-    height: auto;
-    border-radius: 2px;
-  }
 
   .availability {
     font-size: 0.85rem;
@@ -142,7 +137,11 @@
   gap: 0.5rem;
   flex-wrap: wrap;
 
-  .format-select {
+  // Format slot: keep the select and the read-only label the same width so the borrow
+  // buttons line up across rows regardless of whether a picker or a label is shown.
+  .format-select,
+  .format-single {
+    flex: 0 0 12rem;
     min-width: 12rem;
   }
 

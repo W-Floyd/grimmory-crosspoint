@@ -122,9 +122,7 @@
           <ng-template pTemplate="body" let-item>
             <tr>
               <td>
-                @if (item.coverUrl) {
-                  <img [src]="item.coverUrl" alt="cover" class="result-cover" />
-                }
+                <app-overdrive-cover [src]="item.coverUrl" />
               </td>
               <td>
                 <app-overdrive-title-cell
@@ -313,9 +311,7 @@
       <ng-template pTemplate="body" let-loan>
         <tr>
           <td>
-            @if (loan.coverUrl) {
-              <img [src]="loan.coverUrl" alt="cover" class="result-cover" />
-            }
+            <app-overdrive-cover [src]="loan.coverUrl" />
           </td>
           <td>
             <app-overdrive-title-cell
@@ -372,9 +368,7 @@
       <ng-template pTemplate="body" let-hold>
         <tr>
           <td>
-            @if (hold.coverUrl) {
-              <img [src]="hold.coverUrl" alt="cover" class="result-cover" />
-            }
+            <app-overdrive-cover [src]="hold.coverUrl" />
           </td>
           <td>
             <app-overdrive-title-cell
