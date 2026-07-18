@@ -199,16 +199,16 @@
                     <p-button
                       label="Borrow anyway"
                       icon="pi pi-exclamation-triangle"
-                      severity="secondary"
-                      [outlined]="true"
+                      severity="warn"
                       pTooltip="Already in your library — borrow and import another copy"
                       (onClick)="allowReborrow(item)" />
                   }
                   @if (canBorrow(item)) {
                     <p-button
-                      label="Borrow &amp; Import"
+                      [label]="isInLibrary(item) ? 'Import anyway' : 'Borrow &amp; Import'"
                       icon="pi pi-download"
-                      pTooltip="Borrow this title and import it (server-side) into the selected library, or into Bookdrop if none is selected"
+                      [severity]="isInLibrary(item) ? 'warn' : null"
+                      [pTooltip]="isInLibrary(item) ? 'You already have this book — borrow and import another copy' : 'Borrow this title and import it (server-side) into the selected library, or into Bookdrop if none is selected'"
                       [disabled]="!item.titleId || importingTitleId() !== null"
                       [loading]="importingTitleId() === item.titleId"
                       (onClick)="onBorrowImport(item)" />
@@ -367,7 +367,7 @@
           </td>
           <td>
             @if (hold.ready) {
-              <p-button icon="pi pi-download" severity="success"
+              <p-button label="Borrow" icon="pi pi-download" severity="success"
                 pTooltip="Borrow this ready hold and import it (or drop to Bookdrop)"
                 tooltipPosition="top"
                 [disabled]="importingTitleId() !== null"
@@ -375,7 +375,7 @@
                 (onClick)="onBorrowHold(hold)"
                 class="mr-2" />
             }
-            <p-button icon="pi pi-times" severity="danger"
+            <p-button label="Cancel" icon="pi pi-times" severity="danger"
               pTooltip="Cancel hold"
               tooltipPosition="top"
               (onClick)="onCancelHold(hold)" />
