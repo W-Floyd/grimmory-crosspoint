@@ -59,6 +59,22 @@
     padding: 1rem 1.25rem;
   }
 
+  // On narrow widths the paginator's report + controls ragged-wrap. Force a clean two-line break:
+  // the "N–M of X" report on its own centered line, the page controls centered below it.
+  @media (max-width: 640px) {
+    ::ng-deep .p-paginator {
+      flex-wrap: wrap;
+      justify-content: center;
+      row-gap: 0.5rem;
+
+      .p-paginator-current {
+        flex: 1 0 100%;
+        margin: 0;
+        text-align: center;
+      }
+    }
+  }
+
   // Library Cards header: title on the left, a fold toggle on the right so the whole card (selector +
   // capacity meters) can collapse to reclaim vertical space on short screens.
   .card-title-row {
