@@ -1,7 +1,5 @@
 import { Component, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
 import { AppSettingsService } from '../../../shared/service/app-settings.service';
 import { AppSettingKey } from '../../../shared/model/app-settings.model';
 import { InputTextModule } from 'primeng/inputtext';
@@ -35,11 +33,12 @@ export class OverdriveSettingsComponent {
   private readonly overdriveService = inject(OverDriveService);
   private readonly messageService = inject(MessageService);
 
-  // One or more OverDrive library keys for metadata search (comma/space separated). The first entry is
-  // also kept as the default/admin key used by the legacy catalog path and diagnostics.
-  libraryKeysText = signal('');
-  resolvingKeys = signal(false);
-  keyResolutions = signal<OverDriveLibraryResolution[]>([]);
+  // The list of OverDrive library keys to search for metadata (source of truth).
+  libraryKeys = signal<string[]>([]);
+  // The "add a key" input.
+  newKeyInput = signal('');
+  // Per-key Thunder validation result (or 'checking' while in flight), keyed by the key itself.
+  keyStatus = signal<Record<string, OverDriveLibraryResolution | 'checking'>>({});
   setupCode = signal('');
   connecting = signal(false);
   linkedCards = signal<OverDriveCard[]>([]);
@@ -82,8 +81,7 @@ export class OverdriveSettingsComponent {
     effect(() => {
       const overdrive = this.appSettingsService.appSettings()?.metadataProviderSettings?.overdrive;
       if (overdrive) {
-        const keys = this.parseKeys((overdrive.libraryKeys ?? []).join(', '));
-        this.libraryKeysText.set(keys.join(', '));
+        this.libraryKeys.set([...new Set((overdrive.libraryKeys ?? []).map(k => k.trim()).filter(k => k.length > 0))]);
         this.formatPreference = this.orderFormatPreference(overdrive.formatPreference);
       }
     });
@@ -166,34 +164,49 @@ export class OverdriveSettingsComponent {
     });
   }
 
-  /** Split the library-keys text into distinct, trimmed, non-blank keys (order preserved). */
-  private parseKeys(text: string): string[] {
-    const keys = text.split(/[\s,]+/).map(k => k.trim()).filter(k => k.length > 0);
-    return [...new Set(keys)];
-  }
-
-  onLibraryKeysChange(value: string): void {
-    this.libraryKeysText.set(value);
-    this.keyResolutions.set([]);
-  }
-
-  /** Validate each library key against the Thunder directory and show the resolved names. */
-  checkKeys(): void {
-    const keys = this.parseKeys(this.libraryKeysText());
-    if (keys.length === 0) {
-      this.keyResolutions.set([]);
+  /** Add the typed key to the list (if new) and validate it against the Thunder directory. */
+  onAddKey(): void {
+    const key = this.newKeyInput().trim();
+    this.newKeyInput.set('');
+    if (!key || this.libraryKeys().includes(key)) {
       return;
     }
-    this.resolvingKeys.set(true);
-    forkJoin(keys.map(k => this.overdriveService.resolveLibrary(k).pipe(
-      catchError(() => of({ valid: false, libraryKey: k, name: null } as OverDriveLibraryResolution))
-    ))).subscribe({
-      next: (res) => {
-        this.keyResolutions.set(res);
-        this.resolvingKeys.set(false);
-      },
-      error: () => this.resolvingKeys.set(false)
+    this.libraryKeys.update(ks => [...ks, key]);
+    this.resolveKey(key);
+  }
+
+  /** Remove a key from the list. */
+  removeKey(key: string): void {
+    this.libraryKeys.update(ks => ks.filter(k => k !== key));
+    this.keyStatus.update(s => {
+      const next = { ...s };
+      delete next[key];
+      return next;
     });
+  }
+
+  /** Re-validate every key currently in the list. */
+  checkKeys(): void {
+    this.libraryKeys().forEach(k => this.resolveKey(k));
+  }
+
+  /** Validate a single key, recording its resolution (or 'checking'). */
+  private resolveKey(key: string): void {
+    this.keyStatus.update(s => ({ ...s, [key]: 'checking' }));
+    this.overdriveService.resolveLibrary(key).subscribe({
+      next: (res) => this.keyStatus.update(s => ({ ...s, [key]: res })),
+      error: () => this.keyStatus.update(s => ({ ...s, [key]: { valid: false, libraryKey: key, name: null } }))
+    });
+  }
+
+  /** The resolved validation for a key, or null if not yet checked / still checking. */
+  keyResolution(key: string): OverDriveLibraryResolution | null {
+    const s = this.keyStatus()[key];
+    return s && s !== 'checking' ? s : null;
+  }
+
+  isKeyChecking(key: string): boolean {
+    return this.keyStatus()[key] === 'checking';
   }
 
   onConnect(): void {
@@ -400,7 +413,7 @@ export class OverdriveSettingsComponent {
       ...metadata,
       overdrive: {
         ...metadata.overdrive,
-        libraryKeys: this.parseKeys(this.libraryKeysText()),
+        libraryKeys: this.libraryKeys(),
         formatPreference: this.formatPreference.map(o => o.id)
       }
     };

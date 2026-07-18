@@ -9,38 +9,48 @@
 
   <div class="settings-card">
     <div class="field">
-      <label for="library-keys">Library Keys</label>
+      <label for="new-library-key">Library Keys</label>
       <div class="library-key-row">
         <input
-          id="library-keys"
+          id="new-library-key"
           pInputText
           type="text"
-          [ngModel]="libraryKeysText()"
-          (ngModelChange)="onLibraryKeysChange($event)"
+          [ngModel]="newKeyInput()"
+          (ngModelChange)="newKeyInput.set($event)"
           [ngModelOptions]="{ standalone: true }"
-          placeholder="e.g. lapl, bpl, sfpl"
+          placeholder="Add a library key (e.g. lapl)"
           class="w-full"
-          (keyup.enter)="checkKeys()"
+          (keyup.enter)="onAddKey()"
           />
         <p-button
-          label="Check"
-          icon="pi pi-check-circle"
+          label="Add"
+          icon="pi pi-plus"
           severity="secondary"
-          [loading]="resolvingKeys()"
-          [disabled]="!libraryKeysText().trim()"
-          (onClick)="checkKeys()"
+          [disabled]="!newKeyInput().trim()"
+          (onClick)="onAddKey()"
           />
       </div>
-      <small>OverDrive library keys (preferredKey) to search for metadata — comma or space separated, combined and deduplicated. The catalog/borrow page uses your linked cards instead.</small>
-      @for (res of keyResolutions(); track res.libraryKey) {
-        <p-message [severity]="res.valid ? 'success' : 'error'" class="mt-1">
-          @if (res.valid) {
-            {{ res.libraryKey }} → {{ res.name }}
+      <small>OverDrive library keys (preferredKey) to search for metadata. The catalog/borrow page uses your linked cards instead.</small>
+
+      @if (libraryKeys().length > 0) {
+        <div class="key-chips">
+          @for (key of libraryKeys(); track key) {
+            <span class="key-chip"
+              [class.valid]="keyResolution(key)?.valid"
+              [class.invalid]="keyResolution(key) && !keyResolution(key)!.valid">
+              <span class="key-chip-label">
+                {{ key }}@if (keyResolution(key)?.valid) {<span class="key-chip-name"> · {{ keyResolution(key)!.name }}</span>}
+                @if (isKeyChecking(key)) {<i class="pi pi-spin pi-spinner key-chip-icon"></i>}
+                @if (keyResolution(key) && !keyResolution(key)!.valid) {<i class="pi pi-exclamation-triangle key-chip-icon" pTooltip="No OverDrive library found for this key"></i>}
+              </span>
+              <button type="button" class="key-chip-remove" pTooltip="Remove" (click)="removeKey(key)">
+                <i class="pi pi-times"></i>
+              </button>
+            </span>
           }
-          @if (!res.valid) {
-            No OverDrive library found for “{{ res.libraryKey }}”
-          }
-        </p-message>
+        </div>
+        <p-button label="Check keys" icon="pi pi-check-circle" severity="secondary" [text]="true" size="small"
+          (onClick)="checkKeys()" />
       }
     </div>
 
