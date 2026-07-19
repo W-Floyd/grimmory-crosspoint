@@ -14,6 +14,19 @@ export interface OverDriveCard {
   defaultLibraryId?: number | null;
   /** Remembered default destination library path within defaultLibraryId. */
   defaultPathId?: number | null;
+  /** False when another user shared this card with you: borrow/hold works, but management is hidden. */
+  owned?: boolean;
+  /** Display name of the user who shared this card with you (only set when owned === false). */
+  ownerName?: string | null;
+  /** How many other users you've shared this card with (only meaningful on cards you own). */
+  sharedWithCount?: number;
+}
+
+/** A user for the card-sharing picker / share list. */
+export interface OverDriveShareUser {
+  userId: number;
+  username: string;
+  name?: string | null;
 }
 
 export interface OverDriveLoan {
@@ -231,6 +244,21 @@ export class OverDriveService {
       params['pathId'] = String(pathId);
     }
     return this.http.put<void>(`${this.baseUrl}/${cardId}/default-library`, null, { params });
+  }
+
+  /** Candidate users to share a card with (everyone but you). */
+  shareableUsers(): Observable<OverDriveShareUser[]> {
+    return this.http.get<OverDriveShareUser[]>(`${this.baseUrl}/shareable-users`);
+  }
+
+  /** Users a card is currently shared with (owner or admin only). */
+  listShares(cardId: string): Observable<OverDriveShareUser[]> {
+    return this.http.get<OverDriveShareUser[]>(`${this.baseUrl}/${cardId}/shares`);
+  }
+
+  /** Replace the set of users a card is shared with (owner or admin only). */
+  setShares(cardId: string, userIds: number[]): Observable<void> {
+    return this.http.put<void>(`${this.baseUrl}/${cardId}/shares`, { userIds });
   }
 
   /** Report which OverDrive features are available (e.g. whether an ACSM handler is configured). */

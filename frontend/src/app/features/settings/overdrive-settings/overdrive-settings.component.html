@@ -174,27 +174,77 @@
         <p-card header="Linked Cards">
           @for (card of linkedCards(); track card.cardId) {
             <div class="linked-card-row">
-              <span class="linked-card-info">
-                <input pInputText type="text" [value]="card.name || ''" #labelInput placeholder="Card label"
-                  class="linked-card-label" (keyup.enter)="onRenameCard(card, labelInput.value)" />
-                <small class="linked-card-id">{{ card.cardId }}</small>
-              </span>
-              <span class="linked-card-actions">
-                <p-button label="Rename" icon="pi pi-pencil" severity="secondary" size="small" [text]="true"
-                  pTooltip="Save this label for the card" (onClick)="onRenameCard(card, labelInput.value)" />
-                @if (card.credentialsStored) {
-                  <p-button label="Refresh" icon="pi pi-refresh" severity="secondary" size="small" [text]="true"
-                    pTooltip="Re-link from stored card + PIN to get a fresh token"
-                    (onClick)="onRefreshCard(card)" />
-                }
-                <p-button label="Unlink" icon="pi pi-times" severity="danger" size="small" [text]="true"
-                  pTooltip="Clear this card's stored token/credentials" (onClick)="onUnlinkCard(card)" />
-              </span>
+              @if (isOwned(card)) {
+                <span class="linked-card-info">
+                  <input pInputText type="text" [value]="card.name || ''" #labelInput placeholder="Card label"
+                    class="linked-card-label" (keyup.enter)="onRenameCard(card, labelInput.value)" />
+                  <small class="linked-card-id">
+                    {{ card.cardId }}
+                    @if (card.sharedWithCount) {
+                      <span class="shared-badge" pTooltip="You've shared this card with other users.">
+                        <i class="pi pi-users"></i> Shared with {{ card.sharedWithCount }}
+                      </span>
+                    }
+                  </small>
+                </span>
+                <span class="linked-card-actions">
+                  <p-button label="Rename" icon="pi pi-pencil" severity="secondary" size="small" [text]="true"
+                    pTooltip="Save this label for the card" (onClick)="onRenameCard(card, labelInput.value)" />
+                  <p-button label="Share" icon="pi pi-users" severity="secondary" size="small" [text]="true"
+                    pTooltip="Share this card with other users (borrow/hold access)"
+                    (onClick)="openShareDialog(card)" />
+                  @if (card.credentialsStored) {
+                    <p-button label="Refresh" icon="pi pi-refresh" severity="secondary" size="small" [text]="true"
+                      pTooltip="Re-link from stored card + PIN to get a fresh token"
+                      (onClick)="onRefreshCard(card)" />
+                  }
+                  <p-button label="Unlink" icon="pi pi-times" severity="danger" size="small" [text]="true"
+                    pTooltip="Clear this card's stored token/credentials" (onClick)="onUnlinkCard(card)" />
+                </span>
+              } @else {
+                <span class="linked-card-info">
+                  <span class="linked-card-name">{{ card.name || card.cardId }}</span>
+                  <small class="linked-card-id">
+                    {{ card.cardId }}
+                    <span class="shared-badge" pTooltip="Another user shared this card with you; you can borrow and hold with it.">
+                      <i class="pi pi-users"></i> Shared by {{ card.ownerName }}
+                    </span>
+                  </small>
+                </span>
+              }
             </div>
           }
-          <small class="hint">Set a label to rename a card. Unlink to clear an expired/blocked token, then re-link. Refresh (card+PIN links only) re-links from the stored credentials without re-entering the PIN.</small>
+          <small class="hint">Set a label to rename a card. Share to grant other users borrow/hold access (they can't unlink or relabel it). Unlink to clear an expired/blocked token, then re-link. Refresh (card+PIN links only) re-links from the stored credentials without re-entering the PIN.</small>
         </p-card>
       }
+
+      <p-dialog [(visible)]="shareDialogVisible" [modal]="true" [style]="{ width: '30rem' }"
+        header="Share card" [dismissableMask]="true">
+        @if (shareCard(); as card) {
+          <p class="share-dialog-intro">
+            Choose who can borrow and hold with <strong>{{ cardLabel(card) }}</strong>. They can search, borrow,
+            hold and import with it, but can't relabel, unlink, or change its default library.
+          </p>
+          <p-multiSelect
+            [options]="shareableUsers()"
+            [ngModel]="selectedShareUserIds()"
+            (ngModelChange)="selectedShareUserIds.set($event)"
+            optionValue="userId"
+            optionLabel="username"
+            [filter]="true"
+            filterBy="name,username"
+            placeholder="Select users"
+            selectedItemsLabel="{0} users selected"
+            styleClass="w-full"
+            appendTo="body">
+            <ng-template let-user pTemplate="item">{{ userOptionLabel(user) }}</ng-template>
+          </p-multiSelect>
+        }
+        <ng-template pTemplate="footer">
+          <p-button label="Cancel" severity="secondary" [text]="true" (onClick)="shareDialogVisible.set(false)" />
+          <p-button label="Save" icon="pi pi-check" [loading]="savingShares()" (onClick)="saveShares()" />
+        </ng-template>
+      </p-dialog>
     </div>
 
     <p-button

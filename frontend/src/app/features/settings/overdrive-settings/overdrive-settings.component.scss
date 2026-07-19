@@ -78,10 +78,35 @@
       max-width: 20rem;
     }
 
+    .linked-card-name {
+      flex: 0 1 auto;
+      min-width: 0;
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .linked-card-id {
       flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
       color: var(--text-color-secondary);
       overflow-wrap: anywhere;
+    }
+
+    .shared-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--primary-color);
+
+      i {
+        font-size: 0.7rem;
+      }
     }
   }
 
@@ -90,6 +115,12 @@
     gap: 0.25rem;
     flex-shrink: 0;
   }
+}
+
+.share-dialog-intro {
+  margin: 0 0 0.75rem;
+  color: var(--text-color-secondary);
+  font-size: 0.9rem;
 }
 
 .link-card-section {

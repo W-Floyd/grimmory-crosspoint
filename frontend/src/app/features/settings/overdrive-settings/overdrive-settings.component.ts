@@ -7,10 +7,12 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { MessageService } from 'primeng/api';
 
-import { OverDriveService, OverDriveCard, OverDriveLibraryResolution } from '../../../core/services/overdrive.service';
+import { OverDriveService, OverDriveCard, OverDriveLibraryResolution, OverDriveShareUser } from '../../../core/services/overdrive.service';
 import { ButtonModule } from 'primeng/button';
 import { TooltipModule } from 'primeng/tooltip';
 import { OrderListModule } from 'primeng/orderlist';
+import { DialogModule } from 'primeng/dialog';
+import { MultiSelectModule } from 'primeng/multiselect';
 
 @Component({
   selector: 'app-overdrive-settings',
@@ -22,7 +24,9 @@ import { OrderListModule } from 'primeng/orderlist';
     CardModule,
     ButtonModule,
     TooltipModule,
-    OrderListModule
+    OrderListModule,
+    DialogModule,
+    MultiSelectModule
 ],
   templateUrl: './overdrive-settings.component.html',
   styleUrl: './overdrive-settings.component.scss',
@@ -119,6 +123,63 @@ export class OverdriveSettingsComponent {
 
   cardLabel(card: OverDriveCard): string {
     return card.name ? `${card.name} (${card.cardId})` : card.cardId;
+  }
+
+  /** A card is yours to manage unless another user shared it with you (owned === false). */
+  isOwned(card: OverDriveCard): boolean {
+    return card.owned !== false;
+  }
+
+  // ── Card sharing ───────────────────────────────────────────────────────
+  shareDialogVisible = signal(false);
+  shareCard = signal<OverDriveCard | null>(null);
+  shareableUsers = signal<OverDriveShareUser[]>([]);
+  selectedShareUserIds = signal<number[]>([]);
+  savingShares = signal(false);
+
+  userOptionLabel(user: OverDriveShareUser): string {
+    return user.name ? `${user.name} (${user.username})` : user.username;
+  }
+
+  /** Open the share dialog for a card, loading candidate users and the card's current shares. */
+  openShareDialog(card: OverDriveCard): void {
+    this.shareCard.set(card);
+    this.selectedShareUserIds.set([]);
+    this.shareableUsers.set([]);
+    this.shareDialogVisible.set(true);
+    this.overdriveService.shareableUsers().subscribe({
+      next: (users) => this.shareableUsers.set(users ?? []),
+      error: () => this.shareableUsers.set([])
+    });
+    this.overdriveService.listShares(card.cardId).subscribe({
+      next: (shares) => this.selectedShareUserIds.set((shares ?? []).map(s => s.userId)),
+      error: () => this.selectedShareUserIds.set([])
+    });
+  }
+
+  /** Persist the chosen share set for the dialog's card. */
+  saveShares(): void {
+    const card = this.shareCard();
+    if (!card) {
+      return;
+    }
+    const ids = this.selectedShareUserIds();
+    this.savingShares.set(true);
+    this.overdriveService.setShares(card.cardId, ids).subscribe({
+      next: () => {
+        this.savingShares.set(false);
+        this.shareDialogVisible.set(false);
+        this.linkedCards.update(cards => cards.map(c => c.cardId === card.cardId ? { ...c, sharedWithCount: ids.length } : c));
+        this.messageService.add({
+          severity: 'success', summary: 'Sharing updated',
+          detail: ids.length ? `${this.cardLabel(card)} shared with ${ids.length} user(s)` : `Sharing cleared for ${this.cardLabel(card)}`
+        });
+      },
+      error: (err) => {
+        this.savingShares.set(false);
+        this.setupError.set(err?.error?.message || err?.message || 'Share update failed');
+      }
+    });
   }
 
   /**
