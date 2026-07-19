@@ -341,7 +341,7 @@
                   }
                 }
               }
-              <!-- No importable format: still allow the action, warning it's for Libby-app use only. -->
+              <!-- No importable format: borrow to Libby only (can't import here), warning as much. -->
               @if (!hasImportableFormat(item)) {
                 @if (borrowableNow(item)) {
                   <p-button
@@ -351,7 +351,7 @@
                     [pTooltip]="unsupportedBorrowTooltip(item)"
                     [disabled]="!item.titleId || importingTitleId() !== null || !chosenCardId(item)"
                     [loading]="importingTitleId() === item.titleId"
-                    (onClick)="onBorrowImport(item)" />
+                    (onClick)="onBorrowOnly(item)" />
                 }
                 @if (!borrowableNow(item)) {
                   @if (isOnHold(item)) {
