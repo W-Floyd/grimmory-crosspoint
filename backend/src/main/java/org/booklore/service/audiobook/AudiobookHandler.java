@@ -37,7 +37,7 @@ import java.util.stream.Stream;
  *     <pre>{@code
  * {
  *   "sentryBaseUrl": "https://sentry.libbyapp.com",
- *   "auth": { "card": {"number": "...", "pin": "..."}, "library": "...", "websiteId": "...", "ilsName": "..." },
+ *   "auth": { "card": {"library": "...", "websiteId": "...", "ilsName": "...", "number": "...", "pin": "..."} },
  *   "loan": { "mediaType": "audiobook", "cardId": "...", "titleId": "...", "formatId": "audiobook-mp3" }
  * }}</pre>
  *     The tool logs in with the card+PIN (resolving the library via {@code library}/{@code websiteId})
@@ -163,15 +163,16 @@ public class AudiobookHandler {
 
     /** Build the nested handoff manifest: card+PIN auth + loan identifiers. */
     private static Map<String, Object> buildManifest(Request r) {
+        // library/websiteId/ilsName live INSIDE auth.card (the tool's CardCredentials shape), not on auth.
         Map<String, Object> card = new LinkedHashMap<>();
+        putIfPresent(card, "library", r.libraryKey());
+        putIfPresent(card, "websiteId", r.websiteId());
+        putIfPresent(card, "ilsName", r.ilsName());
         card.put("number", r.cardNumber());
         card.put("pin", r.pin());
 
         Map<String, Object> auth = new LinkedHashMap<>();
         auth.put("card", card);
-        putIfPresent(auth, "library", r.libraryKey());
-        putIfPresent(auth, "websiteId", r.websiteId());
-        putIfPresent(auth, "ilsName", r.ilsName());
 
         Map<String, Object> loan = new LinkedHashMap<>();
         loan.put("mediaType", "audiobook");
