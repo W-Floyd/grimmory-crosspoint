@@ -486,15 +486,29 @@ export class OverdriveCatalogComponent {
      const held = this.heldCardIds(item);
      return this.selectedCards()
        .filter(c => c.libraryKey != null && keys.has(c.libraryKey) && !held.has(c.cardId) && !this.atHoldLimitFor(c.cardId))
-       // Shortest estimated wait first (so the default and dropdown order favour the sooner queue); ties
-       // broken by fewest current holds on the card.
-       .sort((a, b) => (this.holdWaitForCard(item, a) - this.holdWaitForCard(item, b))
-         || ((this.holdCountFor(a.cardId) ?? 0) - (this.holdCountFor(b.cardId) ?? 0)));
+       .sort((a, b) => this.compareHoldPreference(item, a, b));
+   }
+
+   /**
+    * Order two eligible cards by which is likely to come available soonest for this title: shortest
+    * estimated wait first, then — since the estimate is coarse and ties are common — the library with
+    * more owned copies (bigger pool churns faster and gains more from holds ahead lapsing), and finally
+    * the card carrying fewest of the user's own holds so no single card fills its hold slots.
+    */
+   private compareHoldPreference(item: OverDriveCatalogItem, a: OverDriveCard, b: OverDriveCard): number {
+     return (this.holdWaitForCard(item, a) - this.holdWaitForCard(item, b))
+       || (this.copiesForCard(item, b) - this.copiesForCard(item, a))
+       || ((this.holdCountFor(a.cardId) ?? 0) - (this.holdCountFor(b.cardId) ?? 0));
    }
 
    /** Estimated hold wait (days) at a card's library for this title; unknown waits sort last. */
    private holdWaitForCard(item: OverDriveCatalogItem, card: OverDriveCard): number {
      return this.availabilityForCard(item, card)?.estimatedWaitDays ?? Number.POSITIVE_INFINITY;
+   }
+
+   /** Copies the card's library owns of this title; unknown counts sort last (treated as zero). */
+   private copiesForCard(item: OverDriveCatalogItem, card: OverDriveCard): number {
+     return this.availabilityForCard(item, card)?.ownedCopies ?? 0;
    }
 
    /** Card ids (among selected) that already hold this title. */
@@ -1018,15 +1032,25 @@ export class OverdriveCatalogComponent {
      const currentWait = Number(hold.estimatedWaitDays);
      if (!Number.isFinite(currentWait)) return null;
      const avails = this.holdAvailability()[hold.id] ?? [];
-     let best: { card: OverDriveCard; waitDays: number } | null = null;
+     let best: { card: OverDriveCard; waitDays: number; copies: number } | null = null;
      for (const a of avails) {
        if (!a.holdable || a.estimatedWaitDays == null || a.estimatedWaitDays >= currentWait) continue;
        const card = this.otherCardsForHold(hold).find(c => c.libraryKey === a.libraryKey);
-       if (card && (best === null || a.estimatedWaitDays < best.waitDays)) {
-         best = { card, waitDays: a.estimatedWaitDays };
+       if (!card) continue;
+       // Shortest estimated wait wins; equal-wait ties go to the library with more owned copies (it
+       // churns faster and gains more from holds ahead lapsing), then to the card with fewest of the
+       // user's own holds.
+       const copies = a.ownedCopies ?? 0;
+       const better = best === null
+         || a.estimatedWaitDays < best.waitDays
+         || (a.estimatedWaitDays === best.waitDays && copies > best.copies)
+         || (a.estimatedWaitDays === best.waitDays && copies === best.copies
+             && (this.holdCountFor(card.cardId) ?? 0) < (this.holdCountFor(best.card.cardId) ?? 0));
+       if (better) {
+         best = { card, waitDays: a.estimatedWaitDays, copies };
        }
      }
-     return best;
+     return best && { card: best.card, waitDays: best.waitDays };
    }
 
    /**
