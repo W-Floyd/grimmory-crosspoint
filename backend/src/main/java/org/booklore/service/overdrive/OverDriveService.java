@@ -1468,9 +1468,18 @@ public class OverDriveService {
       private AudiobookHandler.Request audiobookRequest(String identity, String titleId, String formatId) {
         OverDriveTokenEntity card = accessibleTokenRow(currentUserId(), identity)
                 .orElseThrow(() -> new RestClientException("No such card for audiobook fulfillment: " + identity));
-        if (!credentialCipher.isEnabled() || card.getCredCard() == null) {
-            throw new RestClientException("Audiobook download needs stored card credentials. Link this card "
-                    + "by number + PIN (with OVERDRIVE_CREDENTIAL_KEY set) so its card + PIN are stored, then retry.");
+        String label = (card.getCardName() != null && !card.getCardName().isBlank()
+                ? "\"" + card.getCardName() + "\" " : "") + "(" + identity + ")";
+        if (!credentialCipher.isEnabled()) {
+            throw new RestClientException("Audiobook download needs stored card credentials, but credential "
+                    + "storage is off: set OVERDRIVE_CREDENTIAL_KEY (base64 16/24/32 bytes) and re-link the card "
+                    + "by number + PIN. (Settings → OverDrive → diagnostics shows credentialStorageEnabled.)");
+        }
+        if (card.getCredCard() == null) {
+            throw new RestClientException("Card " + label + " has no stored card + PIN, so it can't download "
+                    + "audiobooks. Only cards linked by number + PIN store credentials — setup-code and "
+                    + "pasted-token links don't. Re-link THIS card by number + PIN, then retry. (Settings → "
+                    + "OverDrive → diagnostics shows each card's credentialsStored.)");
         }
         String cardNumber = credentialCipher.decrypt(card.getCredCard());
         String pin = card.getCredPin() != null ? credentialCipher.decrypt(card.getCredPin()) : null;
