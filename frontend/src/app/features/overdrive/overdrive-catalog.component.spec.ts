@@ -482,7 +482,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     function loans() {
       setup();
       component.loans.set([
-        {id: 'l1', title: 'Cain', firstCreatorName: 'Zed', expireDate: '2026-08-10', checkoutDate: '2026-07-01', cardId: 'c1', formatId: 'audiobook-mp3'},
+        {id: 'l1', title: 'Cain', firstCreatorName: 'Zed', expireDate: '2026-08-10', checkoutDate: '2026-07-01', cardId: 'c1', formatId: 'audiobook-mp3', bookId: 42},
         {id: 'l2', title: 'Abel', firstCreatorName: 'Yan', expireDate: '2026-08-01', checkoutDate: '2026-07-05', cardId: 'c2', formatId: 'ebook-epub-open'},
         {id: 'l3', title: 'Baker', firstCreatorName: 'Xor', expireDate: '2026-08-20', checkoutDate: '2026-07-03', cardId: 'c1', formatId: 'ebook-epub-adobe'},
       ]);
@@ -494,6 +494,17 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       expect(component.filteredLoans().map(l => l.id)).toEqual(['l1', 'l3']);
       component.loanFilterFormat.set('audiobook');
       expect(component.filteredLoans().map(l => l.id)).toEqual(['l1']);
+      expect(component.loanFiltersActive()).toBe(true);
+      component.clearLoanFilters();
+      expect(component.filteredLoans()).toHaveLength(3);
+    });
+
+    it('filters loans by import status', () => {
+      loans();
+      component.loanFilterImported.set('imported');
+      expect(component.filteredLoans().map(l => l.id)).toEqual(['l1']);
+      component.loanFilterImported.set('unimported');
+      expect(component.filteredLoans().map(l => l.id)).toEqual(['l2', 'l3']);
       expect(component.loanFiltersActive()).toBe(true);
       component.clearLoanFilters();
       expect(component.filteredLoans()).toHaveLength(3);

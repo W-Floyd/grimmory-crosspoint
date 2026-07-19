@@ -176,8 +176,14 @@ export class OverdriveCatalogComponent {
   // ── Loans / Holds tab: per-card filter + column sort ──────────────────────────────────────────
   loanFilterCard = signal<string>('all');
   loanFilterFormat = signal<'all' | 'ebook' | 'audiobook'>('all');
+  loanFilterImported = signal<'all' | 'imported' | 'unimported'>('all');
   loanSortField = signal<string | null>(null);
   loanSortOrder = signal<1 | -1>(1);
+  readonly importFilterOptions = [
+    { label: 'All loans', value: 'all' },
+    { label: 'Imported', value: 'imported' },
+    { label: 'Not imported', value: 'unimported' },
+  ];
   holdFilterCard = signal<string>('all');
   holdFilterReady = signal(false);
   holdSortField = signal<string | null>(null);
@@ -193,10 +199,13 @@ export class OverdriveCatalogComponent {
   readonly filteredLoans = computed(() => {
     const cardId = this.loanFilterCard();
     const format = this.loanFilterFormat();
+    const imported = this.loanFilterImported();
     const rows = this.loans().filter(l => {
       if (cardId !== 'all' && l.cardId !== cardId) return false;
       if (format === 'audiobook' && !this.loanIsAudiobook(l)) return false;
       if (format === 'ebook' && this.loanIsAudiobook(l)) return false;
+      if (imported === 'imported' && l.bookId == null) return false;
+      if (imported === 'unimported' && l.bookId != null) return false;
       return true;
     });
     return this.applySort(rows, this.loanSortField(), this.loanSortOrder(), (f, x) => this.loanSortKey(f, x));
@@ -223,7 +232,8 @@ export class OverdriveCatalogComponent {
   }
 
   loanFiltersActive(): boolean {
-    return this.loanFilterCard() !== 'all' || this.loanFilterFormat() !== 'all';
+    return this.loanFilterCard() !== 'all' || this.loanFilterFormat() !== 'all'
+      || this.loanFilterImported() !== 'all';
   }
 
   holdFiltersActive(): boolean {
@@ -233,6 +243,7 @@ export class OverdriveCatalogComponent {
   clearLoanFilters(): void {
     this.loanFilterCard.set('all');
     this.loanFilterFormat.set('all');
+    this.loanFilterImported.set('all');
   }
 
   clearHoldFilters(): void {
