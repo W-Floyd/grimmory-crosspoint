@@ -287,7 +287,8 @@ public class OverDriveController {
     @GetMapping("/capabilities")
     public ResponseEntity<OverDriveCapabilities> capabilities() {
         return ResponseEntity.ok(new OverDriveCapabilities(
-                acsmHandler.isConfigured(), overDriveService.credentialStorageEnabled()));
+                acsmHandler.isConfigured(), overDriveService.credentialStorageEnabled(),
+                overDriveService.audiobookHandlerConfigured()));
     }
 
     /**
@@ -733,7 +734,8 @@ public class OverDriveController {
 
     // ── Response DTOs ────────────────────────────────────────────────────
 
-    record OverDriveCapabilities(boolean acsmHandlerConfigured, boolean credentialStorageEnabled) {}
+    record OverDriveCapabilities(boolean acsmHandlerConfigured, boolean credentialStorageEnabled,
+                                 boolean audiobookHandlerConfigured) {}
 
     record OverDriveChipResult(String identity, String token) {}
 

@@ -32,6 +32,7 @@ class OverDriveServiceTest {
     @Mock private OverDriveLoanRepository loanRepository;
     @Mock private org.booklore.repository.BookRepository bookRepository;
     @Mock private AcsmHandler acsmHandler;
+    @Mock private org.booklore.service.audiobook.AudiobookHandler audiobookHandler;
     @Mock private RestClient restClient;
     @Mock private OverDriveImportService overDriveImportService;
     @Mock private OverDriveParser overDriveParser;
@@ -48,7 +49,7 @@ class OverDriveServiceTest {
     void setUp() {
         // Credential cipher with no key configured -> disabled (token-only), matching default deploys.
         OverDriveCredentialCipher cipher = new OverDriveCredentialCipher("");
-        service = new OverDriveService(loanRepository, bookRepository, acsmHandler, restClient,
+        service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, restClient,
                 overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 userRepository, authenticationService, appSettingService, cipher);
     }
@@ -564,6 +565,24 @@ class OverDriveServiceTest {
         assertThatThrownBy(() -> service.setShares("dup", List.of(9L)))
                 .isInstanceOf(org.booklore.exception.APIException.class);
         verify(cardShareRepository, never()).save(any());
+    }
+
+    @Test
+    void selectFormat_picksAudiobookOnlyWhenHandlerReady() {
+        var formats = List.of("audiobook-overdrive", "audiobook-mp3");
+        // Prefers audiobook-mp3, and only when an audiobook handler is ready.
+        assertThat(OverDriveService.selectFormat(formats, OverDriveService.defaultFormatPreference(), false, true))
+                .isEqualTo("audiobook-mp3");
+        assertThat(OverDriveService.selectFormat(formats, OverDriveService.defaultFormatPreference(), false, false))
+                .isNull();
+    }
+
+    @Test
+    void selectFormat_stillPrefersEbookFormats() {
+        var formats = List.of("ebook-epub-open", "audiobook-mp3");
+        // A loan is one medium in practice, but ebook preference still wins when both are (hypothetically) offered.
+        assertThat(OverDriveService.selectFormat(formats, OverDriveService.defaultFormatPreference(), false, true))
+                .isEqualTo("ebook-epub-open");
     }
 
     @Test

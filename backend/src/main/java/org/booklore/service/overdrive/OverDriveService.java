@@ -24,6 +24,7 @@ import org.booklore.repository.OverDriveTokenRepository;
 import org.booklore.repository.UserRepository;
 import org.springframework.data.domain.PageRequest;
 import org.booklore.service.acsm.AcsmHandler;
+import org.booklore.service.audiobook.AudiobookHandler;
 import org.booklore.service.appsettings.AppSettingService;
 import org.booklore.service.metadata.parser.OverDriveItemExtractor;
 import org.booklore.service.metadata.parser.OverDriveParser;
@@ -72,6 +73,7 @@ public class OverDriveService {
     private final OverDriveLoanRepository loanRepository;
     private final BookRepository bookRepository;
     private final AcsmHandler acsmHandler;
+    private final AudiobookHandler audiobookHandler;
 
      @Value("${app.overdrive.sentry-base-url:https://sentry.libbyapp.com}")
     private String sentryBaseUrl;
@@ -242,11 +244,22 @@ public class OverDriveService {
     private static final List<String> DEFAULT_FORMAT_PREFERENCE =
             List.of(FORMAT_EPUB_OPEN, FORMAT_EPUB_ADOBE, FORMAT_PDF_OPEN, FORMAT_PDF_ADOBE);
 
+    /** OverDrive audiobook format id preferred by the handoff (Libby's MP3 audiobook). */
+    private static final String FORMAT_AUDIOBOOK_MP3 = "audiobook-mp3";
+
     private static boolean isOpenFormat(String formatId) {
         return formatId != null && formatId.endsWith("-open");
     }
 
+    /** Any OverDrive audiobook format (e.g. audiobook-mp3, audiobook-overdrive) — fulfilled by the tool. */
+    private static boolean isAudiobookFormat(String formatId) {
+        return formatId != null && formatId.startsWith("audiobook-");
+    }
+
     private static BookFileType bookFileType(String formatId) {
+        if (isAudiobookFormat(formatId)) {
+            return BookFileType.AUDIOBOOK;
+        }
         return formatId != null && formatId.startsWith("ebook-pdf") ? BookFileType.PDF : BookFileType.EPUB;
     }
 
@@ -1136,7 +1149,8 @@ public class OverDriveService {
        * no handler is configured. Returns null when nothing fulfillable matches.
        */
       private String chooseFormat(List<String> loanFormats) {
-        return selectFormat(loanFormats, formatPreference(), acsmHandler.isConfigured());
+        return selectFormat(loanFormats, formatPreference(), acsmHandler.isConfigured(),
+                audiobookHandler.isConfigured());
       }
 
       /**
@@ -1147,13 +1161,29 @@ public class OverDriveService {
         return chooseFormat(offeredFormatIds);
       }
 
-      /** A supported format we can actually import: open formats always, Adobe only with an ACSM handler. */
+      /**
+       * A format we can actually import: open ebook formats always, Adobe ebook formats only with an
+       * ACSM handler, and audiobook formats only with an audiobook handler.
+       */
       private boolean isImportableFormat(String formatId) {
+        if (isAudiobookFormat(formatId)) {
+            return audiobookHandler.isConfigured();
+        }
         return SUPPORTED_FORMATS.contains(formatId) && (isOpenFormat(formatId) || acsmHandler.isConfigured());
       }
 
-      /** Pure selection: first preferred format offered by the loan that is fulfillable. */
+      /** Backwards-compatible overload (ebook-only) — no audiobook handler. */
       static String selectFormat(List<String> loanFormats, List<String> preference, boolean acsmHandlerReady) {
+        return selectFormat(loanFormats, preference, acsmHandlerReady, false);
+      }
+
+      /**
+       * Pure selection: the first preferred ebook format the loan offers that is fulfillable; failing
+       * that, an offered audiobook format when an audiobook handler is ready. A loan is one medium
+       * (ebook OR audiobook), so the two never compete — audiobook titles carry no ebook formats.
+       */
+      static String selectFormat(List<String> loanFormats, List<String> preference, boolean acsmHandlerReady,
+                                 boolean audiobookHandlerReady) {
         for (String preferred : preference) {
             if (!loanFormats.contains(preferred)) {
                 continue;
@@ -1162,6 +1192,16 @@ public class OverDriveService {
                 continue; // Adobe format but no ACSM handler to procure it.
             }
             return preferred;
+        }
+        if (audiobookHandlerReady) {
+            if (loanFormats.contains(FORMAT_AUDIOBOOK_MP3)) {
+                return FORMAT_AUDIOBOOK_MP3;
+            }
+            for (String f : loanFormats) {
+                if (isAudiobookFormat(f)) {
+                    return f;
+                }
+            }
         }
         return null;
       }
@@ -1328,6 +1368,7 @@ public class OverDriveService {
         r.put("libraryKeys", configuredLibraryKeys());
         r.put("formatPreference", formatPreference());
         r.put("acsmHandlerConfigured", acsmHandler.isConfigured());
+        r.put("audiobookHandlerConfigured", audiobookHandler.isConfigured());
         r.put("credentialStorageEnabled", credentialCipher.isEnabled());
 
         Long userId = currentUserId();
@@ -1413,6 +1454,11 @@ public class OverDriveService {
         return credentialCipher.isEnabled();
       }
 
+      /** Whether an external audiobook handler is configured (enables borrowing audiobook titles). */
+      public boolean audiobookHandlerConfigured() {
+        return audiobookHandler.isConfigured();
+      }
+
       /** The configured OverDrive library keys (for metadata search) from metadata provider settings. */
       private List<String> configuredLibraryKeys() {
         var appSettings = appSettingService.getAppSettings();
@@ -1474,12 +1520,24 @@ public class OverDriveService {
         }
 
         byte[] content;
-        if (isOpenFormat(chosenFormat)) {
+        String extension;
+        if (isAudiobookFormat(chosenFormat)) {
+            // Audiobook: hand the loan + chip token to the external tool, which fulfils, downloads and
+            // assembles the file itself. The tool picks the output extension (m4b/mp3/…).
+            AudiobookHandler.Result audiobook = audiobookHandler.handle(new AudiobookHandler.Request(
+                    authToken, identity, loanId, chosenFormat, titleId, sentryBaseUrl));
+            content = audiobook.content();
+            extension = audiobook.extension();
+            if (content == null || content.length == 0) {
+                throw new RestClientException("The audiobook handler did not produce a file for loan " + loanId + ".");
+            }
+        } else if (isOpenFormat(chosenFormat)) {
             // DRM-free: fulfill directly — no external tool required.
             content = fulfillOpen(identity, authToken, loanId, chosenFormat);
             if (content == null || content.length == 0) {
                 throw new RestClientException("Open fulfillment returned no data for loan " + loanId);
             }
+            extension = fileExtension(chosenFormat);
         } else {
             // Adobe format: hand the ACSM to the configured external tool to procure the book.
             byte[] acsm = getAcsm(identity, authToken, loanId, chosenFormat);
@@ -1491,6 +1549,7 @@ public class OverDriveService {
                 throw new RestClientException("The external ACSM handler did not produce a book file for loan "
                         + loanId + ".");
             }
+            extension = fileExtension(chosenFormat);
         }
 
         BookFileType fileType = bookFileType(chosenFormat);
@@ -1501,7 +1560,7 @@ public class OverDriveService {
         if (metadata == null) {
             metadata = buildImportMetadata(title, author, coverUrl, isbn);
         }
-        String fileName = buildFileName(title, loanId, fileExtension(chosenFormat));
+        String fileName = buildFileName(title, loanId, extension);
 
         // With a destination library + path, import straight into the library — unless that library
         // wouldn't keep this file type (it purges disallowed formats on scan), in which case drop it into
@@ -1659,6 +1718,18 @@ public class OverDriveService {
         for (String f : formatPreference()) {
             if (offered.contains(f) && !ordered.contains(f) && (isOpenFormat(f) || acsm)) {
                 ordered.add(f);
+            }
+        }
+        // Audiobook formats, when a handler is configured. A title is one medium, so these only appear
+        // for audiobook titles (which carry no ebook formats). Prefer audiobook-mp3.
+        if (audiobookHandler.isConfigured()) {
+            if (offered.contains(FORMAT_AUDIOBOOK_MP3)) {
+                ordered.add(FORMAT_AUDIOBOOK_MP3);
+            }
+            for (String f : offered) {
+                if (isAudiobookFormat(f) && !ordered.contains(f)) {
+                    ordered.add(f);
+                }
             }
         }
         return ordered;
