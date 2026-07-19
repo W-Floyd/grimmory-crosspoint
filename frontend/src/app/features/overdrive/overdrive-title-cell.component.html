@@ -1,6 +1,13 @@
 <div class="od-title-text">
   <span class="od-title-line">
-    {{ title() }}
+    @if (bookId() !== null) {
+      <a class="od-title in-library" [routerLink]="['/book', bookId()]"
+        pTooltip="In your library — open it" tooltipPosition="top">
+        <i class="pi pi-check-circle"></i>{{ title() }}
+      </a>
+    } @else {
+      <span class="od-title">{{ title() }}</span>
+    }
     @if (libbyUrl()) {
       <a [href]="libbyUrl()" target="_blank" rel="noopener noreferrer" class="od-libby"
         pTooltip="Open in Libby" tooltipPosition="top">
@@ -10,11 +17,5 @@
   </span>
   @if (subtitle()) {
     <small class="od-subtitle">{{ subtitle() }}</small>
-  }
-  @if (bookId() !== null) {
-    <a class="od-in-library" [routerLink]="['/book', bookId()]"
-      pTooltip="Open this book in your library" tooltipPosition="top">
-      <i class="pi pi-check-circle"></i> In your library
-    </a>
   }
 </div>

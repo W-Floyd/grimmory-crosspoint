@@ -10,6 +10,29 @@
   gap: 0.35rem;
 }
 
+.od-title {
+  color: inherit;
+  text-decoration: none;
+
+  // When the title is in your library, the title itself becomes the indicator: accent colour +
+  // check icon + link (tooltip explains), so no separate "In your library" line is needed.
+  &.in-library {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--primary-color);
+    font-weight: 500;
+
+    &:hover {
+      text-decoration: underline;
+    }
+
+    .pi {
+      font-size: 0.85rem;
+    }
+  }
+}
+
 .od-libby {
   display: inline-flex;
   color: var(--text-color-secondary);
@@ -23,23 +46,4 @@
 .od-subtitle {
   color: var(--text-color-secondary);
   font-size: 0.85rem;
-}
-
-.od-in-library {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  width: fit-content;
-  margin-top: 0.15rem;
-  font-size: 0.8rem;
-  color: var(--primary-color);
-  text-decoration: none;
-
-  &:hover {
-    text-decoration: underline;
-  }
-
-  .pi {
-    font-size: 0.8rem;
-  }
 }
