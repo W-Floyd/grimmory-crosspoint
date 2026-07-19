@@ -224,6 +224,50 @@
     }
   }
 
+  // History tab: coloured action pill + muted timestamp/detail cells.
+  .history-action {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 1rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+    background: var(--surface-200, rgb(255 255 255 / 10%));
+    color: var(--text-color-secondary);
+
+    &.borrow {
+      background: color-mix(in srgb, var(--green-500, #22c55e) 20%, transparent);
+      color: var(--green-500, #22c55e);
+    }
+
+    &.return {
+      background: color-mix(in srgb, var(--red-500, #ef4444) 18%, transparent);
+      color: var(--red-400, #f87171);
+    }
+
+    &.neutral {
+      background: color-mix(in srgb, var(--primary-color) 18%, transparent);
+      color: var(--primary-color);
+    }
+  }
+
+  .history-when {
+    white-space: nowrap;
+    color: var(--text-color-secondary);
+    font-size: 0.85rem;
+  }
+
+  .history-detail {
+    color: var(--text-color-secondary);
+    font-size: 0.85rem;
+  }
+
+  .history-empty {
+    text-align: center;
+    color: var(--text-color-secondary);
+    padding: 1.5rem 0;
+  }
+
   // Actions column header with an inline bulk action (e.g. "Check all other libraries").
   .actions-header {
     display: flex;

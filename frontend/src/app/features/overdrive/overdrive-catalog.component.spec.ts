@@ -38,6 +38,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     search: vi.fn(),
     borrowAndImport: vi.fn(),
     titleAvailability: vi.fn(),
+    history: vi.fn(() => of([])),
   };
   const libraryService = {libraries: () => []};
 
@@ -334,6 +335,31 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     // Both holds are now checked → nothing left, spinner cleared.
     expect(component.uncheckedHolds()).toHaveLength(0);
     expect(component.checkingAll()).toBe(false);
+  });
+
+  it('lazy-loads history only when the History tab is opened', () => {
+    setup();
+    overdriveService.history.mockReturnValue(of([
+      {id: 1, action: 'BORROW', title: 'Dune', cardName: 'JoCo', success: true, createdAt: '2026-07-18T20:00:00Z'},
+    ]));
+
+    component.onTabChange('loans');
+    expect(overdriveService.history).not.toHaveBeenCalled();
+
+    component.onTabChange('history');
+    expect(component.activeTab()).toBe('history');
+    expect(overdriveService.history).toHaveBeenCalledTimes(1);
+    expect(component.history()).toHaveLength(1);
+  });
+
+  it('maps history action codes to friendly labels and colour groups', () => {
+    setup();
+    expect(component.actionLabel('BORROW_AND_IMPORT')).toBe('Borrowed & imported');
+    expect(component.actionLabel('HOLD_PLACED')).toBe('Hold placed');
+    expect(component.actionLabel('WHAT')).toBe('WHAT');
+    expect(component.actionClass('BORROW')).toBe('borrow');
+    expect(component.actionClass('RETURN')).toBe('return');
+    expect(component.actionClass('SHARE_UPDATED')).toBe('neutral');
   });
 
   it('flags a search result the user already has on loan', () => {

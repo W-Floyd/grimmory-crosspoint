@@ -1,11 +1,12 @@
 import { Component, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
 import { forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
-import { OverDriveService, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSyncResult } from '../../core/services/overdrive.service';
+import { OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSyncResult } from '../../core/services/overdrive.service';
 
 import { ButtonModule } from 'primeng/button';
 import { MessageModule } from 'primeng/message';
@@ -27,6 +28,7 @@ import { OverdriveCoverComponent } from './overdrive-cover.component';
   selector: 'app-overdrive-catalog',
   standalone: true,
   imports: [
+    RouterLink,
     OverdriveTitleCellComponent,
     OverdriveCoverComponent,
     FormsModule,
@@ -63,8 +65,11 @@ export class OverdriveCatalogComponent {
   libraries = signal<OverDriveLibrary[]>([]);
   // Time of the last successful loans/holds sync, so the user knows how current the data is.
   lastSynced = signal<Date | null>(null);
-  // Active tab on the catalog (search / loans / holds).
+  // Active tab on the catalog (search / loans / holds / history).
   activeTab = signal<string | number>('search');
+  // OverDrive activity history (newest first), loaded when the History tab is opened.
+  history = signal<OverDriveAuditEntry[]>([]);
+  loadingHistory = signal(false);
   // Whether the Library Cards + capacity section is folded away to give the loans/holds tables room.
   // Defaults to folded on short viewports (e.g. mobile), where the tall card would otherwise squeeze
   // the tab tables to nothing; the user can always toggle it back open.
@@ -1264,4 +1269,73 @@ export class OverdriveCatalogComponent {
        return dateStr;
        }
      }
+
+   /** Date + time, for the History tab (actions need finer granularity than a bare date). */
+   formatDateTime(dateStr: string | null | undefined): string {
+     if (!dateStr) return '—';
+     try {
+       return new Date(dateStr).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+     } catch {
+       return dateStr;
+     }
+   }
+
+   /** Switch tabs; lazy-load the history the first time the History tab is opened. */
+   onTabChange(tab: string | number | undefined): void {
+     const next = tab ?? 'search';
+     this.activeTab.set(next);
+     if (next === 'history') {
+       this.loadHistory();
+     }
+   }
+
+   /** Load the current user's OverDrive activity history. */
+   loadHistory(): void {
+     this.loadingHistory.set(true);
+     this.overdriveService.history().subscribe({
+       next: (entries) => { this.history.set(entries ?? []); this.loadingHistory.set(false); },
+       error: () => { this.loadingHistory.set(false); }
+     });
+   }
+
+   private static readonly ACTION_LABELS: Record<string, string> = {
+     BORROW: 'Borrowed',
+     BORROW_AND_IMPORT: 'Borrowed & imported',
+     RETURN: 'Returned',
+     HOLD_PLACED: 'Hold placed',
+     HOLD_CANCELLED: 'Hold cancelled',
+     DOWNLOAD: 'Downloaded',
+     CARD_LINKED: 'Card linked',
+     CARD_UNLINKED: 'Card unlinked',
+     CARD_RELABELED: 'Card renamed',
+     CARD_REFRESHED: 'Card refreshed',
+     SHARE_UPDATED: 'Sharing updated'
+   };
+
+   /** Friendly label for a history action code. */
+   actionLabel(action: string): string {
+     return OverdriveCatalogComponent.ACTION_LABELS[action] ?? action;
+   }
+
+   /** CSS modifier class for a history action (colour grouping). */
+   actionClass(action: string): string {
+     switch (action) {
+       case 'BORROW':
+       case 'BORROW_AND_IMPORT':
+       case 'DOWNLOAD':
+         return 'borrow';
+       case 'RETURN':
+       case 'HOLD_CANCELLED':
+       case 'CARD_UNLINKED':
+         return 'return';
+       case 'HOLD_PLACED':
+       case 'CARD_LINKED':
+       case 'CARD_REFRESHED':
+       case 'SHARE_UPDATED':
+       case 'CARD_RELABELED':
+         return 'neutral';
+       default:
+         return 'neutral';
+     }
+   }
 }

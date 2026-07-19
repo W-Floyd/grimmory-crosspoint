@@ -29,6 +29,24 @@ export interface OverDriveShareUser {
   name?: string | null;
 }
 
+/** One entry in a user's OverDrive activity history. */
+export interface OverDriveAuditEntry {
+  id: number;
+  /** Action name, e.g. BORROW, RETURN, HOLD_PLACED, CARD_LINKED, SHARE_UPDATED. */
+  action: string;
+  identity?: string | null;
+  libraryKey?: string | null;
+  cardName?: string | null;
+  titleId?: string | null;
+  loanId?: string | null;
+  bookId?: number | null;
+  title?: string | null;
+  detail?: string | null;
+  success: boolean;
+  /** ISO-8601 timestamp of when the action happened. */
+  createdAt?: string | null;
+}
+
 export interface OverDriveLoan {
   id: string;
   title: string;
@@ -263,6 +281,11 @@ export class OverDriveService {
   /** Replace the set of users a card is shared with (owner or admin only). */
   setShares(cardId: string, userIds: number[]): Observable<void> {
     return this.http.put<void>(`${this.baseUrl}/${cardId}/shares`, { userIds });
+  }
+
+  /** The current user's recent OverDrive activity history (newest first). */
+  history(): Observable<OverDriveAuditEntry[]> {
+    return this.http.get<OverDriveAuditEntry[]>(`${this.baseUrl}/history`);
   }
 
   /** Report which OverDrive features are available (e.g. whether an ACSM handler is configured). */

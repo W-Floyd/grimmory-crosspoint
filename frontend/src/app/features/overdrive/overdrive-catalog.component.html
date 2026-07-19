@@ -93,11 +93,12 @@
   }
 
   @if (selectedCards().length > 0) {
-    <p-tabs [value]="activeTab()" (valueChange)="activeTab.set($event ?? 'search')">
+    <p-tabs [value]="activeTab()" (valueChange)="onTabChange($event)">
       <p-tablist>
         <p-tab value="search">Search &amp; Borrow</p-tab>
         <p-tab value="loans">{{ loansTabLabel() }}</p-tab>
         <p-tab value="holds">{{ holdsTabLabel() }}</p-tab>
+        <p-tab value="history">History</p-tab>
       </p-tablist>
       <p-tabpanels>
         <p-tabpanel value="search">
@@ -559,6 +560,44 @@
               </span>
             }
           </td>
+        </tr>
+      </ng-template>
+    </p-table>
+        </p-tabpanel>
+
+        <p-tabpanel value="history">
+    <p-table [value]="history()" [paginator]="true" [rows]="15" [showCurrentPageReport]="true"
+      [scrollable]="true" scrollHeight="flex" [loading]="loadingHistory()"
+      currentPageReportTemplate="{first}-{last} / {totalRecords}">
+      <ng-template pTemplate="header">
+        <tr>
+          <th>When</th>
+          <th>Action</th>
+          <th>Title</th>
+          <th>Card</th>
+          <th>Details</th>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="body" let-entry>
+        <tr>
+          <td class="history-when">{{ formatDateTime(entry.createdAt) }}</td>
+          <td>
+            <span class="history-action" [class]="actionClass(entry.action)">{{ actionLabel(entry.action) }}</span>
+          </td>
+          <td>
+            @if (entry.bookId) {
+              <a [routerLink]="['/book', entry.bookId]" pTooltip="Open this book in your library" tooltipPosition="top">{{ entry.title || entry.titleId || '—' }}</a>
+            } @else {
+              {{ entry.title || entry.titleId || '—' }}
+            }
+          </td>
+          <td>{{ entry.cardName || entry.libraryKey || '—' }}</td>
+          <td class="history-detail">{{ entry.detail || '—' }}</td>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="emptymessage">
+        <tr>
+          <td colspan="5" class="history-empty">No OverDrive activity recorded yet.</td>
         </tr>
       </ng-template>
     </p-table>
