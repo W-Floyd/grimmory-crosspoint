@@ -405,6 +405,7 @@
           <th>Author</th>
           <th>Card</th>
           <th>Format</th>
+          <th>Borrowed</th>
           <th>Expires</th>
           <th>Actions</th>
         </tr>
@@ -424,6 +425,7 @@
           <td>{{ creatorName(loan) }}</td>
           <td>{{ shortCardLabel(loan.cardId) }}</td>
           <td>{{ loanFormat(loan) ?? '—' }}</td>
+          <td>{{ formatDate(loan.checkoutDate) }}</td>
           <td>{{ formatDate(loan.expireDate) }}</td>
           <td>
             <p-button [label]="loan.bookId ? 'Import again' : 'Import'" icon="pi pi-file-import"
@@ -467,6 +469,7 @@
           <th>Title</th>
           <th>Author</th>
           <th>Card</th>
+          <th>Placed</th>
           <th>Est. Wait</th>
           <th>
             <div class="actions-header">
@@ -494,6 +497,7 @@
           </td>
           <td>{{ creatorName(hold) }}</td>
           <td>{{ shortCardLabel(hold.cardId) }}</td>
+          <td>{{ formatDate(hold.placedDate) }}</td>
           <td>
             @if (hold.ready) {
               <span class="availability available">Ready to borrow</span>

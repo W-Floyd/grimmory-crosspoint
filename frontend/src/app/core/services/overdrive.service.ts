@@ -35,6 +35,8 @@ export interface OverDriveLoan {
   /** OverDrive often puts the real book name here (title is the series/franchise). */
   subtitle?: string | null;
   expireDate: string;
+  /** When the loan was checked out (ISO-8601 from Libby sync). */
+  checkoutDate?: string | null;
   /** Flat primary-author name from sync (sync loans omit the `creators` array). */
   firstCreatorName?: string;
   /** Cover thumbnail URL derived from the sync loan's covers. */
@@ -63,6 +65,8 @@ export interface OverDriveHold {
   ready?: boolean;
   /** For a ready hold, the deadline to borrow it before the hold is released. */
   expireDate?: string;
+  /** When the hold was placed (ISO-8601 from Libby sync). */
+  placedDate?: string | null;
   /** Client-side tag: the card this hold belongs to (set when aggregating across selected cards). */
   cardId?: string;
 }
