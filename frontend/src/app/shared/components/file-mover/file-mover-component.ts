@@ -250,6 +250,7 @@ export class FileMoverComponent implements OnDestroy {
       series: this.sanitize(meta.seriesName || ''),
       seriesIndex: this.formatSeriesIndex(meta.seriesNumber ?? undefined),
       language: this.sanitize(meta.language || ''),
+      narrator: this.sanitize(meta.narrator || ''),
       publisher: this.sanitize(meta.publisher || ''),
       isbn: this.sanitize(meta.isbn13 || meta.isbn10 || ''),
       currentFilename: this.sanitize(fileName)
