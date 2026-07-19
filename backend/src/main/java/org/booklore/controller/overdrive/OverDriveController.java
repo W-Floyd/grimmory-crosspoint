@@ -649,7 +649,7 @@ public class OverDriveController {
                 loan.getCreators(),
                 loanFormatId(loan),
                 loan.getFormats(),
-                overDriveService.resolveLoanBookId(loan.getId(), loanIsbn(loan))
+                overDriveService.resolveLoanBookId(loan.getId(), loanIsbn(loan), loanAsin(loan))
         );
     }
 
@@ -693,6 +693,19 @@ public class OverDriveController {
                     .orElse(null);
         }
         return null;
+    }
+
+    /** The loan's ASIN identifier, if the sync provided one — used to match audiobooks lacking an ISBN. */
+    private String loanAsin(OverDriveLoan loan) {
+        if (loan.getIdentifiers() == null) {
+            return null;
+        }
+        return loan.getIdentifiers().stream()
+                .filter(id -> id != null && id.getType() != null && id.getType().equalsIgnoreCase("ASIN")
+                        && id.getValue() != null && !id.getValue().isBlank())
+                .map(id -> id.getValue().trim())
+                .findFirst()
+                .orElse(null);
     }
 
     /** Href of the largest available cover rendition from a sync loan/hold's covers, or null. */

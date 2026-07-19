@@ -53,6 +53,11 @@ public interface BookRepository extends JpaRepository<BookEntity, Long>, JpaSpec
     @Query("SELECT b.id FROM BookEntity b WHERE b.metadata.isbn10 = :isbn AND (b.deleted IS NULL OR b.deleted = false)")
     java.util.List<Long> findIdsByIsbn10(@Param("isbn") String isbn);
 
+    /** Ids of non-deleted books matching an ASIN (links OverDrive titles — e.g. audiobooks — with no
+     *  matching ISBN to existing library books). */
+    @Query("SELECT b.id FROM BookEntity b WHERE upper(b.metadata.asin) = upper(:asin) AND (b.deleted IS NULL OR b.deleted = false)")
+    java.util.List<Long> findIdsByAsin(@Param("asin") String asin);
+
     @EntityGraph(attributePaths = { "metadata", "metadata.authors", "metadata.categories", "metadata.moods", "metadata.tags", "metadata.comicMetadata", "bookFiles" })
     @Query("SELECT b FROM BookEntity b WHERE b.id = :id AND (b.deleted IS NULL OR b.deleted = false)")
     Optional<BookEntity> findByIdFull(@Param("id") Long id);
