@@ -33,7 +33,7 @@ function sync(overrides: Partial<OverDriveSyncResult>): OverDriveSyncResult {
 describe('OverdriveCatalogComponent eligible-card selection', () => {
   const overdriveService = {
     cards: vi.fn(() => of([])),
-    capabilities: vi.fn(() => of({acsmHandlerConfigured: false, credentialStorageEnabled: false})),
+    capabilities: vi.fn(() => of({acsmHandlerConfigured: false, credentialStorageEnabled: false, audiobookHandlerConfigured: false})),
     sync: vi.fn(),
     search: vi.fn(),
     borrowAndImport: vi.fn(),
@@ -47,7 +47,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     overdriveService.cards.mockReturnValue(of([]));
-    overdriveService.capabilities.mockReturnValue(of({acsmHandlerConfigured: false, credentialStorageEnabled: false}));
+    overdriveService.capabilities.mockReturnValue(of({acsmHandlerConfigured: false, credentialStorageEnabled: false, audiobookHandlerConfigured: false}));
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({

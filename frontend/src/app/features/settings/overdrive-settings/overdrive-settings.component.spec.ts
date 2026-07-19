@@ -10,7 +10,7 @@ import {OverdriveSettingsComponent} from './overdrive-settings.component';
 
 const overdriveService = {
   cards: vi.fn(() => of([] as OverDriveCard[])),
-  capabilities: vi.fn(() => of({acsmHandlerConfigured: false, credentialStorageEnabled: false})),
+  capabilities: vi.fn(() => of({acsmHandlerConfigured: false, credentialStorageEnabled: false, audiobookHandlerConfigured: false})),
   shareableUsers: vi.fn(() => of([] as OverDriveShareUser[])),
   listShares: vi.fn(() => of([] as OverDriveShareUser[])),
   setShares: vi.fn(() => of(void 0)),

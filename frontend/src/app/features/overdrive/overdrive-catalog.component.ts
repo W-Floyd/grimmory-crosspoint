@@ -107,11 +107,16 @@ export class OverdriveCatalogComponent {
   // Whether an ACSM handler is configured (enables importing Adobe-DRM formats). Shapes the
   // "No supported format" tooltip: no point suggesting ACSM setup when it's already enabled.
   acsmConfigured = signal(false);
+  // Whether an audiobook handler is configured server-side (enables audiobook borrows).
+  audiobookConfigured = signal(false);
 
    constructor() {
      this.loadCards();
      this.overdriveService.capabilities().subscribe({
-       next: (c) => this.acsmConfigured.set(!!c?.acsmHandlerConfigured),
+       next: (c) => {
+         this.acsmConfigured.set(!!c?.acsmHandlerConfigured);
+         this.audiobookConfigured.set(!!c?.audiobookHandlerConfigured);
+       },
        error: () => { /* leave default (assume not configured) */ }
      });
    }
@@ -790,8 +795,12 @@ export class OverdriveCatalogComponent {
        'ebook-epub-adobe': 'EPUB (Adobe DRM)',
        'ebook-pdf-open': 'PDF',
        'ebook-pdf-adobe': 'PDF (Adobe DRM)',
+       'audiobook-mp3': 'Audiobook (MP3)',
+       'audiobook-overdrive': 'Audiobook',
        };
-     return labels[formatId] ?? formatId;
+     if (labels[formatId]) return labels[formatId];
+     if (formatId.startsWith('audiobook-')) return 'Audiobook';
+     return formatId;
      }
 
    /** p-select options for a title's available formats (preference order). */
@@ -815,9 +824,11 @@ export class OverdriveCatalogComponent {
      }
 
    /** The library book type the chosen format for a title would import as. */
-   chosenBookType(item: OverDriveCatalogItem): 'PDF' | 'EPUB' | null {
+   chosenBookType(item: OverDriveCatalogItem): 'PDF' | 'EPUB' | 'AUDIOBOOK' | null {
      const f = this.chosenFormat(item);
-     return f ? (f.startsWith('ebook-pdf') ? 'PDF' : 'EPUB') : null;
+     if (!f) return null;
+     if (f.startsWith('audiobook-')) return 'AUDIOBOOK';
+     return f.startsWith('ebook-pdf') ? 'PDF' : 'EPUB';
      }
 
    /**

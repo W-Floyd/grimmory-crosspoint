@@ -125,6 +125,8 @@ export interface OverDriveCapabilities {
   acsmHandlerConfigured: boolean;
   /** Whether a credential key is configured, enabling encrypted card storage + auto-relink. */
   credentialStorageEnabled: boolean;
+  /** Whether an external audiobook handler is configured, enabling audiobook borrows. */
+  audiobookHandlerConfigured: boolean;
 }
 
 /** Result of validating/resolving an OverDrive library key against the Thunder directory. */
