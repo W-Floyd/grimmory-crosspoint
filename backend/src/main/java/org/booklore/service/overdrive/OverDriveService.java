@@ -747,8 +747,10 @@ public class OverDriveService {
             return null;
         }
 
-        // Mark loan as fulfilled
-        loanRepository.findByOverdriveLoanIdAndIdentity(loanId, identity)
+        // Mark loan as fulfilled on the current user's cached row. Scope by user (not just identity):
+        // a shared card caches the same loan under both the owner and each sharee, so an identity-only
+        // lookup would match multiple rows.
+        loanRepository.findByUserIdAndOverdriveLoanId(currentUserId(), loanId)
                 .ifPresent(entity -> {
                     entity.setFulfilled(true);
                     loanRepository.save(entity);
@@ -1609,8 +1611,10 @@ public class OverDriveService {
                     .retrieve()
                     .toBodilessEntity();
 
-             // Mark loan as returned
-            loanRepository.findByOverdriveLoanIdAndIdentity(loanId, identity)
+             // Mark loan as returned on the current user's cached row. Scope by user (not just identity):
+             // a shared card caches the same loan under both the owner and each sharee, so an
+             // identity-only lookup would match multiple rows.
+            loanRepository.findByUserIdAndOverdriveLoanId(currentUserId(), loanId)
                     .ifPresent(entity -> {
                         entity.setState("RETURNED");
                         loanRepository.save(entity);

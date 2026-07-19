@@ -17,8 +17,8 @@ public interface OverDriveLoanRepository extends JpaRepository<OverDriveLoanEnti
 
      List<OverDriveLoanEntity> findByIdentity(String identity);
 
-     Optional<OverDriveLoanEntity> findByOverdriveLoanIdAndIdentity(String overdriveLoanId, String identity);
-
+     // NOTE: no findByOverdriveLoanIdAndIdentity — a shared card caches the same loan under multiple
+     // users, so an identity-only lookup returns >1 row. Always scope loan lookups by user id.
      Optional<OverDriveLoanEntity> findByUserIdAndOverdriveLoanId(Long userId, String overdriveLoanId);
 
      List<OverDriveLoanEntity> findByUserId(Long userId);
