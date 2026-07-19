@@ -15,6 +15,9 @@ public interface OverDriveTokenRepository extends JpaRepository<OverDriveTokenEn
 
     List<OverDriveTokenEntity> findByUserId(Long userId);
 
+    /** All rows carrying this OverDrive identity (admin card-share management across owners). */
+    List<OverDriveTokenEntity> findByIdentity(String identity);
+
     Optional<OverDriveTokenEntity> findByUserIdAndIdentity(Long userId, String identity);
 
     boolean existsByUserIdAndIdentity(Long userId, String identity);

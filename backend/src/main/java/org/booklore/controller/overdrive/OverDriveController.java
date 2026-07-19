@@ -180,6 +180,51 @@ public class OverDriveController {
         return ResponseEntity.noContent().build();
     }
 
+    // ── Card Sharing ────────────────────────────────────────────────────
+
+    /**
+     * GET /api/overdrive/shareable-users — candidate users to share a card with (everyone but you).
+     * Minimal identity fields only; available to any authenticated user for the share picker.
+     */
+    @Operation(summary = "List users a card can be shared with")
+    @ApiResponse(responseCode = "200", description = "Users listed")
+    @GetMapping("/shareable-users")
+    public ResponseEntity<List<OverDriveShareUser>> shareableUsers() {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.shareableUsers());
+    }
+
+    /**
+     * GET /api/overdrive/{identity}/shares — users a card is currently shared with (owner or admin).
+     */
+    @Operation(summary = "List a card's shares")
+    @ApiResponse(responseCode = "200", description = "Shares listed")
+    @GetMapping("/{identity}/shares")
+    public ResponseEntity<List<OverDriveShareUser>> listShares(
+            @Parameter(description = "Library card id") @PathVariable String identity) {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.listShares(identity));
+    }
+
+    /**
+     * PUT /api/overdrive/{identity}/shares — replace the set of users a card is shared with (owner or
+     * admin). Body: {@code {"userIds": [1, 2]}}; an empty/absent list revokes all shares.
+     */
+    @Operation(summary = "Set a card's shares",
+               description = "Replaces the users this card is shared with; owner or admin only.")
+    @ApiResponse(responseCode = "204", description = "Shares saved")
+    @PutMapping("/{identity}/shares")
+    public ResponseEntity<Void> setShares(
+            @Parameter(description = "Library card id") @PathVariable String identity,
+            @RequestBody(required = false) OverDriveShareRequest request) {
+        requireEnabled();
+        overDriveService.setShares(identity, request != null ? request.userIds() : null);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Request body for {@link #setShares}: the full set of user ids to share a card with. */
+    record OverDriveShareRequest(List<Long> userIds) {}
+
     // ── Sync ────────────────────────────────────────────────────────────
 
     /**

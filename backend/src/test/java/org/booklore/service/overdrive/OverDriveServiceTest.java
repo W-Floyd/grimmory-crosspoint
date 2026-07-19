@@ -36,6 +36,8 @@ class OverDriveServiceTest {
     @Mock private OverDriveImportService overDriveImportService;
     @Mock private OverDriveParser overDriveParser;
     @Mock private OverDriveTokenRepository tokenRepository;
+    @Mock private org.booklore.repository.OverDriveCardShareRepository cardShareRepository;
+    @Mock private org.booklore.repository.UserRepository userRepository;
     @Mock private AuthenticationService authenticationService;
     @Mock private org.booklore.service.appsettings.AppSettingService appSettingService;
 
@@ -46,12 +48,19 @@ class OverDriveServiceTest {
         // Credential cipher with no key configured -> disabled (token-only), matching default deploys.
         OverDriveCredentialCipher cipher = new OverDriveCredentialCipher("");
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, restClient,
-                overDriveImportService, overDriveParser, tokenRepository, authenticationService, appSettingService,
-                cipher);
+                overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, userRepository,
+                authenticationService, appSettingService, cipher);
     }
 
     private void authAs(long userId) {
         when(authenticationService.getAuthenticatedUser()).thenReturn(BookLoreUser.builder().id(userId).build());
+    }
+
+    private void authAsAdmin(long userId) {
+        BookLoreUser.UserPermissions perms = new BookLoreUser.UserPermissions();
+        perms.setAdmin(true);
+        when(authenticationService.getAuthenticatedUser())
+                .thenReturn(BookLoreUser.builder().id(userId).permissions(perms).build());
     }
 
     @Test
@@ -73,7 +82,8 @@ class OverDriveServiceTest {
     @Test
     void hasToken_reflectsCurrentUserCard() {
         authAs(7L);
-        when(tokenRepository.existsByUserIdAndIdentity(7L, "card-1")).thenReturn(true);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").token("t").build()));
         assertThat(service.hasToken("card-1")).isTrue();
     }
 
@@ -458,5 +468,98 @@ class OverDriveServiceTest {
         assertThatThrownBy(() -> service.borrowAndImport("card", "", "title", 1L, 1L, "t", "a", null, null, null))
                 .isInstanceOf(RuntimeException.class);
         verifyNoInteractions(overDriveImportService);
+    }
+
+    // ── Card sharing ─────────────────────────────────────────────────────
+
+    @Test
+    void listCards_includesSharedCardsAsNotOwnedWithOwnerName() {
+        authAs(7L);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().id(1L).userId(7L).identity("mine").cardName("LAPL").token("t").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of(
+                org.booklore.model.entity.OverDriveCardShareEntity.builder().tokenId(2L).sharedWithUserId(7L).build()));
+        when(tokenRepository.findById(2L)).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().id(2L).userId(3L).identity("shared").cardName("BPL").token("t").build()));
+        when(userRepository.findById(3L)).thenReturn(Optional.of(
+                org.booklore.model.entity.BookLoreUserEntity.builder().id(3L).username("alice").name("Alice A").build()));
+
+        var cards = service.listCards();
+
+        assertThat(cards).extracting(c -> c.cardId()).containsExactly("mine", "shared");
+        assertThat(cards.get(0).owned()).isTrue();
+        assertThat(cards.get(1).owned()).isFalse();
+        assertThat(cards.get(1).ownerName()).isEqualTo("Alice A");
+    }
+
+    @Test
+    void getStoredToken_resolvesSharedOwnersToken() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "shared")).thenReturn(Optional.empty());
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of(
+                org.booklore.model.entity.OverDriveCardShareEntity.builder().tokenId(2L).sharedWithUserId(7L).build()));
+        when(tokenRepository.findById(2L)).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().id(2L).userId(3L).identity("shared").token("owner-token").build()));
+
+        assertThat(service.getStoredToken("shared")).isEqualTo("owner-token");
+    }
+
+    @Test
+    void setShares_addsAndRevokesToMatchDesiredSet() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "mine")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().id(5L).userId(7L).identity("mine").token("t").build()));
+        var existing = org.booklore.model.entity.OverDriveCardShareEntity.builder()
+                .id(99L).tokenId(5L).sharedWithUserId(2L).build();
+        when(cardShareRepository.findByTokenId(5L)).thenReturn(List.of(existing));
+        when(userRepository.existsById(3L)).thenReturn(true);
+
+        service.setShares("mine", List.of(3L));
+
+        verify(cardShareRepository).delete(existing); // user 2 revoked
+        ArgumentCaptor<org.booklore.model.entity.OverDriveCardShareEntity> saved =
+                ArgumentCaptor.forClass(org.booklore.model.entity.OverDriveCardShareEntity.class);
+        verify(cardShareRepository).save(saved.capture()); // user 3 added
+        assertThat(saved.getValue().getTokenId()).isEqualTo(5L);
+        assertThat(saved.getValue().getSharedWithUserId()).isEqualTo(3L);
+    }
+
+    @Test
+    void setShares_byNonOwnerNonAdmin_isForbidden() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "notmine")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.setShares("notmine", List.of(3L)))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(cardShareRepository, never()).save(any());
+    }
+
+    @Test
+    void setShares_byAdminForAnotherUsersCard_isAllowed() {
+        authAsAdmin(1L);
+        when(tokenRepository.findByUserIdAndIdentity(1L, "someones")).thenReturn(Optional.empty());
+        when(tokenRepository.findByIdentity("someones")).thenReturn(List.of(
+                OverDriveTokenEntity.builder().id(8L).userId(4L).identity("someones").token("t").build()));
+        when(cardShareRepository.findByTokenId(8L)).thenReturn(List.of());
+        when(userRepository.existsById(9L)).thenReturn(true);
+
+        service.setShares("someones", List.of(9L));
+
+        ArgumentCaptor<org.booklore.model.entity.OverDriveCardShareEntity> saved =
+                ArgumentCaptor.forClass(org.booklore.model.entity.OverDriveCardShareEntity.class);
+        verify(cardShareRepository).save(saved.capture());
+        assertThat(saved.getValue().getTokenId()).isEqualTo(8L);
+        assertThat(saved.getValue().getSharedWithUserId()).isEqualTo(9L);
+    }
+
+    @Test
+    void shareableUsers_excludesSelfAndSortsByName() {
+        authAs(7L);
+        when(userRepository.findAll()).thenReturn(List.of(
+                org.booklore.model.entity.BookLoreUserEntity.builder().id(7L).username("me").name("Me").build(),
+                org.booklore.model.entity.BookLoreUserEntity.builder().id(8L).username("bob").name("Bob").build(),
+                org.booklore.model.entity.BookLoreUserEntity.builder().id(9L).username("ann").name("Ann").build()));
+
+        assertThat(service.shareableUsers()).extracting(u -> u.userId()).containsExactly(9L, 8L);
     }
 }

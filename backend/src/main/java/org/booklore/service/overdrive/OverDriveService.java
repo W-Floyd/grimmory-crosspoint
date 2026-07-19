@@ -6,6 +6,7 @@ import org.booklore.model.dto.Book;
 import org.booklore.model.dto.BookMetadata;
 import org.booklore.model.dto.overdrive.*;
 import org.booklore.model.dto.response.OverDriveApiResponse;
+import org.booklore.model.entity.OverDriveCardShareEntity;
 import org.booklore.model.entity.OverDriveLoanEntity;
 import org.booklore.model.entity.OverDriveTokenEntity;
 import org.booklore.model.enums.BookFileType;
@@ -14,8 +15,10 @@ import org.booklore.exception.ApiError;
 import org.booklore.model.dto.BookLoreUser;
 import org.booklore.model.dto.settings.MetadataProviderSettings;
 import org.booklore.repository.BookRepository;
+import org.booklore.repository.OverDriveCardShareRepository;
 import org.booklore.repository.OverDriveLoanRepository;
 import org.booklore.repository.OverDriveTokenRepository;
+import org.booklore.repository.UserRepository;
 import org.booklore.service.acsm.AcsmHandler;
 import org.booklore.service.appsettings.AppSettingService;
 import org.booklore.service.metadata.parser.OverDriveItemExtractor;
@@ -76,17 +79,60 @@ public class OverDriveService {
     private final OverDriveImportService overDriveImportService;
     private final OverDriveParser overDriveParser;
     private final OverDriveTokenRepository tokenRepository;
+    private final OverDriveCardShareRepository cardShareRepository;
+    private final UserRepository userRepository;
     private final AuthenticationService authenticationService;
     private final AppSettingService appSettingService;
     private final OverDriveCredentialCipher credentialCipher;
 
-    /** The authenticated Grimmory user's id, or throws if there is no authenticated user. */
-    private Long currentUserId() {
+    /** The authenticated Grimmory user, or throws if there is no authenticated user. */
+    private BookLoreUser currentUser() {
         BookLoreUser user = authenticationService.getAuthenticatedUser();
         if (user == null || user.getId() == null) {
             throw new RestClientException("No authenticated user for OverDrive operation");
         }
-        return user.getId();
+        return user;
+    }
+
+    /** The authenticated Grimmory user's id, or throws if there is no authenticated user. */
+    private Long currentUserId() {
+        return currentUser().getId();
+    }
+
+    /** Whether the current user is an administrator. */
+    private boolean currentUserIsAdmin() {
+        BookLoreUser user = authenticationService.getAuthenticatedUser();
+        return user != null && user.getPermissions() != null && user.getPermissions().isAdmin();
+    }
+
+    // ── Card access resolution (owned OR shared-to-you) ──────────────────
+
+    /**
+     * The card rows the given user can borrow/hold/view with: the ones they own, plus any another user
+     * has shared with them. Owned rows come first. Sharing grants access to the owner's existing token
+     * row (never a copy), so token refresh keeps working for every sharee.
+     */
+    private List<OverDriveTokenEntity> accessibleTokenRows(Long userId) {
+        List<OverDriveTokenEntity> rows = new ArrayList<>(tokenRepository.findByUserId(userId));
+        for (OverDriveCardShareEntity share : cardShareRepository.findBySharedWithUserId(userId)) {
+            tokenRepository.findById(share.getTokenId()).ifPresent(rows::add);
+        }
+        return rows;
+    }
+
+    /**
+     * Resolve one accessible card row by its OverDrive identity: the user's own row if present,
+     * otherwise a row shared with them. Empty when neither applies.
+     */
+    private Optional<OverDriveTokenEntity> accessibleTokenRow(Long userId, String identity) {
+        Optional<OverDriveTokenEntity> owned = tokenRepository.findByUserIdAndIdentity(userId, identity);
+        if (owned.isPresent()) {
+            return owned;
+        }
+        return cardShareRepository.findBySharedWithUserId(userId).stream()
+                .map(s -> tokenRepository.findById(s.getTokenId()).orElse(null))
+                .filter(t -> t != null && identity.equals(t.getIdentity()))
+                .findFirst();
     }
 
     // Mirror the Libby web client exactly (verified against a working browser HAR): a normal desktop
@@ -531,7 +577,9 @@ public class OverDriveService {
             return;
         }
         try {
-            tokenRepository.findByUserIdAndIdentity(currentUserId(), identity).ifPresent(row -> {
+            // Update the owner's row (the one access resolves to), so a re-mint triggered by a sharee
+            // keeps the shared token fresh for everyone.
+            accessibleTokenRow(currentUserId(), identity).ifPresent(row -> {
                 row.setToken(token);
                 row.setExpiresAt(tokenExpiryEpoch(token));
                 tokenRepository.save(row);
@@ -558,7 +606,9 @@ public class OverDriveService {
                         // Prefer the authoritative library name from Thunder; fall back to the sync payload.
                         String resolved = libraryKey != null ? overDriveParser.fetchLibraryName(libraryKey) : null;
                         String name = resolved != null ? resolved : cardDisplayName(card);
-                        cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey, false, null, null));
+                        // Freshly read from a live sync during linking — always the current user's own card.
+                        cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey, false, null, null,
+                                true, null, 0));
                     }
                 }
             }
@@ -1056,11 +1106,11 @@ public class OverDriveService {
         if (cardIds == null || cardIds.isEmpty()) {
             return List.of();
         }
-        // Scope strictly to the selected cards' libraries (resolve for this user only).
+        // Scope strictly to the selected cards' libraries (cards the user owns or that are shared with them).
         Long userId = currentUserId();
         Set<String> libraryKeys = new LinkedHashSet<>();
         for (String cardId : cardIds) {
-            tokenRepository.findByUserIdAndIdentity(userId, cardId)
+            accessibleTokenRow(userId, cardId)
                     .map(OverDriveTokenEntity::getLibraryKey)
                     .filter(k -> k != null && !k.isBlank())
                     .ifPresent(libraryKeys::add);
@@ -1650,17 +1700,117 @@ public class OverDriveService {
         log.info("OverDrive card {} removed for user {}", identity, currentUserId());
       }
 
-      /** Whether the current user has a stored token for the given card. */
+      /** Whether the current user can use the given card (owns it or it's shared with them). */
       public boolean hasToken(String identity) {
-        return tokenRepository.existsByUserIdAndIdentity(currentUserId(), identity);
+        return accessibleTokenRow(currentUserId(), identity).isPresent();
       }
 
-      /** The current user's linked cards (id + display name + library key). */
-      public List<OverDriveCard> listCards() {
-        return tokenRepository.findByUserId(currentUserId()).stream()
-                .map(t -> new OverDriveCard(t.getIdentity(), t.getCardName(), t.getLibraryKey(),
-                        t.getCredCard() != null, t.getDefaultLibraryId(), t.getDefaultPathId()))
+     // ── Card Sharing ─────────────────────────────────────────────────────
+
+      /** Candidate users to share a card with: everyone except the current user (minimal fields). */
+      public List<OverDriveShareUser> shareableUsers() {
+        Long me = currentUserId();
+        return userRepository.findAll().stream()
+                .filter(u -> u.getId() != null && !u.getId().equals(me))
+                .map(u -> new OverDriveShareUser(u.getId(), u.getUsername(), u.getName()))
+                .sorted(Comparator.comparing(u -> shareUserSortKey(u), String.CASE_INSENSITIVE_ORDER))
                 .toList();
+      }
+
+      private static String shareUserSortKey(OverDriveShareUser u) {
+        return u.name() != null && !u.name().isBlank() ? u.name() : (u.username() != null ? u.username() : "");
+      }
+
+      /**
+       * Resolve the owner's card row for share management, enforcing that the caller may manage it: the
+       * card's owner, or any admin. Throws 403 otherwise, 404 if no such card exists.
+       */
+      private OverDriveTokenEntity manageableCard(String identity) {
+        Long me = currentUserId();
+        Optional<OverDriveTokenEntity> owned = tokenRepository.findByUserIdAndIdentity(me, identity);
+        if (owned.isPresent()) {
+            return owned.get();
+        }
+        if (currentUserIsAdmin()) {
+            return tokenRepository.findByIdentity(identity).stream().findFirst()
+                    .orElseThrow(() -> ApiError.GENERIC_NOT_FOUND.createException("No such card: " + identity));
+        }
+        throw ApiError.FORBIDDEN.createException("You can only manage sharing for cards you own");
+      }
+
+      /** The users a card is currently shared with (owner or admin only). */
+      public List<OverDriveShareUser> listShares(String identity) {
+        OverDriveTokenEntity card = manageableCard(identity);
+        return cardShareRepository.findByTokenId(card.getId()).stream()
+                .map(s -> userRepository.findById(s.getSharedWithUserId()).orElse(null))
+                .filter(Objects::nonNull)
+                .map(u -> new OverDriveShareUser(u.getId(), u.getUsername(), u.getName()))
+                .sorted(Comparator.comparing(u -> shareUserSortKey(u), String.CASE_INSENSITIVE_ORDER))
+                .toList();
+      }
+
+      /**
+       * Replace the set of users a card is shared with (owner or admin only). The card owner is never a
+       * valid target; unknown user ids are ignored. Existing grants not in the new set are revoked.
+       */
+      @Transactional
+      public void setShares(String identity, List<Long> userIds) {
+        OverDriveTokenEntity card = manageableCard(identity);
+        Set<Long> desired = new LinkedHashSet<>();
+        if (userIds != null) {
+            for (Long uid : userIds) {
+                if (uid != null && !uid.equals(card.getUserId()) && userRepository.existsById(uid)) {
+                    desired.add(uid);
+                }
+            }
+        }
+        List<OverDriveCardShareEntity> existing = cardShareRepository.findByTokenId(card.getId());
+        Set<Long> current = existing.stream()
+                .map(OverDriveCardShareEntity::getSharedWithUserId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        // Revoke grants no longer wanted.
+        for (OverDriveCardShareEntity share : existing) {
+            if (!desired.contains(share.getSharedWithUserId())) {
+                cardShareRepository.delete(share);
+            }
+        }
+        // Add newly-wanted grants.
+        for (Long uid : desired) {
+            if (!current.contains(uid)) {
+                cardShareRepository.save(OverDriveCardShareEntity.builder()
+                        .tokenId(card.getId())
+                        .sharedWithUserId(uid)
+                        .createdAt(Instant.now())
+                        .build());
+            }
+        }
+        log.info("OverDrive card {} shares set to {} user(s) by user {}", identity, desired.size(), currentUserId());
+      }
+
+      /**
+       * The cards the current user can use: the ones they linked, plus any shared with them. Shared
+       * cards carry {@code owned=false} and the owner's name so the UI can hide management actions;
+       * owned cards carry how many other users they've been shared with.
+       */
+      public List<OverDriveCard> listCards() {
+        Long userId = currentUserId();
+        return accessibleTokenRows(userId).stream()
+                .map(t -> {
+                    boolean owned = userId.equals(t.getUserId());
+                    return new OverDriveCard(t.getIdentity(), t.getCardName(), t.getLibraryKey(),
+                            owned && t.getCredCard() != null, t.getDefaultLibraryId(), t.getDefaultPathId(),
+                            owned, owned ? null : ownerName(t.getUserId()),
+                            owned ? cardShareRepository.countByTokenId(t.getId()) : 0);
+                })
+                .toList();
+      }
+
+      /** Display name (falling back to username) for a card owner, for the "shared by" label. */
+      private String ownerName(Long userId) {
+        return userRepository.findById(userId)
+                .map(u -> u.getName() != null && !u.getName().isBlank() ? u.getName() : u.getUsername())
+                .orElse("another user");
       }
 
       /** Set a friendly display label for a card; a blank label clears it back to the default name. */
@@ -1695,7 +1845,7 @@ public class OverDriveService {
         Long userId = currentUserId();
         Set<String> libraryKeys = new LinkedHashSet<>();
         for (String cardId : cardIds) {
-            tokenRepository.findByUserIdAndIdentity(userId, cardId)
+            accessibleTokenRow(userId, cardId)
                     .map(OverDriveTokenEntity::getLibraryKey)
                     .filter(k -> k != null && !k.isBlank())
                     .ifPresent(libraryKeys::add);
@@ -1718,16 +1868,16 @@ public class OverDriveService {
         return result;
       }
 
-      /** The current user's linked card ids. */
+      /** The card ids the current user can use (owned + shared with them). */
       public List<String> listIdentities() {
-        return tokenRepository.findByUserId(currentUserId()).stream()
+        return accessibleTokenRows(currentUserId()).stream()
                 .map(OverDriveTokenEntity::getIdentity)
                 .toList();
       }
 
-      /** The current user's stored token for a specific card, or null. */
+      /** The stored token for a card the current user can use (owned or shared), or null. */
       public String getStoredToken(String identity) {
-        return tokenRepository.findByUserIdAndIdentity(currentUserId(), identity)
+        return accessibleTokenRow(currentUserId(), identity)
                 .map(OverDriveTokenEntity::getToken)
                 .orElse(null);
       }
