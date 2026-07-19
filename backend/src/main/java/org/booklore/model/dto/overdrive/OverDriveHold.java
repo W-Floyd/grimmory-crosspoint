@@ -17,6 +17,8 @@ public class OverDriveHold {
     /** OverDrive often puts the real book name here (title is the series/franchise, e.g. "Star Wars"). */
     private String subtitle;
     private String estimatedWaitDays;
+    /** When the hold was placed (ISO-8601 from Libby sync), for the "Placed" column. */
+    private String placedDate;
     /** True when the hold is ready to borrow now (a copy is reserved for the holder). Sync field {@code isAvailable}. */
     @JsonProperty("isAvailable")
     private Boolean available;

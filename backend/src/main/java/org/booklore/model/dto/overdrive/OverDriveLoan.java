@@ -16,6 +16,8 @@ public class OverDriveLoan {
     /** OverDrive often puts the real book name here (title is the series/franchise, e.g. "Star Wars"). */
     private String subtitle;
     private String expireDate;
+    /** When the loan was checked out (ISO-8601 from Libby sync), for the "Borrowed" column. */
+    private String checkoutDate;
     private String publishDate;
     /** Flat primary-author name from sync (the {@code creators} array isn't included in sync loans). */
     private String firstCreatorName;
