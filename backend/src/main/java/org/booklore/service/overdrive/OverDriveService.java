@@ -693,8 +693,9 @@ public class OverDriveService {
                         String resolved = libraryKey != null ? overDriveParser.fetchLibraryName(libraryKey) : null;
                         String name = resolved != null ? resolved : cardDisplayName(card);
                         // Freshly read from a live sync during linking — always the current user's own card.
+                        // Credential/expiry details aren't known here; reloadCards() (listCards) is authoritative.
                         cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey, false, null, null,
-                                true, null, 0));
+                                true, null, 0, false, null));
                     }
                 }
             }
@@ -2005,9 +2006,21 @@ public class OverDriveService {
                     return new OverDriveCard(t.getIdentity(), t.getCardName(), t.getLibraryKey(),
                             owned && t.getCredCard() != null, t.getDefaultLibraryId(), t.getDefaultPathId(),
                             owned, owned ? null : ownerName(t.getUserId()),
-                            owned ? cardShareRepository.countByTokenId(t.getId()) : 0);
+                            owned ? cardShareRepository.countByTokenId(t.getId()) : 0,
+                            canAutoRenew(owned, t), t.getExpiresAt());
                 })
                 .toList();
+      }
+
+      /**
+       * Whether a card can silently re-link its token when it expires: it must be owned, have card+PIN
+       * on file, retain the library sign-in details, and credential storage must currently be enabled
+       * (a disabled/changed key can't decrypt the stored credentials). Same requirement as an audiobook
+       * download.
+       */
+      private boolean canAutoRenew(boolean owned, OverDriveTokenEntity t) {
+        return owned && credentialCipher.isEnabled() && t.getCredCard() != null
+                && t.getWebsiteId() != null && t.getIlsName() != null;
       }
 
       /** Display name (falling back to username) for a card owner, for the "shared by" label. */
