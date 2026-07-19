@@ -40,6 +40,7 @@
     "series": "Series name",
     "seriesIndex": "Series index",
     "language": "Language code",
+    "narrator": "Narrator(s) (audiobooks)",
     "publisher": "Publisher",
     "isbn": "ISBN number",
     "currentFilename": "Original filename",

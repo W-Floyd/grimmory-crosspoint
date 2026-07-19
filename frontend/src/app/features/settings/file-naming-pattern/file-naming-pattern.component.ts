@@ -31,6 +31,7 @@ export class FileNamingPatternComponent {
     series: "The Kingkiller Chronicle",
     seriesIndex: "01",
     language: "English",
+    narrator: "Nick Podehl",
     publisher: "DAW Books",
     isbn: "9780756404741",
   };

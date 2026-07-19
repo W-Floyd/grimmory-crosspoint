@@ -40,6 +40,7 @@
         "series": "Ime zbirke",
         "seriesIndex": "Številka v zbirki",
         "language": "Koda jezika",
+        "narrator": "Narrator(s) (audiobooks)",
         "publisher": "Založba",
         "isbn": "ISBN številka",
         "currentFilename": "Izvirno ime datoteke",

@@ -74,6 +74,43 @@ class PathPatternResolverTest {
     }
 
     @Test
+    void testResolvePattern_narratorPlaceholder() {
+        BookMetadata metadata = BookMetadata.builder()
+                .title("Test Book")
+                .narrator("Nick Podehl")
+                .build();
+
+        String result = PathPatternResolver.resolvePattern(metadata, "{narrator}/{title}", "original.m4b");
+
+        assertEquals("Nick Podehl/Test Book.m4b", result);
+    }
+
+    @Test
+    void testResolvePattern_optionalNarratorFolderPresentForAudiobook() {
+        // The universal default's <{narrator}/> block nests audiobooks under a per-narrator folder.
+        BookMetadata metadata = BookMetadata.builder()
+                .title("Test Book")
+                .narrator("Nick Podehl")
+                .build();
+
+        String result = PathPatternResolver.resolvePattern(metadata, "{title}/<{narrator}/>{title}", "original.m4b");
+
+        assertEquals("Test Book/Nick Podehl/Test Book.m4b", result);
+    }
+
+    @Test
+    void testResolvePattern_optionalNarratorFolderOmittedWhenNoNarrator() {
+        // Ebooks carry no narrator, so the same universal pattern collapses the narrator folder away.
+        BookMetadata metadata = BookMetadata.builder()
+                .title("Test Book")
+                .build();
+
+        String result = PathPatternResolver.resolvePattern(metadata, "{title}/<{narrator}/>{title}", "original.epub");
+
+        assertEquals("Test Book/Test Book.epub", result);
+    }
+
+    @Test
     void testResolvePattern_titleWithExtension() {
         BookMetadata metadata = BookMetadata.builder()
                 .title("Test Book")

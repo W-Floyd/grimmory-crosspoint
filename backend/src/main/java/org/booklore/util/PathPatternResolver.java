@@ -119,6 +119,7 @@ public class PathPatternResolver {
             seriesIndex = sanitize(seriesIndex);
         }
         String language = sanitize(metadata != null ? metadata.getLanguage() : "");
+        String narrator = sanitize(metadata != null ? metadata.getNarrator() : "");
         String publisher = sanitize(metadata != null ? metadata.getPublisher() : "");
         String isbn = sanitize(
                 metadata != null
@@ -138,6 +139,7 @@ public class PathPatternResolver {
         values.put("series", truncatePathComponent(series, MAX_COMPONENT_BYTES));
         values.put("seriesIndex", seriesIndex);
         values.put("language", language);
+        values.put("narrator", truncatePathComponent(narrator, MAX_COMPONENT_BYTES));
         values.put("publisher", truncatePathComponent(publisher, MAX_COMPONENT_BYTES));
         values.put("isbn", isbn);
         values.put("currentFilename", filename);
@@ -460,6 +462,8 @@ public class PathPatternResolver {
 
         String getLanguage();
 
+        String getNarrator();
+
         String getPublisher();
 
         String getIsbn13();
@@ -523,6 +527,11 @@ public class PathPatternResolver {
         }
 
         @Override
+        public String getNarrator() {
+            return metadata.getNarrator();
+        }
+
+        @Override
         public String getPublisher() {
             return metadata.getPublisher();
         }
@@ -583,6 +592,11 @@ public class PathPatternResolver {
         @Override
         public String getLanguage() {
             return metadata.getLanguage();
+        }
+
+        @Override
+        public String getNarrator() {
+            return metadata.getNarrator();
         }
 
         @Override

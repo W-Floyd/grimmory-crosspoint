@@ -40,6 +40,7 @@
         "series": "Назва серії",
         "seriesIndex": "Номер у серії",
         "language": "Код мови",
+        "narrator": "Narrator(s) (audiobooks)",
         "publisher": "Видавець",
         "isbn": "Номер ISBN",
         "currentFilename": "Оригінальна назва файлу",
