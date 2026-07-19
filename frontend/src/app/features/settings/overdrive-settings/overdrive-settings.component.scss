@@ -76,6 +76,11 @@
       flex: 1 1 auto;
       min-width: 8rem;
       max-width: 20rem;
+
+      // Accent the field while its label differs from what's saved (uncommitted rename).
+      &.dirty {
+        border-color: var(--primary-color);
+      }
     }
 
     .linked-card-name {
@@ -103,6 +108,20 @@
       font-size: 0.75rem;
       font-weight: 600;
       color: var(--primary-color);
+
+      i {
+        font-size: 0.7rem;
+      }
+    }
+
+    // Marker shown while a card label edit hasn't been committed yet.
+    .unsaved-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--orange-500, #f97316);
 
       i {
         font-size: 0.7rem;

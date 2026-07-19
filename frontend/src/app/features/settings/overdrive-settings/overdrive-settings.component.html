@@ -177,10 +177,16 @@
               @if (isOwned(card)) {
                 <span class="linked-card-info">
                   <input pInputText type="text" [value]="card.name || ''" #labelInput placeholder="Card label"
-                    class="linked-card-label" (keyup.enter)="onRenameCard(card, labelInput.value)" />
+                    class="linked-card-label" [class.dirty]="labelInput.value !== (card.name || '')"
+                    (keyup.enter)="onRenameCard(card, labelInput.value)"
+                    (keyup.escape)="labelInput.value = (card.name || '')" />
                   <small class="linked-card-id">
                     {{ card.cardId }}
-                    @if (card.sharedWithCount) {
+                    @if (labelInput.value !== (card.name || '')) {
+                      <span class="unsaved-badge" pTooltip="Unsaved label — press the check to save or the cross to discard.">
+                        <i class="pi pi-pencil"></i> Unsaved
+                      </span>
+                    } @else if (card.sharedWithCount) {
                       <span class="shared-badge" pTooltip="You've shared this card with other users.">
                         <i class="pi pi-users"></i> Shared with {{ card.sharedWithCount }}
                       </span>
@@ -188,8 +194,12 @@
                   </small>
                 </span>
                 <span class="linked-card-actions">
-                  <p-button label="Rename" icon="pi pi-pencil" severity="secondary" size="small" [text]="true"
-                    pTooltip="Save this label for the card" (onClick)="onRenameCard(card, labelInput.value)" />
+                  @if (labelInput.value !== (card.name || '')) {
+                    <p-button icon="pi pi-check" severity="success" size="small" [text]="true"
+                      pTooltip="Save this label" (onClick)="onRenameCard(card, labelInput.value)" />
+                    <p-button icon="pi pi-times" severity="secondary" size="small" [text]="true"
+                      pTooltip="Discard label change" (onClick)="labelInput.value = (card.name || '')" />
+                  }
                   <p-button label="Share" icon="pi pi-users" severity="secondary" size="small" [text]="true"
                     pTooltip="Share this card with other users (borrow/hold access)"
                     (onClick)="openShareDialog(card)" />
