@@ -12,6 +12,9 @@ app:
     enabled: ${OVERDRIVE_ENABLED:false}
     sentry-base-url: ${OVERDRIVE_SENTRY_BASE_URL:https://sentry.libbyapp.com}
     client-id: ${OVERDRIVE_CLIENT_ID:dewey}
+    # Base64 16/24/32-byte key (e.g. `openssl rand -base64 32`) enabling encrypted storage of card
+    # number + PIN, for silent re-link and audiobook downloads. Empty = credential storage disabled.
+    credential-key: ${OVERDRIVE_CREDENTIAL_KEY:}
 
   # ACSM handler — operator-supplied external tool that takes an OverDrive ACSM and procures the
   # book file (fulfilling/downloading, and any DRM handling, entirely within the tool). Grimmory
