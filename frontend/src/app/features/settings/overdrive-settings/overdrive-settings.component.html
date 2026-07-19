@@ -176,22 +176,40 @@
             <div class="linked-card-row">
               @if (isOwned(card)) {
                 <span class="linked-card-info">
-                  <input pInputText type="text" [value]="card.name || ''" #labelInput placeholder="Card label"
-                    class="linked-card-label" [class.dirty]="labelInput.value !== (card.name || '')"
-                    (keyup.enter)="onRenameCard(card, labelInput.value)"
-                    (keyup.escape)="labelInput.value = (card.name || '')" />
-                  <small class="linked-card-id">
-                    {{ card.cardId }}
-                    @if (labelInput.value !== (card.name || '')) {
-                      <span class="unsaved-badge" pTooltip="Unsaved label — press the check to save or the cross to discard.">
-                        <i class="pi pi-pencil"></i> Unsaved
-                      </span>
-                    } @else if (card.sharedWithCount) {
-                      <span class="shared-badge" pTooltip="You've shared this card with other users.">
-                        <i class="pi pi-users"></i> Shared with {{ card.sharedWithCount }}
-                      </span>
+                  <div class="card-primary">
+                    <input pInputText type="text" [value]="card.name || ''" #labelInput placeholder="Card label"
+                      class="linked-card-label" [class.dirty]="labelInput.value !== (card.name || '')"
+                      (keyup.enter)="onRenameCard(card, labelInput.value)"
+                      (keyup.escape)="labelInput.value = (card.name || '')" />
+                    <small class="linked-card-id">
+                      {{ card.cardId }}
+                      @if (labelInput.value !== (card.name || '')) {
+                        <span class="unsaved-badge" pTooltip="Unsaved label — press the check to save or the cross to discard.">
+                          <i class="pi pi-pencil"></i> Unsaved
+                        </span>
+                      } @else if (card.sharedWithCount) {
+                        <span class="shared-badge" pTooltip="You've shared this card with other users.">
+                          <i class="pi pi-users"></i> Shared with {{ card.sharedWithCount }}
+                        </span>
+                      }
+                    </small>
+                  </div>
+                  <div class="card-meta">
+                    @if (card.libraryKey) {
+                      <span class="meta-badge muted" pTooltip="OverDrive library key for this card">{{ card.libraryKey }}</span>
                     }
-                  </small>
+                    <span class="meta-badge" [class.good]="card.credentialsStored" [class.muted]="!card.credentialsStored"
+                      [pTooltip]="card.credentialsStored ? 'Card number + PIN stored (encrypted) for this card.' : 'No stored card + PIN — add it to enable auto-renew and audiobook downloads.'">
+                      <i class="pi pi-key"></i> {{ card.credentialsStored ? 'Card+PIN saved' : 'No card+PIN' }}
+                    </span>
+                    <span class="meta-badge" [class.good]="card.canAutoRenew" [class.muted]="!card.canAutoRenew"
+                      [pTooltip]="card.canAutoRenew ? 'This card can silently re-link its token when it expires.' : 'Won\'t auto-renew — needs card + PIN on file and credential storage enabled (OVERDRIVE_CREDENTIAL_KEY).'">
+                      <i class="pi pi-sync"></i> {{ card.canAutoRenew ? 'Auto-renew' : 'No auto-renew' }}
+                    </span>
+                    @if (card.tokenExpiresAt) {
+                      <span class="meta-badge muted" pTooltip="When the current Libby token expires">Token exp {{ formatEpoch(card.tokenExpiresAt) }}</span>
+                    }
+                  </div>
                 </span>
                 <span class="linked-card-actions">
                   @if (labelInput.value !== (card.name || '')) {
@@ -203,6 +221,10 @@
                   <p-button label="Share" icon="pi pi-users" severity="secondary" size="small" [text]="true"
                     pTooltip="Share this card with other users (borrow/hold access)"
                     (onClick)="openShareDialog(card)" />
+                  <p-button [label]="card.credentialsStored ? 'Update PIN' : 'Add card+PIN'" icon="pi pi-key"
+                    severity="secondary" size="small" [text]="true"
+                    [pTooltip]="card.credentialsStored ? 'Update the stored card number + PIN (e.g. after a PIN change)' : 'Store this card\'s number + PIN to enable auto-renew and audiobook downloads'"
+                    (onClick)="openCredentialDialog(card)" />
                   @if (card.credentialsStored) {
                     <p-button label="Refresh" icon="pi pi-refresh" severity="secondary" size="small" [text]="true"
                       pTooltip="Re-link from stored card + PIN to get a fresh token"
@@ -253,6 +275,34 @@
         <ng-template pTemplate="footer">
           <p-button label="Cancel" severity="secondary" [text]="true" (onClick)="shareDialogVisible.set(false)" />
           <p-button label="Save" icon="pi pi-check" [loading]="savingShares()" (onClick)="saveShares()" />
+        </ng-template>
+      </p-dialog>
+
+      <p-dialog [(visible)]="credDialogVisible" [modal]="true" [style]="{ width: '28rem' }"
+        [header]="credCard()?.credentialsStored ? 'Update card + PIN' : 'Add card + PIN'" [dismissableMask]="true">
+        @if (credCard(); as card) {
+          <p class="cred-dialog-intro">
+            Store the number + PIN for <strong>{{ cardLabel(card) }}</strong> ({{ card.libraryKey }}). This mints a
+            primary chip and saves the credentials (encrypted) so the card can auto-renew its token and download
+            audiobooks. Use it to promote a chip-only card, or to update the PIN if yours changed.
+          </p>
+          @if (credError()) {
+            <p-message severity="error" styleClass="mb-3">{{ credError() }}</p-message>
+          }
+          <div class="field">
+            <label for="cred-number">Card number</label>
+            <input pInputText id="cred-number" class="w-full" autocomplete="off"
+              [ngModel]="credNumber()" (ngModelChange)="credNumber.set($event)" [ngModelOptions]="{ standalone: true }" />
+          </div>
+          <div class="field">
+            <label for="cred-pin">PIN <span class="cred-optional">(if required)</span></label>
+            <input pInputText id="cred-pin" type="password" class="w-full" autocomplete="off"
+              [ngModel]="credPin()" (ngModelChange)="credPin.set($event)" [ngModelOptions]="{ standalone: true }" />
+          </div>
+        }
+        <ng-template pTemplate="footer">
+          <p-button label="Cancel" severity="secondary" [text]="true" (onClick)="credDialogVisible.set(false)" />
+          <p-button label="Save" icon="pi pi-check" [loading]="savingCred()" (onClick)="saveCredentials()" />
         </ng-template>
       </p-dialog>
     </div>

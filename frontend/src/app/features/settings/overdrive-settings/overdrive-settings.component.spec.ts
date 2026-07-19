@@ -14,6 +14,7 @@ const overdriveService = {
   shareableUsers: vi.fn(() => of([] as OverDriveShareUser[])),
   listShares: vi.fn(() => of([] as OverDriveShareUser[])),
   setShares: vi.fn(() => of(void 0)),
+  linkCard: vi.fn(() => of([] as OverDriveCard[])),
 };
 
 const appSettingsState = signal<AppSettings | null>(null);
@@ -72,5 +73,36 @@ describe('OverdriveSettingsComponent card sharing', () => {
     expect(overdriveService.setShares).toHaveBeenCalledWith('card-1', [8, 9]);
     expect(c.shareDialogVisible()).toBe(false);
     expect(c.linkedCards()[0].sharedWithCount).toBe(2);
+  });
+
+  it('promotes a chip-only card to card+PIN via linkCard on the card\'s library', () => {
+    const c = setup();
+    overdriveService.linkCard.mockReturnValue(of([]));
+    c.openCredentialDialog({cardId: 'card-1', name: 'JoCo', libraryKey: 'jocolibrary', owned: true, credentialsStored: false});
+    expect(c.credDialogVisible()).toBe(true);
+
+    c.credNumber.set('123456');
+    c.credPin.set('4321');
+    c.saveCredentials();
+
+    expect(overdriveService.linkCard).toHaveBeenCalledWith('jocolibrary', '123456', '4321');
+    expect(c.credDialogVisible()).toBe(false);
+  });
+
+  it('requires a card number before saving credentials', () => {
+    const c = setup();
+    c.openCredentialDialog({cardId: 'card-1', libraryKey: 'jocolibrary', owned: true});
+    c.credNumber.set('   ');
+    c.saveCredentials();
+
+    expect(overdriveService.linkCard).not.toHaveBeenCalled();
+    expect(c.credError()).toBeTruthy();
+    expect(c.credDialogVisible()).toBe(true);
+  });
+
+  it('formats an epoch-seconds token expiry (and handles empty)', () => {
+    const c = setup();
+    expect(c.formatEpoch(null)).toBe('—');
+    expect(c.formatEpoch(1785005163)).not.toBe('—');
   });
 });

@@ -130,6 +130,73 @@ export class OverdriveSettingsComponent {
     return card.owned !== false;
   }
 
+  /** Format an epoch-seconds token expiry as a short local date-time (or '—'). */
+  formatEpoch(epochSeconds: number | null | undefined): string {
+    if (!epochSeconds) return '—';
+    try {
+      return new Date(epochSeconds * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+    } catch {
+      return '—';
+    }
+  }
+
+  // ── Card credentials (promote a chip-only card to card+PIN / update the stored PIN) ──────────
+  credDialogVisible = signal(false);
+  credCard = signal<OverDriveCard | null>(null);
+  credNumber = signal('');
+  credPin = signal('');
+  savingCred = signal(false);
+  credError = signal<string | null>(null);
+
+  /** Open the dialog to add or update a card's stored number + PIN. */
+  openCredentialDialog(card: OverDriveCard): void {
+    this.credCard.set(card);
+    this.credNumber.set('');
+    this.credPin.set('');
+    this.credError.set(null);
+    this.credDialogVisible.set(true);
+  }
+
+  /**
+   * Store the entered card number + PIN for the dialog's card via a card+PIN re-link, which promotes a
+   * chip-only card to a credential-backed one (and updates the PIN if it changed). Reuses linkCard: a
+   * number+PIN link mints a primary chip and stores the (encrypted) credentials.
+   */
+  saveCredentials(): void {
+    const card = this.credCard();
+    if (!card) {
+      return;
+    }
+    const key = (card.libraryKey ?? '').trim();
+    const number = this.credNumber().trim();
+    const pin = this.credPin().trim();
+    if (!key) {
+      this.credError.set('This card has no library key on file, so its credentials can\'t be set here.');
+      return;
+    }
+    if (!number) {
+      this.credError.set('Card number is required.');
+      return;
+    }
+    this.savingCred.set(true);
+    this.credError.set(null);
+    this.overdriveService.linkCard(key, number, pin).subscribe({
+      next: () => {
+        this.savingCred.set(false);
+        this.credDialogVisible.set(false);
+        this.reloadLinkedCards();
+        this.messageService.add({
+          severity: 'success', summary: 'Credentials saved',
+          detail: card.credentialsStored ? `Updated card + PIN for ${this.cardLabel(card)}` : `Stored card + PIN for ${this.cardLabel(card)}`
+        });
+      },
+      error: (err) => {
+        this.savingCred.set(false);
+        this.credError.set(err?.error?.message || err?.message || 'Saving credentials failed');
+      }
+    });
+  }
+
   // ── Card sharing ───────────────────────────────────────────────────────
   shareDialogVisible = signal(false);
   shareCard = signal<OverDriveCard | null>(null);

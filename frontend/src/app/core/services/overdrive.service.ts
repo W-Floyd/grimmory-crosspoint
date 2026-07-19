@@ -20,6 +20,10 @@ export interface OverDriveCard {
   ownerName?: string | null;
   /** How many other users you've shared this card with (only meaningful on cards you own). */
   sharedWithCount?: number;
+  /** Whether this card can silently re-link its token on expiry (card+PIN on file + storage enabled). */
+  canAutoRenew?: boolean;
+  /** Epoch-seconds expiry of the current Libby token (non-sensitive), or null. */
+  tokenExpiresAt?: number | null;
 }
 
 /** A user for the card-sharing picker / share list. */
