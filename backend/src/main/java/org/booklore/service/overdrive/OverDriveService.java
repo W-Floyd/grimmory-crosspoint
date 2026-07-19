@@ -6,19 +6,23 @@ import org.booklore.model.dto.Book;
 import org.booklore.model.dto.BookMetadata;
 import org.booklore.model.dto.overdrive.*;
 import org.booklore.model.dto.response.OverDriveApiResponse;
+import org.booklore.model.entity.OverDriveAuditEntity;
 import org.booklore.model.entity.OverDriveCardShareEntity;
 import org.booklore.model.entity.OverDriveLoanEntity;
 import org.booklore.model.entity.OverDriveTokenEntity;
+import org.booklore.model.enums.OverDriveAuditAction;
 import org.booklore.model.enums.BookFileType;
 import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.exception.ApiError;
 import org.booklore.model.dto.BookLoreUser;
 import org.booklore.model.dto.settings.MetadataProviderSettings;
 import org.booklore.repository.BookRepository;
+import org.booklore.repository.OverDriveAuditRepository;
 import org.booklore.repository.OverDriveCardShareRepository;
 import org.booklore.repository.OverDriveLoanRepository;
 import org.booklore.repository.OverDriveTokenRepository;
 import org.booklore.repository.UserRepository;
+import org.springframework.data.domain.PageRequest;
 import org.booklore.service.acsm.AcsmHandler;
 import org.booklore.service.appsettings.AppSettingService;
 import org.booklore.service.metadata.parser.OverDriveItemExtractor;
@@ -80,6 +84,7 @@ public class OverDriveService {
     private final OverDriveParser overDriveParser;
     private final OverDriveTokenRepository tokenRepository;
     private final OverDriveCardShareRepository cardShareRepository;
+    private final OverDriveAuditRepository auditRepository;
     private final UserRepository userRepository;
     private final AuthenticationService authenticationService;
     private final AppSettingService appSettingService;
@@ -133,6 +138,70 @@ public class OverDriveService {
                 .map(s -> tokenRepository.findById(s.getTokenId()).orElse(null))
                 .filter(t -> t != null && identity.equals(t.getIdentity()))
                 .findFirst();
+    }
+
+    // ── Activity history (per-user) ──────────────────────────────────────
+
+    /** Cap on how many recent history entries the History tab loads. */
+    private static final int HISTORY_LIMIT = 500;
+
+    /**
+     * Record one OverDrive history entry, best-effort — never throws, so it can't break the action it
+     * describes. Card name/library key are snapshotted; a missing title is backfilled from the loan
+     * cache by loan id when possible.
+     */
+    private void recordAudit(OverDriveAuditAction action, String identity, String titleId, String loanId,
+                             Long bookId, String title, String detail) {
+        try {
+            Long userId = currentUserId();
+            String libraryKey = null;
+            String cardName = null;
+            if (identity != null) {
+                OverDriveTokenEntity card = accessibleTokenRow(userId, identity).orElse(null);
+                if (card != null) {
+                    libraryKey = card.getLibraryKey();
+                    cardName = card.getCardName();
+                }
+            }
+            String resolvedTitle = title;
+            if ((resolvedTitle == null || resolvedTitle.isBlank()) && loanId != null) {
+                resolvedTitle = loanRepository.findByUserIdAndOverdriveLoanId(userId, loanId)
+                        .map(OverDriveLoanEntity::getTitle).orElse(null);
+            }
+            auditRepository.save(OverDriveAuditEntity.builder()
+                    .userId(userId)
+                    .action(action.name())
+                    .identity(identity)
+                    .libraryKey(libraryKey)
+                    .cardName(cardName)
+                    .titleId(titleId)
+                    .loanId(loanId)
+                    .bookId(bookId)
+                    .title(truncate(resolvedTitle, 1024))
+                    .detail(truncate(detail, 1024))
+                    .success(true)
+                    .createdAt(Instant.now())
+                    .build());
+        } catch (Exception e) {
+            log.debug("OverDrive: could not record history for {}: {}", action, e.getMessage());
+        }
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) {
+            return null;
+        }
+        return s.length() <= max ? s : s.substring(0, max);
+    }
+
+    /** The current user's recent OverDrive activity, newest first (capped at {@link #HISTORY_LIMIT}). */
+    public List<OverDriveAuditEntry> listHistory() {
+        return auditRepository.findByUserIdOrderByCreatedAtDesc(currentUserId(), PageRequest.of(0, HISTORY_LIMIT))
+                .stream()
+                .map(a -> new OverDriveAuditEntry(a.getId(), a.getAction(), a.getIdentity(), a.getLibraryKey(),
+                        a.getCardName(), a.getTitleId(), a.getLoanId(), a.getBookId(), a.getTitle(), a.getDetail(),
+                        a.isSuccess(), a.getCreatedAt() != null ? a.getCreatedAt().toString() : null))
+                .toList();
     }
 
     // Mirror the Libby web client exactly (verified against a working browser HAR): a normal desktop
@@ -380,6 +449,7 @@ public class OverDriveService {
         }
         for (OverDriveCard card : cards) {
             storeToken(card.cardId(), card.name(), card.libraryKey(), token);
+            recordAudit(OverDriveAuditAction.CARD_LINKED, card.cardId(), null, null, null, null, "Linked via setup code");
         }
         log.info("Libby account linked for user {}: {} card(s)", currentUserId(), cards.size());
         return cards;
@@ -409,6 +479,7 @@ public class OverDriveService {
         }
         for (OverDriveCard card : cards) {
             storeToken(card.cardId(), card.name(), card.libraryKey(), t);
+            recordAudit(OverDriveAuditAction.CARD_LINKED, card.cardId(), null, null, null, null, "Linked via pasted token");
         }
         log.info("Libby identity token linked for user {}: {} card(s)", currentUserId(), cards.size());
         return cards;
@@ -454,6 +525,7 @@ public class OverDriveService {
         for (OverDriveCard card : cards) {
             storeToken(card.cardId(), card.name(), card.libraryKey(), token);
             storeCardCredentials(card.cardId(), websiteId, ilsName, encCard, encPin);
+            recordAudit(OverDriveAuditAction.CARD_LINKED, card.cardId(), null, null, null, null, "Linked via card + PIN");
         }
         log.info("Libby card linked by number for user {}: {} card(s){}", currentUserId(), cards.size(),
                 credentialCipher.isEnabled() ? " (credentials stored for auto-relink)" : "");
@@ -536,6 +608,7 @@ public class OverDriveService {
                     + "credentials (set OVERDRIVE_CREDENTIAL_KEY and link by card + PIN), or re-linking "
                     + "failed. Unlink it and link again.");
         }
+        recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null, "Token refreshed from stored credentials");
       }
 
       private String relinkCard(String cardId) {
@@ -756,6 +829,7 @@ public class OverDriveService {
                     loanRepository.save(entity);
                 });
 
+        recordAudit(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, null, null, null);
         log.info("OverDrive loan fulfilled: {} bytes for loan {}", body.length, loanId);
         return Base64.getEncoder().encodeToString(body);
       }
@@ -765,8 +839,12 @@ public class OverDriveService {
        * Returns the created loan id.
        */
       public String borrow(String identity, String authToken, String titleId) {
-        Object id = borrowLoan(identity, resolveToken(identity, authToken), titleId).get("id");
-        return id != null ? id.toString() : null;
+        Map<String, Object> loan = borrowLoan(identity, resolveToken(identity, authToken), titleId);
+        Object id = loan.get("id");
+        String loanId = id != null ? id.toString() : null;
+        recordAudit(OverDriveAuditAction.BORROW, identity, titleId, loanId, null,
+                loan.get("title") != null ? loan.get("title").toString() : null, null);
+        return loanId;
       }
 
       /** Borrow a title and return the raw loan object (which includes the available {@code formats}). */
@@ -1460,6 +1538,9 @@ public class OverDriveService {
         entity.setLastSync(Instant.now());
         loanRepository.save(entity);
 
+        recordAudit(OverDriveAuditAction.BORROW_AND_IMPORT, identity, titleId, loanId,
+                book != null ? book.getId() : null, title,
+                book != null ? "Imported to library" : "Dropped into Bookdrop");
         log.info("OverDrive borrow-and-import complete: loan {} ({}) -> {}", loanId, chosenFormat,
                 book != null ? "book " + book.getId() : "Bookdrop");
         return book;
@@ -1620,6 +1701,7 @@ public class OverDriveService {
                         loanRepository.save(entity);
                      });
 
+            recordAudit(OverDriveAuditAction.RETURN, identity, null, loanId, null, null, null);
             log.info("OverDrive book returned: {}", loanId);
              } catch (Exception e) {
                log.error("OverDrive return failed for loan {}: {}", loanId, e.getMessage());
@@ -1647,6 +1729,7 @@ public class OverDriveService {
                     .retrieve()
                     .toBodilessEntity();
 
+            recordAudit(OverDriveAuditAction.HOLD_PLACED, identity, titleId, null, null, null, null);
             log.info("OverDrive hold placed for title {}", titleId);
          } catch (Exception e) {
             log.error("OverDrive hold failed: {}", e.getMessage());
@@ -1669,6 +1752,7 @@ public class OverDriveService {
                     .retrieve()
                     .toBodilessEntity();
 
+            recordAudit(OverDriveAuditAction.HOLD_CANCELLED, identity, titleId, null, null, null, null);
             log.info("OverDrive hold cancelled for title {}", titleId);
          } catch (Exception e) {
             log.error("OverDrive cancel hold failed: {}", e.getMessage());
@@ -1700,8 +1784,14 @@ public class OverDriveService {
       /** Remove the current user's stored token for a specific card. */
       @Transactional
       public void removeToken(String identity) {
-        tokenRepository.deleteByUserIdAndIdentity(currentUserId(), identity);
-        log.info("OverDrive card {} removed for user {}", identity, currentUserId());
+        Long userId = currentUserId();
+        // Capture the card name before deletion so the history entry can still name the unlinked card.
+        String cardName = tokenRepository.findByUserIdAndIdentity(userId, identity)
+                .map(OverDriveTokenEntity::getCardName).orElse(null);
+        tokenRepository.deleteByUserIdAndIdentity(userId, identity);
+        recordAudit(OverDriveAuditAction.CARD_UNLINKED, identity, null, null, null, null,
+                cardName != null ? "Unlinked " + cardName : "Unlinked card");
+        log.info("OverDrive card {} removed for user {}", identity, userId);
       }
 
       /** Whether the current user can use the given card (owns it or it's shared with them). */
@@ -1798,6 +1888,8 @@ public class OverDriveService {
                         .build());
             }
         }
+        recordAudit(OverDriveAuditAction.SHARE_UPDATED, identity, null, null, null, null,
+                desired.isEmpty() ? "Sharing cleared" : "Shared with " + desired.size() + " user(s)");
         log.info("OverDrive card {} shares set to {} user(s) by user {}", identity, desired.size(), currentUserId());
       }
 
@@ -1832,6 +1924,8 @@ public class OverDriveService {
                 .orElseThrow(() -> new RestClientException("No such card: " + identity));
         entity.setCardName(label != null && !label.isBlank() ? label.trim() : null);
         tokenRepository.save(entity);
+        recordAudit(OverDriveAuditAction.CARD_RELABELED, identity, null, null, null, null,
+                label != null && !label.isBlank() ? "Renamed to \"" + label.trim() + "\"" : "Label cleared");
       }
 
       /**

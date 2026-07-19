@@ -37,6 +37,7 @@ class OverDriveServiceTest {
     @Mock private OverDriveParser overDriveParser;
     @Mock private OverDriveTokenRepository tokenRepository;
     @Mock private org.booklore.repository.OverDriveCardShareRepository cardShareRepository;
+    @Mock private org.booklore.repository.OverDriveAuditRepository auditRepository;
     @Mock private org.booklore.repository.UserRepository userRepository;
     @Mock private AuthenticationService authenticationService;
     @Mock private org.booklore.service.appsettings.AppSettingService appSettingService;
@@ -48,8 +49,8 @@ class OverDriveServiceTest {
         // Credential cipher with no key configured -> disabled (token-only), matching default deploys.
         OverDriveCredentialCipher cipher = new OverDriveCredentialCipher("");
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, restClient,
-                overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, userRepository,
-                authenticationService, appSettingService, cipher);
+                overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
+                userRepository, authenticationService, appSettingService, cipher);
     }
 
     private void authAs(long userId) {
