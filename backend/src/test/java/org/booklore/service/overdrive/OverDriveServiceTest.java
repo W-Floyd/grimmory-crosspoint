@@ -553,6 +553,19 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void setShares_byAdmin_ambiguousIdentity_isRejected() {
+        authAsAdmin(1L);
+        when(tokenRepository.findByUserIdAndIdentity(1L, "dup")).thenReturn(Optional.empty());
+        when(tokenRepository.findByIdentity("dup")).thenReturn(List.of(
+                OverDriveTokenEntity.builder().id(1L).userId(2L).identity("dup").token("t").build(),
+                OverDriveTokenEntity.builder().id(2L).userId(3L).identity("dup").token("t").build()));
+
+        assertThatThrownBy(() -> service.setShares("dup", List.of(9L)))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(cardShareRepository, never()).save(any());
+    }
+
+    @Test
     void shareableUsers_excludesSelfAndSortsByName() {
         authAs(7L);
         when(userRepository.findAll()).thenReturn(List.of(

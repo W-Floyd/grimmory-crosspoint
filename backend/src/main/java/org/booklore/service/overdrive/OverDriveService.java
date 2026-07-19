@@ -1736,8 +1736,17 @@ public class OverDriveService {
             return owned.get();
         }
         if (currentUserIsAdmin()) {
-            return tokenRepository.findByIdentity(identity).stream().findFirst()
-                    .orElseThrow(() -> ApiError.GENERIC_NOT_FOUND.createException("No such card: " + identity));
+            // (user_id, identity) is unique, so two users can each own a row for the same identity.
+            // Rather than silently editing an arbitrary owner's shares, act only when it's unambiguous.
+            List<OverDriveTokenEntity> matches = tokenRepository.findByIdentity(identity);
+            if (matches.isEmpty()) {
+                throw ApiError.GENERIC_NOT_FOUND.createException("No such card: " + identity);
+            }
+            if (matches.size() > 1) {
+                throw ApiError.GENERIC_BAD_REQUEST.createException(
+                        "Card " + identity + " is linked by multiple users; manage its shares as its owner");
+            }
+            return matches.getFirst();
         }
         throw ApiError.FORBIDDEN.createException("You can only manage sharing for cards you own");
       }
