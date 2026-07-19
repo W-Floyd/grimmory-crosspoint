@@ -374,7 +374,54 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     overdriveService.search.mockReturnValue(of([]));
     component.searchQuery.set('dune');
     component.onSearch();
-    expect(overdriveService.search).toHaveBeenCalledWith('dune', [c1.cardId, c2.cardId]);
+    expect(overdriveService.search).toHaveBeenCalledWith('dune', [c1.cardId, c2.cardId], undefined);
+  });
+
+  describe('server-side filtering', () => {
+    it('sends no filter when the server-side toggle is off', () => {
+      setup();
+      overdriveService.search.mockReturnValue(of([]));
+      component.searchQuery.set('dune');
+      component.filterFormat.set('audiobook');
+      component.filterAvailableNow.set(true);
+      component.onSearch();
+      expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(), undefined);
+    });
+
+    it('pushes the active facets into the query when the toggle is on', () => {
+      setup();
+      overdriveService.search.mockReturnValue(of([]));
+      component.searchQuery.set('dune');
+      component.serverSideFilter.set(true);
+      component.filterFormat.set('audiobook');
+      component.filterAvailableNow.set(true);
+      component.filterMyLanguage.set(true);
+      component.onSearch();
+      expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(),
+        {mediaTypes: 'audiobook', availableOnly: true, language: 'en'});
+    });
+
+    it('omits untouched facets from the server filter', () => {
+      setup();
+      overdriveService.search.mockReturnValue(of([]));
+      component.searchQuery.set('dune');
+      component.serverSideFilter.set(true);
+      component.filterFormat.set('ebook');
+      component.onSearch();
+      expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(), {mediaTypes: 'ebook'});
+    });
+
+    it('re-runs the search when a facet changes while server-side filtering is on', () => {
+      setup();
+      overdriveService.search.mockReturnValue(of([]));
+      component.searchQuery.set('dune');
+      component.serverSideFilter.set(true);
+      component.onSearch(); // establishes a prior search
+      overdriveService.search.mockClear();
+      component.filterAvailableNow.set(true); // should trigger an auto-refetch
+      TestBed.tick(); // flush the auto-refetch effect
+      expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(), {availableOnly: true});
+    });
   });
 
   describe('facet filters', () => {

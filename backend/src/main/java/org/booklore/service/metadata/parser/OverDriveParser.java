@@ -126,7 +126,7 @@ public class OverDriveParser implements BookParser {
         int noIdCounter = 0;
         for (String libraryKey : libraryKeys) {
             // Include audiobooks so audiobook titles in the library can be matched, not just ebooks.
-            for (OverDriveApiResponse.Item item : fetchItems(libraryKey, query, "ebook,audiobook")) {
+            for (OverDriveApiResponse.Item item : fetchItems(libraryKey, query, "ebook,audiobook", false, null)) {
                 // Dedupe by title id; items without one can't be deduped, so keep each under a unique key.
                 String key = (item.getId() != null && !item.getId().isBlank())
                         ? item.getId()
@@ -157,7 +157,21 @@ public class OverDriveParser implements BookParser {
         if (libraryKey == null || libraryKey.isBlank()) {
             return List.of();
         }
-        return fetchItems(libraryKey, query, mediaTypes);
+        return fetchItems(libraryKey, query, mediaTypes, false, null);
+    }
+
+    /**
+     * Raw catalog search that additionally pushes facet filters into the Thunder query so a capped
+     * result page is already narrowed server-side (useful when a broad query returns too many hits):
+     * {@code availableOnly} maps to {@code showOnlyAvailable=true}, and {@code language} (an ISO code
+     * like "en") restricts to that language. Both are optional; pass {@code false}/{@code null} to skip.
+     */
+    public List<OverDriveApiResponse.Item> searchLibrary(String libraryKey, String query, String mediaTypes,
+                                                         boolean availableOnly, String language) {
+        if (libraryKey == null || libraryKey.isBlank()) {
+            return List.of();
+        }
+        return fetchItems(libraryKey, query, mediaTypes, availableOnly, language);
     }
 
     /**
@@ -311,11 +325,12 @@ public class OverDriveParser implements BookParser {
         }
     }
 
-    private List<OverDriveApiResponse.Item> fetchItems(String libraryKey, String query, String mediaTypes) {
+    private List<OverDriveApiResponse.Item> fetchItems(String libraryKey, String query, String mediaTypes,
+                                                       boolean availableOnly, String language) {
         try {
             waitForRateLimit();
 
-            URI uri = UriComponentsBuilder.fromUriString(THUNDER_BASE_URL)
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(THUNDER_BASE_URL)
                     .pathSegment(libraryKey, "media")
                     .queryParam("query", query)
                     // Media types to return (e.g. "ebook" or "ebook,audiobook"). Ebook-only for metadata
@@ -325,10 +340,17 @@ public class OverDriveParser implements BookParser {
                     // estimatedWaitDays/…) so the borrow UI can offer Borrow vs Place Hold accurately.
                     .queryParam("includedFacets", "availability")
                     .queryParam("perPage", MAX_RESULTS)
-                    .queryParam("page", 1)
-                    .build()
-                    .encode()
-                    .toUri();
+                    .queryParam("page", 1);
+            // Optional server-side facet narrowing (Libby's own params) so a broad query's capped page is
+            // already filtered rather than trimmed before the client can filter it.
+            if (availableOnly) {
+                builder.queryParam("showOnlyAvailable", "true");
+            }
+            if (language != null && !language.isBlank()) {
+                builder.queryParam("language", language.trim());
+            }
+
+            URI uri = builder.build().encode().toUri();
 
             log.info("OverDrive Thunder API URL: {}", uri);
 

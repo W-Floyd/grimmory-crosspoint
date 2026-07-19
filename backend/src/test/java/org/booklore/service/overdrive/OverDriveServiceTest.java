@@ -238,6 +238,41 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void searchCatalog_pushesServerSideFacetsIntoTheQuery() {
+        var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        item.setId("title-1");
+        item.setTitle("Dune");
+
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune", "audiobook", true, "en")).thenReturn(List.of(item));
+
+        var results = service.searchCatalog("dune", List.of("card-1"), "audiobook", true, "en");
+
+        assertThat(results).hasSize(1);
+        verify(overDriveParser).searchLibrary("lapl", "dune", "audiobook", true, "en");
+    }
+
+    @Test
+    void searchCatalog_withoutAdvancedFacetsUsesTheSimpleSearch() {
+        var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        item.setId("title-1");
+        item.setTitle("Dune");
+
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
+        // Format-only narrowing keeps the 3-arg call (just with the restricted media types).
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook")).thenReturn(List.of(item));
+
+        var results = service.searchCatalog("dune", List.of("card-1"), "ebook", false, null);
+
+        assertThat(results).hasSize(1);
+        verify(overDriveParser).searchLibrary("lapl", "dune", "ebook");
+    }
+
+    @Test
     void searchCatalog_flagsAbridgedAudiobook() {
         var item = audiobookItem("title-1", "Abridged");
 

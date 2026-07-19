@@ -196,6 +196,16 @@ export interface OverDriveCatalogItem {
   audiobook?: boolean;
 }
 
+/** Facet filters pushed into the catalog search server-side (see {@link OverDriveService.search}). */
+export interface OverDriveSearchFilter {
+  /** Restrict the medium: "ebook" or "audiobook" (omit for both). */
+  mediaTypes?: string;
+  /** Return only titles borrowable now. */
+  availableOnly?: boolean;
+  /** Restrict to an ISO language code (e.g. "en"). */
+  language?: string;
+}
+
 export interface OverDriveBorrowImportRequest {
   titleId: string;
   /** Destination library; null/omitted drops the fulfilled book into Bookdrop instead. */
@@ -340,12 +350,23 @@ export class OverDriveService {
 
   /**
    * Search the OverDrive catalog for borrowable titles. When {@code cardIds} is given, the search is
-   * scoped to those cards' libraries; otherwise all of the user's libraries are searched.
+   * scoped to those cards' libraries; otherwise all of the user's libraries are searched. An optional
+   * {@code filter} pushes facets into the query server-side (so a broad query's capped page is narrowed
+   * before it returns): {@code mediaTypes} ("ebook"/"audiobook"), {@code availableOnly}, {@code language}.
    */
-  search(query: string, cardIds?: string[]): Observable<OverDriveCatalogItem[]> {
+  search(query: string, cardIds?: string[], filter?: OverDriveSearchFilter): Observable<OverDriveCatalogItem[]> {
     const params: Record<string, string | string[]> = { query };
     if (cardIds && cardIds.length > 0) {
       params['cards'] = cardIds;
+    }
+    if (filter?.mediaTypes) {
+      params['mediaTypes'] = filter.mediaTypes;
+    }
+    if (filter?.availableOnly) {
+      params['availableOnly'] = 'true';
+    }
+    if (filter?.language) {
+      params['language'] = filter.language;
     }
     return this.http.get<OverDriveCatalogItem[]>(`${this.baseUrl}/search`, { params });
   }

@@ -1274,9 +1274,22 @@ public class OverDriveService {
        * now vs only hold it. The scalar availability fields become the aggregate across those libraries.
        */
       public List<OverDriveCatalogItem> searchCatalog(String query, List<String> cardIds) {
+        return searchCatalog(query, cardIds, null, false, null);
+      }
+
+      /**
+       * Catalog search with optional server-side facet filters pushed into the Thunder query so a broad
+       * query's capped result page is narrowed before it is returned (rather than trimmed before the
+       * client can filter it). {@code mediaTypes} restricts the medium ("ebook"/"audiobook"; blank =
+       * both), {@code availableOnly} keeps only titles borrowable now, {@code language} restricts to an
+       * ISO language code. Abridged has no Thunder facet, so it stays a client-side filter.
+       */
+      public List<OverDriveCatalogItem> searchCatalog(String query, List<String> cardIds, String mediaTypes,
+                                                      boolean availableOnly, String language) {
         if (cardIds == null || cardIds.isEmpty()) {
             return List.of();
         }
+        String effectiveMediaTypes = (mediaTypes == null || mediaTypes.isBlank()) ? "ebook,audiobook" : mediaTypes.trim();
         // Scope strictly to the selected cards' libraries (cards the user owns or that are shared with them).
         Long userId = currentUserId();
         Set<String> libraryKeys = new LinkedHashSet<>();
@@ -1298,10 +1311,15 @@ public class OverDriveService {
             if (titleId != null) {
                 OverDriveApiResponse.Item item = overDriveParser.fetchTitleAtLibrary(libraryKey, titleId);
                 items = item != null ? List.of(item) : List.of();
+            } else if (availableOnly || (language != null && !language.isBlank())) {
+                // Server-side facet narrowing requested — push the availability/language filters into
+                // the Thunder query alongside the (possibly restricted) media types.
+                items = overDriveParser.searchLibrary(libraryKey, query, effectiveMediaTypes, availableOnly, language);
             } else {
                 // Surface audiobooks alongside ebooks: you can search, borrow and hold them regardless —
-                // only importing needs the audiobook handler (borrow-to-Libby works without it).
-                items = overDriveParser.searchLibrary(libraryKey, query, "ebook,audiobook");
+                // only importing needs the audiobook handler (borrow-to-Libby works without it). The
+                // media types may still be narrowed (ebook/audiobook) by a server-side format filter.
+                items = overDriveParser.searchLibrary(libraryKey, query, effectiveMediaTypes);
             }
             for (OverDriveApiResponse.Item item : items) {
                 OverDriveCatalogItem mapped = toCatalogItem(libraryKey, item);

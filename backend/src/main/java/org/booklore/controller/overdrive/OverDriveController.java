@@ -367,7 +367,13 @@ public class OverDriveController {
     public ResponseEntity<List<OverDriveCatalogItem>> search(
             @Parameter(description = "Search query (title/author/ISBN)") @RequestParam String query,
             @Parameter(description = "Card ids to scope the search to (their libraries); at least one is required")
-            @RequestParam(required = false) List<String> cards
+            @RequestParam(required = false) List<String> cards,
+            @Parameter(description = "Restrict the medium server-side: \"ebook\" or \"audiobook\" (blank = both)")
+            @RequestParam(required = false) String mediaTypes,
+            @Parameter(description = "Return only titles borrowable now (server-side showOnlyAvailable)")
+            @RequestParam(required = false, defaultValue = "false") boolean availableOnly,
+            @Parameter(description = "Restrict to an ISO language code (e.g. \"en\") server-side")
+            @RequestParam(required = false) String language
     ) {
         requireEnabled();
         if (query == null || query.isBlank()) {
@@ -376,7 +382,7 @@ public class OverDriveController {
         if (cards == null || cards.isEmpty()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException("at least one card is required to search");
         }
-        return ResponseEntity.ok(overDriveService.searchCatalog(query, cards));
+        return ResponseEntity.ok(overDriveService.searchCatalog(query, cards, mediaTypes, availableOnly, language));
     }
 
     /**

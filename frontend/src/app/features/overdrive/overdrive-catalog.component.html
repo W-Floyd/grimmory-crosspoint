@@ -136,6 +136,12 @@
           <p-checkbox [ngModel]="filterHideAbridged()" (ngModelChange)="filterHideAbridged.set($event)"
             [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-abridged" />
           <label for="filter-abridged">Hide abridged</label>
+          <span class="filter-divider"></span>
+          <p-checkbox [ngModel]="serverSideFilter()" (ngModelChange)="serverSideFilter.set($event)"
+            [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-serverside" />
+          <label for="filter-serverside"
+            pTooltip="Apply the format / available / language filters in the catalog query itself, so a broad search that returns too many titles is narrowed before results come back (abridged still filters here). Re-runs the search when you change a filter."
+            tooltipPosition="top">Filter on server</label>
           @if (filtersActive()) {
             <span class="filter-count">{{ filteredResults().length }} of {{ results().length }}</span>
             <p-button label="Clear" icon="pi pi-times" [text]="true" size="small" (onClick)="clearFilters()" />

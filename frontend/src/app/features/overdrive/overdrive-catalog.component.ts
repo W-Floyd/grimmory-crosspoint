@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -6,7 +6,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
 import { forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
-import { OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSyncResult } from '../../core/services/overdrive.service';
+import { OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult } from '../../core/services/overdrive.service';
 
 import { ButtonModule } from 'primeng/button';
 import { MessageModule } from 'primeng/message';
@@ -109,6 +109,12 @@ export class OverdriveCatalogComponent {
   filterAvailableNow = signal(false);
   filterMyLanguage = signal(false);
   filterHideAbridged = signal(false);
+  // When on, the format/available/language facets are pushed into the search query server-side so a
+  // broad query's capped page is narrowed before it returns (abridged has no server facet — always
+  // client-side). Whether a prior search has run, so the auto-refetch effect stays quiet until then.
+  serverSideFilter = signal(false);
+  private searched = false;
+  private prevServerSideFilter = false;
   readonly formatFilterOptions = [
     { label: 'All formats', value: 'all' },
     { label: 'Ebooks', value: 'ebook' },
@@ -338,6 +344,24 @@ export class OverdriveCatalogComponent {
        try {
          localStorage.setItem(OverdriveCatalogComponent.CARDS_COLLAPSED_KEY, String(collapsed));
        } catch { /* localStorage unavailable */ }
+     });
+     // While server-side filtering is on, a facet change (or toggling the mode) needs a fresh fetch so
+     // the narrowed page reflects it; toggling it back off refetches once to restore the full set.
+     effect(() => {
+       const on = this.serverSideFilter();
+       this.filterFormat();
+       this.filterAvailableNow();
+       this.filterMyLanguage();
+       const toggledOff = this.prevServerSideFilter && !on;
+       this.prevServerSideFilter = on;
+       if (!this.searched || !(on || toggledOff)) {
+         return;
+       }
+       untracked(() => {
+         if (this.searchQuery().trim() && this.selectedCards().length > 0) {
+           this.onSearch();
+         }
+       });
      });
      this.loadCards();
      this.overdriveService.capabilities().subscribe({
@@ -577,11 +601,13 @@ export class OverdriveCatalogComponent {
        }
      this.searching.set(true);
      this.error.set(null);
-     this.overdriveService.search(query, this.selectedCards().map(c => c.cardId)).subscribe({
+     const filter = this.serverSideFilter() ? this.serverFilter() : undefined;
+     this.overdriveService.search(query, this.selectedCards().map(c => c.cardId), filter).subscribe({
        next: (items) => {
          this.results.set(items ?? []);
          this.selectedActionCard.set({}); // reset per-title card choices to fresh defaults
          this.searching.set(false);
+         this.searched = true;
          },
        error: (err: unknown) => {
          this.error.set(this.errorMessage(err, 'Search failed'));
@@ -589,6 +615,24 @@ export class OverdriveCatalogComponent {
          }
        });
      }
+
+   /** The current facet filters expressed as server-side search params (used when serverSideFilter is on). */
+   private serverFilter(): OverDriveSearchFilter {
+     const filter: OverDriveSearchFilter = {};
+     if (this.filterFormat() !== 'all') {
+       filter.mediaTypes = this.filterFormat();
+     }
+     if (this.filterAvailableNow()) {
+       filter.availableOnly = true;
+     }
+     if (this.filterMyLanguage()) {
+       const lang = this.userLanguage();
+       if (lang) {
+         filter.language = lang;
+       }
+     }
+     return filter;
+   }
 
    // --- Eligible cards + default selection ---
 
