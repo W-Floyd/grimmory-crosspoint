@@ -4,7 +4,7 @@ import {of} from 'rxjs';
 
 import {MessageService} from 'primeng/api';
 import {OverdriveCatalogComponent} from './overdrive-catalog.component';
-import {OverDriveService, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
+import {OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
 import {LibraryService} from '../../features/book/service/library.service';
 import {Library} from '../../features/book/model/library.model';
 import {TranslocoService} from '@jsverse/transloco';
@@ -38,7 +38,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     search: vi.fn(),
     borrowAndImport: vi.fn(),
     titleAvailability: vi.fn(),
-    history: vi.fn(() => of([])),
+    history: vi.fn(() => of([] as OverDriveAuditEntry[])),
   };
   const libraryService = {libraries: () => []};
 
@@ -323,8 +323,8 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       {id: 'title-1', title: 'Dune', cardId: 'c1', ready: false},
       {id: 'title-2', title: 'Foundation', cardId: 'c1', ready: false},
     ]);
-    overdriveService.titleAvailability.mockImplementation((titleId: string) =>
-      of([{libraryKey: 'bpl', available: true, holdable: false}]).pipe());
+    overdriveService.titleAvailability.mockReturnValue(
+      of([{libraryKey: 'bpl', available: true, holdable: false}]));
 
     expect(component.uncheckedHolds().map(h => h.id)).toEqual(['title-1', 'title-2']);
     component.onCheckAllOtherLibraries();
