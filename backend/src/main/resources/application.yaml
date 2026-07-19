@@ -516,4 +516,8 @@ logging:
     org.quartz.simpl.RAMJobStore: WARN
     org.hibernate.orm.connections.pooling: WARN
     org.hibernate.session.metrics: ${HIBERNATE_METRICS_LOG_LEVEL:WARN}
+    # jaudiotagger logs "Ignoring Duplicate Frame:CHAP" for every chapter of a (correctly) chaptered
+    # audiobook — CHAP is a repeatable ID3 frame it doesn't fully support, but the file is valid.
+    # Left at the default level; set JAUDIOTAGGER_LOG_LEVEL=ERROR to silence that (and other) noise.
+    org.jaudiotagger: ${JAUDIOTAGGER_LOG_LEVEL:INFO}
     org.springframework.security.config.annotation.authentication.configuration.InitializeUserDetailsBeanManagerConfigurer: ERROR
