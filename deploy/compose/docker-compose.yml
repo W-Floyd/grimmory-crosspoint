@@ -44,10 +44,11 @@ services:
       # - ACSM_TIMEOUT_SECONDS=120
       #
       # Audiobook titles work the same way, via a separate operator-supplied tool. Grimmory writes a
-      # JSON manifest (the card's chip token + loan/card/format ids) to {input}; your tool fulfils,
-      # downloads and assembles the audiobook itself and writes a single file into the {output} dir,
-      # which Grimmory imports as an audiobook. Grimmory ships no such tool. Leave AUDIOBOOK_ENABLED
-      # unset/false to keep it off.
+      # JSON manifest (the card's number + PIN + loan ids) to {input}; your tool authenticates itself
+      # (its own chip + app-emulating User-Agent, kept separate from Grimmory's web chip), fulfils,
+      # downloads and assembles the audiobook, and writes a single file into the {output} dir, which
+      # Grimmory imports as an audiobook. Requires the card to be linked by number + PIN with
+      # OVERDRIVE_CREDENTIAL_KEY set. Grimmory ships no such tool. Leave AUDIOBOOK_ENABLED unset to keep off.
       # - AUDIOBOOK_ENABLED=true
       # - AUDIOBOOK_TOOL_PATH=/opt/audiobook/od-audiobook   # your tool or wrapper script (executable in the container)
       # - AUDIOBOOK_TOOL_ARGS=--manifest {input} --out-dir {output}

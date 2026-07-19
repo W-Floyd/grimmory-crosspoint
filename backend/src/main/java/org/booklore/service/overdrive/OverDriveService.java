@@ -1459,6 +1459,25 @@ public class OverDriveService {
         return audiobookHandler.isConfigured();
       }
 
+      /**
+       * Build the audiobook handoff request for a card: decrypt its stored card + PIN so the external
+       * tool can authenticate itself (with its own chip + UA). Throws a clear error when the card has no
+       * stored credentials — the audiobook tool needs card + PIN, so the card must have been linked by
+       * number + PIN with a credential key configured (we deliberately don't hand out the web chip token).
+       */
+      private AudiobookHandler.Request audiobookRequest(String identity, String titleId, String formatId) {
+        OverDriveTokenEntity card = accessibleTokenRow(currentUserId(), identity)
+                .orElseThrow(() -> new RestClientException("No such card for audiobook fulfillment: " + identity));
+        if (!credentialCipher.isEnabled() || card.getCredCard() == null) {
+            throw new RestClientException("Audiobook download needs stored card credentials. Link this card "
+                    + "by number + PIN (with OVERDRIVE_CREDENTIAL_KEY set) so its card + PIN are stored, then retry.");
+        }
+        String cardNumber = credentialCipher.decrypt(card.getCredCard());
+        String pin = card.getCredPin() != null ? credentialCipher.decrypt(card.getCredPin()) : null;
+        return new AudiobookHandler.Request(sentryBaseUrl, cardNumber, pin, card.getLibraryKey(),
+                card.getWebsiteId(), card.getIlsName(), identity, titleId, formatId);
+      }
+
       /** The configured OverDrive library keys (for metadata search) from metadata provider settings. */
       private List<String> configuredLibraryKeys() {
         var appSettings = appSettingService.getAppSettings();
@@ -1522,10 +1541,10 @@ public class OverDriveService {
         byte[] content;
         String extension;
         if (isAudiobookFormat(chosenFormat)) {
-            // Audiobook: hand the loan + chip token to the external tool, which fulfils, downloads and
-            // assembles the file itself. The tool picks the output extension (m4b/mp3/…).
-            AudiobookHandler.Result audiobook = audiobookHandler.handle(new AudiobookHandler.Request(
-                    authToken, identity, loanId, chosenFormat, titleId, sentryBaseUrl));
+            // Audiobook: hand the raw card + PIN to the external tool, which authenticates itself
+            // (its own chip + app-emulating UA, kept separate from Grimmory's web chip), then fulfils,
+            // downloads and assembles the file. The tool picks the output extension (m4b/mp3/…).
+            AudiobookHandler.Result audiobook = audiobookHandler.handle(audiobookRequest(identity, titleId, chosenFormat));
             content = audiobook.content();
             extension = audiobook.extension();
             if (content == null || content.length == 0) {

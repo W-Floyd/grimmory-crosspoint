@@ -24,9 +24,12 @@ app:
     timeout-seconds: ${ACSM_TIMEOUT_SECONDS:120}
 
   # External audiobook handler for OverDrive audiobook loans. Grimmory writes a JSON manifest carrying
-  # the card's chip token + loan/card/format ids to {input}, and the tool must fulfil, download and
-  # assemble the audiobook, writing a single file into the {output} directory (Grimmory imports it as an
-  # audiobook, taking the file type from the extension). The tool owns all fulfillment and network work.
+  # the card's number + PIN (decrypted from its encrypted store) + loan ids to {input}; the tool
+  # authenticates itself (its own chip + app-emulating UA, kept separate from Grimmory's web chip),
+  # fulfils, downloads and assembles the audiobook, and writes a single file into the {output} directory
+  # (Grimmory imports it as an audiobook, taking the file type from the extension). The tool owns all
+  # auth + fulfillment + network work. Requires the card to be linked by number + PIN with
+  # OVERDRIVE_CREDENTIAL_KEY set (so its credentials are stored).
   audiobook:
     enabled: ${AUDIOBOOK_ENABLED:false}
     tool-path: ${AUDIOBOOK_TOOL_PATH:}

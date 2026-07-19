@@ -20,24 +20,31 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 /**
- * Hands OverDrive audiobook loan + auth details to an operator-supplied external tool that fulfils,
- * downloads and assembles the audiobook, and returns the produced file bytes.
+ * Hands OverDrive audiobook loan + auth details to an operator-supplied external tool that
+ * authenticates, fulfils, downloads and assembles the audiobook, and returns the produced file bytes.
  *
- * <p>Unlike an ACSM (a self-contained fulfillment token), an audiobook download needs the loan's
- * <b>auth</b> to pull the parts — so the handoff carries the card's chip token alongside the loan/card
- * /format ids. Grimmory does <b>not</b> perform the fulfillment itself: the tool does everything
- * (fulfill call, manifest fetch, part downloads, muxing). Grimmory only writes the handoff manifest,
+ * <p>The tool <b>authenticates itself from the card credentials</b> (card number + PIN) and manages
+ * its own chip with its own app-emulating User-Agent — deliberately <i>not</i> Grimmory's web chip, so
+ * the two never interfere. Grimmory therefore hands off the raw card+PIN (decrypted from its encrypted
+ * store) rather than a bearer token, and does <b>none</b> of the fulfillment: the tool does everything
+ * (chip mint, card link, fulfil, part downloads, assembly). Grimmory only writes the handoff manifest,
  * invokes the tool, and reads back the single audiobook file it produces.
  *
  * <h2>External tool contract</h2>
  * The tool receives two placeholders (see {@code app.audiobook.tool-args}):
  * <ul>
  *   <li>{@code {input}} — path to a JSON manifest:
- *     <pre>{@code {"token","cardId","loanId","formatId","titleId","sentryBaseUrl"}}</pre>
- *     where {@code token} is the card's chip/identity bearer token (the smallest auth surface).</li>
+ *     <pre>{@code
+ * {
+ *   "sentryBaseUrl": "https://sentry.libbyapp.com",
+ *   "auth": { "card": {"number": "...", "pin": "..."}, "library": "...", "websiteId": "...", "ilsName": "..." },
+ *   "loan": { "mediaType": "audiobook", "cardId": "...", "titleId": "...", "formatId": "audiobook-mp3" }
+ * }}</pre>
+ *     The tool logs in with the card+PIN (resolving the library via {@code library}/{@code websiteId})
+ *     and fulfils the loan named by {@code loan.titleId}.</li>
  *   <li>{@code {output}} — an empty directory into which the tool must write exactly one audiobook
- *     file (e.g. {@code book.m4b}); Grimmory imports whatever single file appears there, taking the
- *     book file type from its extension (m4b/m4a/mp3/opus).</li>
+ *     file; Grimmory imports whatever single file appears there, taking the book file type from its
+ *     extension (m4b/m4a/mp3/opus).</li>
  * </ul>
  *
  * <h2>Example configuration</h2>
@@ -45,7 +52,7 @@ import java.util.stream.Stream;
  * app:
  *   audiobook:
  *     enabled: true
- *     tool-path: "/opt/od/od-audiobook"
+ *     tool-path: "/opt/audiobook/go-od-audiobook"
  *     tool-args: "--manifest {input} --out-dir {output}"
  *     timeout-seconds: 1800
  * }</pre>
@@ -59,9 +66,13 @@ public class AudiobookHandler {
 
     private final AudiobookHandlerConfig config;
 
-    /** The details handed to the tool to fulfil and download an audiobook loan. */
-    public record Request(String token, String cardId, String loanId, String formatId, String titleId,
-                          String sentryBaseUrl) {}
+    /**
+     * The details handed to the tool to authenticate, fulfil and download an audiobook loan. The tool
+     * authenticates from {@code cardNumber} + {@code pin} (resolving the library via {@code libraryKey}
+     * or {@code websiteId}) — Grimmory passes no bearer token, so the tool's own chip stays separate.
+     */
+    public record Request(String sentryBaseUrl, String cardNumber, String pin, String libraryKey,
+                          String websiteId, String ilsName, String cardId, String titleId, String formatId) {}
 
     /** The tool's produced audiobook: the file bytes and its extension (m4b/mp3/…). */
     public record Result(byte[] content, String extension) {}
@@ -90,20 +101,13 @@ public class AudiobookHandler {
             Path outputDir = tempDir.resolve("out");
             Files.createDirectory(outputDir);
 
-            Map<String, Object> manifest = new LinkedHashMap<>();
-            manifest.put("token", request.token());
-            manifest.put("cardId", request.cardId());
-            manifest.put("loanId", request.loanId());
-            manifest.put("formatId", request.formatId());
-            manifest.put("titleId", request.titleId());
-            manifest.put("sentryBaseUrl", request.sentryBaseUrl());
-            Files.write(manifestFile, JSON.writeValueAsBytes(manifest));
+            Files.write(manifestFile, JSON.writeValueAsBytes(buildManifest(request)));
 
             String args = config.getToolArgs()
                     .replace("{input}", manifestFile.toString())
                     .replace("{output}", outputDir.toString());
-            // Don't log the command verbatim — the manifest path is safe, but keep the token out of logs.
-            log.info("Running audiobook handler tool for loan {} (format {})", request.loanId(), request.formatId());
+            // Don't log the command verbatim — the manifest path is safe, but keep card credentials out of logs.
+            log.info("Running audiobook handler tool for title {} (format {})", request.titleId(), request.formatId());
 
             ProcessBuilder pb = new ProcessBuilder((config.getToolPath() + " " + args).split("\\s+"));
             pb.redirectErrorStream(true);
@@ -154,6 +158,37 @@ public class AudiobookHandler {
             throw ApiError.GENERIC_BAD_REQUEST.createException("Audiobook handler was interrupted.");
         } finally {
             cleanup(tempDir);
+        }
+    }
+
+    /** Build the nested handoff manifest: card+PIN auth + loan identifiers. */
+    private static Map<String, Object> buildManifest(Request r) {
+        Map<String, Object> card = new LinkedHashMap<>();
+        card.put("number", r.cardNumber());
+        card.put("pin", r.pin());
+
+        Map<String, Object> auth = new LinkedHashMap<>();
+        auth.put("card", card);
+        putIfPresent(auth, "library", r.libraryKey());
+        putIfPresent(auth, "websiteId", r.websiteId());
+        putIfPresent(auth, "ilsName", r.ilsName());
+
+        Map<String, Object> loan = new LinkedHashMap<>();
+        loan.put("mediaType", "audiobook");
+        putIfPresent(loan, "cardId", r.cardId());
+        loan.put("titleId", r.titleId());
+        putIfPresent(loan, "formatId", r.formatId());
+
+        Map<String, Object> manifest = new LinkedHashMap<>();
+        manifest.put("sentryBaseUrl", r.sentryBaseUrl());
+        manifest.put("auth", auth);
+        manifest.put("loan", loan);
+        return manifest;
+    }
+
+    private static void putIfPresent(Map<String, Object> map, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            map.put(key, value);
         }
     }
 

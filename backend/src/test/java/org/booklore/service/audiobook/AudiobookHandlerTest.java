@@ -15,7 +15,8 @@ class AudiobookHandlerTest {
 
         assertThat(handler.isConfigured()).isFalse();
         assertThatThrownBy(() -> handler.handle(new AudiobookHandler.Request(
-                "chip-token", "card-1", "loan-1", "audiobook-mp3", "title-1", "https://sentry.libbyapp.com")))
+                "https://sentry.libbyapp.com", "1234567890", "9999", "mcpl", "websiteId-1", "ilsName-1",
+                "card-1", "title-1", "audiobook-mp3")))
                 .isInstanceOf(APIException.class);
     }
 
