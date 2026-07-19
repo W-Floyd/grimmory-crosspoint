@@ -125,7 +125,8 @@ public class OverDriveParser implements BookParser {
         Map<String, OverDriveApiResponse.Item> byTitleId = new LinkedHashMap<>();
         int noIdCounter = 0;
         for (String libraryKey : libraryKeys) {
-            for (OverDriveApiResponse.Item item : fetchItems(libraryKey, query)) {
+            // Include audiobooks so audiobook titles in the library can be matched, not just ebooks.
+            for (OverDriveApiResponse.Item item : fetchItems(libraryKey, query, "ebook,audiobook")) {
                 // Dedupe by title id; items without one can't be deduped, so keep each under a unique key.
                 String key = (item.getId() != null && !item.getId().isBlank())
                         ? item.getId()
@@ -144,10 +145,19 @@ public class OverDriveParser implements BookParser {
      * failure. Used to search across the libraries a user has cards for.
      */
     public List<OverDriveApiResponse.Item> searchLibrary(String libraryKey, String query) {
+        return searchLibrary(libraryKey, query, "ebook");
+    }
+
+    /**
+     * Raw catalog search restricted to the given OverDrive media types (comma-separated, e.g.
+     * {@code "ebook"} or {@code "ebook,audiobook"}). The borrow flow widens to audiobooks when an
+     * audiobook handler is configured; metadata matching stays ebook-only.
+     */
+    public List<OverDriveApiResponse.Item> searchLibrary(String libraryKey, String query, String mediaTypes) {
         if (libraryKey == null || libraryKey.isBlank()) {
             return List.of();
         }
-        return fetchItems(libraryKey, query);
+        return fetchItems(libraryKey, query, mediaTypes);
     }
 
     /**
@@ -301,15 +311,16 @@ public class OverDriveParser implements BookParser {
         }
     }
 
-    private List<OverDriveApiResponse.Item> fetchItems(String libraryKey, String query) {
+    private List<OverDriveApiResponse.Item> fetchItems(String libraryKey, String query, String mediaTypes) {
         try {
             waitForRateLimit();
 
             URI uri = UriComponentsBuilder.fromUriString(THUNDER_BASE_URL)
                     .pathSegment(libraryKey, "media")
                     .queryParam("query", query)
-                    // Restrict to ebooks so we return book editions, not audiobook/magazine ones.
-                    .queryParam("mediaTypes", "ebook")
+                    // Media types to return (e.g. "ebook" or "ebook,audiobook"). Ebook-only for metadata
+                    // matching; the borrow flow widens to audiobooks when an audiobook handler is configured.
+                    .queryParam("mediaTypes", mediaTypes)
                     // Ask Thunder to include per-item availability (isAvailable/isHoldable/holdsCount/
                     // estimatedWaitDays/…) so the borrow UI can offer Borrow vs Place Hold accurately.
                     .queryParam("includedFacets", "availability")

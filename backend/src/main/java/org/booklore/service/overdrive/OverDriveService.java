@@ -1249,7 +1249,9 @@ public class OverDriveService {
                 OverDriveApiResponse.Item item = overDriveParser.fetchTitleAtLibrary(libraryKey, titleId);
                 items = item != null ? List.of(item) : List.of();
             } else {
-                items = overDriveParser.searchLibrary(libraryKey, query);
+                // Surface audiobooks alongside ebooks: you can search, borrow and hold them regardless —
+                // only importing needs the audiobook handler (borrow-to-Libby works without it).
+                items = overDriveParser.searchLibrary(libraryKey, query, "ebook,audiobook");
             }
             for (OverDriveApiResponse.Item item : items) {
                 OverDriveCatalogItem mapped = toCatalogItem(libraryKey, item);
@@ -1685,7 +1687,7 @@ public class OverDriveService {
                 Boolean.TRUE.equals(item.getPreRelease()),
                 formats,
                 new ArrayList<>(List.of(availability)),
-                resolveLinkedBookId(isbn),
+                resolveLinkedBookId(isbn, OverDriveItemExtractor.asin(item)),
                 OverDriveItemExtractor.languageCode(item));
       }
 
@@ -1696,15 +1698,30 @@ public class OverDriveService {
        * @return the matching book id, or null if none / no usable ISBN
        */
       public Long resolveLinkedBookId(String isbn) {
-        if (isbn == null || isbn.isBlank()) {
-            return null;
+        return resolveLinkedBookId(isbn, null);
+      }
+
+      /**
+       * Match an OverDrive title to an existing library book by ISBN, then by ASIN. The ASIN fallback
+       * links titles that carry no usable ISBN (e.g. audiobooks) to a library book with that ASIN.
+       */
+      public Long resolveLinkedBookId(String isbn, String asin) {
+        if (isbn != null && !isbn.isBlank()) {
+            String cleaned = isbn.replaceAll("[^0-9Xx]", "");
+            if (cleaned.length() == 13) {
+                Long id = bookRepository.findIdsByIsbn13(cleaned).stream().findFirst().orElse(null);
+                if (id != null) {
+                    return id;
+                }
+            } else if (cleaned.length() == 10) {
+                Long id = bookRepository.findIdsByIsbn10(cleaned).stream().findFirst().orElse(null);
+                if (id != null) {
+                    return id;
+                }
+            }
         }
-        String cleaned = isbn.replaceAll("[^0-9Xx]", "");
-        if (cleaned.length() == 13) {
-            return bookRepository.findIdsByIsbn13(cleaned).stream().findFirst().orElse(null);
-        }
-        if (cleaned.length() == 10) {
-            return bookRepository.findIdsByIsbn10(cleaned).stream().findFirst().orElse(null);
+        if (asin != null && !asin.isBlank()) {
+            return bookRepository.findIdsByAsin(asin.trim()).stream().findFirst().orElse(null);
         }
         return null;
       }
@@ -1716,6 +1733,10 @@ public class OverDriveService {
        * @return the matching book id, or null if none
        */
       public Long resolveLoanBookId(String loanId, String isbn) {
+        return resolveLoanBookId(loanId, isbn, null);
+      }
+
+      public Long resolveLoanBookId(String loanId, String isbn, String asin) {
         if (loanId != null && !loanId.isBlank()) {
             Long userId = currentUserId();
             Long stored = loanRepository.findByUserIdAndOverdriveLoanId(userId, loanId)
@@ -1725,7 +1746,7 @@ public class OverDriveService {
                 return stored;
             }
         }
-        return resolveLinkedBookId(isbn);
+        return resolveLinkedBookId(isbn, asin);
       }
 
       /**
