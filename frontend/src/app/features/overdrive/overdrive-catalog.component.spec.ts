@@ -376,4 +376,163 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     component.onSearch();
     expect(overdriveService.search).toHaveBeenCalledWith('dune', [c1.cardId, c2.cardId]);
   });
+
+  describe('facet filters', () => {
+    function results() {
+      setup();
+      component.results.set([
+        item({titleId: 'ebook', audiobook: false, available: true, language: 'en'}),
+        item({titleId: 'audio', audiobook: true, available: false, holdable: true, language: 'en'}),
+        item({titleId: 'abridged', audiobook: true, available: true, language: 'en', abridged: true}),
+        item({titleId: 'spanish', audiobook: false, available: true, language: 'es'}),
+      ]);
+    }
+
+    it('passes everything through when no filter is active', () => {
+      results();
+      expect(component.filtersActive()).toBe(false);
+      expect(component.filteredResults().map(r => r.titleId)).toEqual(['ebook', 'audio', 'abridged', 'spanish']);
+    });
+
+    it('filters by format', () => {
+      results();
+      component.filterFormat.set('audiobook');
+      expect(component.filteredResults().map(r => r.titleId)).toEqual(['audio', 'abridged']);
+      component.filterFormat.set('ebook');
+      expect(component.filteredResults().map(r => r.titleId)).toEqual(['ebook', 'spanish']);
+    });
+
+    it('filters to titles available to borrow now', () => {
+      results();
+      component.filterAvailableNow.set(true);
+      // 'audio' is only holdable, so it drops out.
+      expect(component.filteredResults().map(r => r.titleId)).toEqual(['ebook', 'abridged', 'spanish']);
+    });
+
+    it('filters out foreign-language titles', () => {
+      results();
+      component.filterMyLanguage.set(true); // user language is 'en'
+      expect(component.filteredResults().map(r => r.titleId)).toEqual(['ebook', 'audio', 'abridged']);
+    });
+
+    it('hides abridged audiobooks', () => {
+      results();
+      component.filterHideAbridged.set(true);
+      expect(component.filteredResults().map(r => r.titleId)).toEqual(['ebook', 'audio', 'spanish']);
+    });
+
+    it('combines filters and clears them', () => {
+      results();
+      component.filterFormat.set('audiobook');
+      component.filterHideAbridged.set(true);
+      expect(component.filteredResults().map(r => r.titleId)).toEqual(['audio']);
+      expect(component.filtersActive()).toBe(true);
+
+      component.clearFilters();
+      expect(component.filtersActive()).toBe(false);
+      expect(component.filteredResults()).toHaveLength(4);
+    });
+  });
+
+  describe('column sorting', () => {
+    function titled() {
+      setup();
+      component.results.set([
+        item({titleId: 'c', title: 'Cain', author: 'Zed', available: false, holdable: true, estimatedWaitDays: 5}),
+        item({titleId: 'a', title: 'Abel', author: 'Yan', available: true}),
+        item({titleId: 'b', title: 'Baker', author: 'Xor', available: false, holdable: true, estimatedWaitDays: 2}),
+      ]);
+    }
+
+    it('keeps source order until a column is chosen', () => {
+      titled();
+      expect(component.filteredResults().map(r => r.titleId)).toEqual(['c', 'a', 'b']);
+    });
+
+    it('sorts by title ascending and descending', () => {
+      titled();
+      component.onSortResults({field: 'title', order: 1});
+      expect(component.filteredResults().map(r => r.title)).toEqual(['Abel', 'Baker', 'Cain']);
+      component.onSortResults({field: 'title', order: -1});
+      expect(component.filteredResults().map(r => r.title)).toEqual(['Cain', 'Baker', 'Abel']);
+    });
+
+    it('sorts by author', () => {
+      titled();
+      component.onSortResults({field: 'author', order: 1});
+      expect(component.filteredResults().map(r => r.author)).toEqual(['Xor', 'Yan', 'Zed']);
+    });
+
+    it('sorts by availability (borrowable first, then shortest wait)', () => {
+      titled();
+      component.onSortResults({field: 'availability', order: 1});
+      // 'a' available now (-1), then 'b' (wait 2), then 'c' (wait 5).
+      expect(component.filteredResults().map(r => r.titleId)).toEqual(['a', 'b', 'c']);
+    });
+
+    it('sorts within the filtered set only', () => {
+      titled();
+      component.filterAvailableNow.set(true);
+      component.onSortResults({field: 'title', order: 1});
+      expect(component.filteredResults().map(r => r.titleId)).toEqual(['a']);
+    });
+  });
+
+  describe('loans filter + sort', () => {
+    function loans() {
+      setup();
+      component.loans.set([
+        {id: 'l1', title: 'Cain', firstCreatorName: 'Zed', expireDate: '2026-08-10', checkoutDate: '2026-07-01', cardId: 'c1', formatId: 'audiobook-mp3'},
+        {id: 'l2', title: 'Abel', firstCreatorName: 'Yan', expireDate: '2026-08-01', checkoutDate: '2026-07-05', cardId: 'c2', formatId: 'ebook-epub-open'},
+        {id: 'l3', title: 'Baker', firstCreatorName: 'Xor', expireDate: '2026-08-20', checkoutDate: '2026-07-03', cardId: 'c1', formatId: 'ebook-epub-adobe'},
+      ]);
+    }
+
+    it('filters loans by card and by format', () => {
+      loans();
+      component.loanFilterCard.set('c1');
+      expect(component.filteredLoans().map(l => l.id)).toEqual(['l1', 'l3']);
+      component.loanFilterFormat.set('audiobook');
+      expect(component.filteredLoans().map(l => l.id)).toEqual(['l1']);
+      expect(component.loanFiltersActive()).toBe(true);
+      component.clearLoanFilters();
+      expect(component.filteredLoans()).toHaveLength(3);
+    });
+
+    it('sorts loans by title and by borrowed date', () => {
+      loans();
+      component.onSortLoans({field: 'title', order: 1});
+      expect(component.filteredLoans().map(l => l.title)).toEqual(['Abel', 'Baker', 'Cain']);
+      component.onSortLoans({field: 'borrowed', order: 1});
+      expect(component.filteredLoans().map(l => l.id)).toEqual(['l1', 'l3', 'l2']);
+    });
+  });
+
+  describe('holds filter + sort', () => {
+    function holds() {
+      setup();
+      component.holds.set([
+        {id: 'h1', title: 'Cain', firstCreatorName: 'Zed', estimatedWaitDays: '9', placedDate: '2026-07-01', cardId: 'c1'},
+        {id: 'h2', title: 'Abel', firstCreatorName: 'Yan', ready: true, placedDate: '2026-07-05', cardId: 'c2'},
+        {id: 'h3', title: 'Baker', firstCreatorName: 'Xor', estimatedWaitDays: '3', placedDate: '2026-07-03', cardId: 'c1'},
+      ]);
+    }
+
+    it('filters holds by card and ready-only', () => {
+      holds();
+      component.holdFilterCard.set('c1');
+      expect(component.filteredHolds().map(h => h.id)).toEqual(['h1', 'h3']);
+      component.clearHoldFilters();
+      component.holdFilterReady.set(true);
+      expect(component.filteredHolds().map(h => h.id)).toEqual(['h2']);
+      expect(component.holdFiltersActive()).toBe(true);
+    });
+
+    it('sorts holds by wait (ready first, then shortest)', () => {
+      holds();
+      component.onSortHolds({field: 'wait', order: 1});
+      // ready 'h2' first, then wait 3 ('h3'), then wait 9 ('h1').
+      expect(component.filteredHolds().map(h => h.id)).toEqual(['h2', 'h3', 'h1']);
+    });
+  });
 });

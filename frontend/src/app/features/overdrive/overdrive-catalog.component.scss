@@ -328,6 +328,36 @@
     }
   }
 
+  // Client-side facet filters over the search results (format select + boolean toggles).
+  .search-filters {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 0.25rem 0 0.75rem;
+
+    .filter-label {
+      font-weight: 600;
+      color: var(--text-color-secondary);
+    }
+
+    label {
+      margin-right: 0.4rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .filter-count {
+      font-size: 0.8rem;
+      color: var(--text-color-secondary);
+    }
+
+    :global(.format-filter) {
+      min-width: 150px;
+    }
+  }
+
   // Destination library + path share one row: two equal-width selects that shrink to fit rather than
   // wrapping onto separate lines (important on narrow/mobile widths).
   .destination-row {

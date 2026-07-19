@@ -192,6 +192,8 @@ export interface OverDriveCatalogItem {
   language?: string | null;
   /** True for an abridged audiobook (from the title's edition label); null/absent when not applicable. */
   abridged?: boolean | null;
+  /** True when the title is an audiobook (offers an audiobook format), false for an ebook. */
+  audiobook?: boolean;
 }
 
 export interface OverDriveBorrowImportRequest {

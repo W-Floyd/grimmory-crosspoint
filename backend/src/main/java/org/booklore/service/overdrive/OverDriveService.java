@@ -1383,7 +1383,8 @@ public class OverDriveService {
                 availability,
                 display.bookId(),
                 display.language(),
-                existing.abridged() != null ? existing.abridged() : incoming.abridged());
+                existing.abridged() != null ? existing.abridged() : incoming.abridged(),
+                display.audiobook());
       }
 
       /** Sum two nullable copy counts, treating null as zero; null when both are null. */
@@ -1803,7 +1804,8 @@ public class OverDriveService {
                 new ArrayList<>(List.of(availability)),
                 resolveLinkedBookId(isbn, OverDriveItemExtractor.asin(item)),
                 OverDriveItemExtractor.languageCode(item),
-                detectAbridged(item));
+                detectAbridged(item),
+                isAudiobookItem(item));
       }
 
       /**

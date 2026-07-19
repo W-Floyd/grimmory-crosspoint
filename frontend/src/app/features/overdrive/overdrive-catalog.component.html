@@ -123,13 +123,37 @@
         <p-message severity="warn" styleClass="mb-3">None of the selected cards can place a hold right now (at their hold limit or holds disabled).</p-message>
       }
       @if (results().length > 0) {
-        <p-table [value]="results()">
+        <div class="search-filters">
+          <span class="filter-label">Filter:</span>
+          <p-select [options]="formatFilterOptions" [ngModel]="filterFormat()" (ngModelChange)="filterFormat.set($event)"
+            [ngModelOptions]="{ standalone: true }" optionLabel="label" optionValue="value" styleClass="format-filter" />
+          <p-checkbox [ngModel]="filterAvailableNow()" (ngModelChange)="filterAvailableNow.set($event)"
+            [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-available" />
+          <label for="filter-available">Available now</label>
+          <p-checkbox [ngModel]="filterMyLanguage()" (ngModelChange)="filterMyLanguage.set($event)"
+            [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-language" />
+          <label for="filter-language">My language ({{ userLanguageLabel() }})</label>
+          <p-checkbox [ngModel]="filterHideAbridged()" (ngModelChange)="filterHideAbridged.set($event)"
+            [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-abridged" />
+          <label for="filter-abridged">Hide abridged</label>
+          @if (filtersActive()) {
+            <span class="filter-count">{{ filteredResults().length }} of {{ results().length }}</span>
+            <p-button label="Clear" icon="pi pi-times" [text]="true" size="small" (onClick)="clearFilters()" />
+          }
+        </div>
+      }
+      @if (results().length > 0 && filteredResults().length === 0) {
+        <p-message severity="info" styleClass="mb-3">No results match the current filters (of {{ results().length }}). <p-button label="Clear filters" [link]="true" (onClick)="clearFilters()" /></p-message>
+      }
+      @if (filteredResults().length > 0) {
+        <p-table [value]="filteredResults()" [customSort]="true" (sortFunction)="onSortResults($event)"
+          [sortField]="sortField()" [sortOrder]="sortOrder()">
           <ng-template pTemplate="header">
             <tr>
               <th>Cover</th>
-              <th>Title</th>
-              <th>Author</th>
-              <th>Availability</th>
+              <th pSortableColumn="title">Title <p-sortIcon field="title" /></th>
+              <th pSortableColumn="author">Author <p-sortIcon field="author" /></th>
+              <th pSortableColumn="availability">Availability <p-sortIcon field="availability" /></th>
               <th>Actions</th>
             </tr>
           </ng-template>
@@ -374,18 +398,34 @@
         </p-tabpanel>
 
         <p-tabpanel value="loans">
-    <p-table [value]="loans()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
-      [scrollable]="true" scrollHeight="flex"
+    @if (loans().length > 0) {
+      <div class="search-filters">
+        <span class="filter-label">Filter:</span>
+        @if (selectedCards().length > 1) {
+          <p-select [options]="cardFilterOptions()" [ngModel]="loanFilterCard()" (ngModelChange)="loanFilterCard.set($event)"
+            [ngModelOptions]="{ standalone: true }" optionLabel="label" optionValue="value" styleClass="format-filter" />
+        }
+        <p-select [options]="formatFilterOptions" [ngModel]="loanFilterFormat()" (ngModelChange)="loanFilterFormat.set($event)"
+          [ngModelOptions]="{ standalone: true }" optionLabel="label" optionValue="value" styleClass="format-filter" />
+        @if (loanFiltersActive()) {
+          <span class="filter-count">{{ filteredLoans().length }} of {{ loans().length }}</span>
+          <p-button label="Clear" icon="pi pi-times" [text]="true" size="small" (onClick)="clearLoanFilters()" />
+        }
+      </div>
+    }
+    <p-table [value]="filteredLoans()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
+      [scrollable]="true" scrollHeight="flex" [customSort]="true" (sortFunction)="onSortLoans($event)"
+      [sortField]="loanSortField()" [sortOrder]="loanSortOrder()"
       currentPageReportTemplate="{first}-{last} / {totalRecords}">
       <ng-template pTemplate="header">
         <tr>
           <th>Cover</th>
-          <th>Title</th>
-          <th>Author</th>
-          <th>Card</th>
-          <th>Format</th>
-          <th>Borrowed</th>
-          <th>Expires</th>
+          <th pSortableColumn="title">Title <p-sortIcon field="title" /></th>
+          <th pSortableColumn="author">Author <p-sortIcon field="author" /></th>
+          <th pSortableColumn="card">Card <p-sortIcon field="card" /></th>
+          <th pSortableColumn="format">Format <p-sortIcon field="format" /></th>
+          <th pSortableColumn="borrowed">Borrowed <p-sortIcon field="borrowed" /></th>
+          <th pSortableColumn="expires">Expires <p-sortIcon field="expires" /></th>
           <th>Actions</th>
         </tr>
       </ng-template>
@@ -439,17 +479,34 @@
         </p-tabpanel>
 
         <p-tabpanel value="holds">
-    <p-table [value]="holds()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
-      [scrollable]="true" scrollHeight="flex"
+    @if (holds().length > 0) {
+      <div class="search-filters">
+        <span class="filter-label">Filter:</span>
+        @if (selectedCards().length > 1) {
+          <p-select [options]="cardFilterOptions()" [ngModel]="holdFilterCard()" (ngModelChange)="holdFilterCard.set($event)"
+            [ngModelOptions]="{ standalone: true }" optionLabel="label" optionValue="value" styleClass="format-filter" />
+        }
+        <p-checkbox [ngModel]="holdFilterReady()" (ngModelChange)="holdFilterReady.set($event)"
+          [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-hold-ready" />
+        <label for="filter-hold-ready">Ready to borrow only</label>
+        @if (holdFiltersActive()) {
+          <span class="filter-count">{{ filteredHolds().length }} of {{ holds().length }}</span>
+          <p-button label="Clear" icon="pi pi-times" [text]="true" size="small" (onClick)="clearHoldFilters()" />
+        }
+      </div>
+    }
+    <p-table [value]="filteredHolds()" [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
+      [scrollable]="true" scrollHeight="flex" [customSort]="true" (sortFunction)="onSortHolds($event)"
+      [sortField]="holdSortField()" [sortOrder]="holdSortOrder()"
       currentPageReportTemplate="{first}-{last} / {totalRecords}">
       <ng-template pTemplate="header">
         <tr>
           <th>Cover</th>
-          <th>Title</th>
-          <th>Author</th>
-          <th>Card</th>
-          <th>Placed</th>
-          <th>Est. Wait</th>
+          <th pSortableColumn="title">Title <p-sortIcon field="title" /></th>
+          <th pSortableColumn="author">Author <p-sortIcon field="author" /></th>
+          <th pSortableColumn="card">Card <p-sortIcon field="card" /></th>
+          <th pSortableColumn="placed">Placed <p-sortIcon field="placed" /></th>
+          <th pSortableColumn="wait">Est. Wait <p-sortIcon field="wait" /></th>
           <th>
             <div class="actions-header">
               <span>Actions</span>

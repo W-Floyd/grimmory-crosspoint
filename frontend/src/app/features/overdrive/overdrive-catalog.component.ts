@@ -1,4 +1,4 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -14,6 +14,7 @@ import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { MultiSelectModule } from 'primeng/multiselect';
+import { CheckboxModule } from 'primeng/checkbox';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { TooltipModule } from 'primeng/tooltip';
@@ -37,6 +38,7 @@ import { OverdriveCoverComponent } from './overdrive-cover.component';
     TableModule,
     SelectModule,
     MultiSelectModule,
+    CheckboxModule,
     ToastModule,
     TooltipModule,
     InputTextModule,
@@ -101,6 +103,208 @@ export class OverdriveCatalogComponent {
   searching = signal(false);
   results = signal<OverDriveCatalogItem[]>([]);
   importingTitleId = signal<string | null>(null);
+
+  // Client-side facet filters over the fetched search results (applied by filteredResults).
+  filterFormat = signal<'all' | 'ebook' | 'audiobook'>('all');
+  filterAvailableNow = signal(false);
+  filterMyLanguage = signal(false);
+  filterHideAbridged = signal(false);
+  readonly formatFilterOptions = [
+    { label: 'All formats', value: 'all' },
+    { label: 'Ebooks', value: 'ebook' },
+    { label: 'Audiobooks', value: 'audiobook' },
+  ];
+
+  // Column sort over the search results (null field = keep the source/relevance order from OverDrive).
+  sortField = signal<string | null>(null);
+  sortOrder = signal<1 | -1>(1);
+
+  /** Search results with the active facet filters and column sort applied. */
+  readonly filteredResults = computed(() => {
+    const format = this.filterFormat();
+    const availableOnly = this.filterAvailableNow();
+    const myLanguageOnly = this.filterMyLanguage();
+    const hideAbridged = this.filterHideAbridged();
+    const filtered = this.results().filter(item => {
+      if (format === 'audiobook' && !item.audiobook) return false;
+      if (format === 'ebook' && item.audiobook) return false;
+      if (availableOnly && !this.borrowableNow(item)) return false;
+      if (myLanguageOnly && this.isForeignLanguage(item)) return false;
+      if (hideAbridged && item.abridged) return false;
+      return true;
+    });
+    return this.applySort(filtered, this.sortField(), this.sortOrder(), (f, x) => this.resultSortKey(f, x));
+  });
+
+  /** Capture a header-click sort from the (custom-sorted) results table into the sort signals. */
+  onSortResults(event: { field?: string | string[]; order?: number }): void {
+    this.applySortEvent(event, this.sortField, this.sortOrder);
+  }
+
+  /** Sort key for a result column: strings for title/author, an availability rank (lower = sooner). */
+  private resultSortKey(field: string, item: OverDriveCatalogItem): string | number {
+    switch (field) {
+      case 'title': return (item.title ?? '').toLowerCase();
+      case 'author': return (item.author ?? '').toLowerCase();
+      case 'availability': return this.availabilityRank(item);
+      default: return '';
+    }
+  }
+
+  /** Availability ordering: borrowable now first, then shortest hold wait, then holdable, then the rest. */
+  private availabilityRank(item: OverDriveCatalogItem): number {
+    if (this.borrowableNow(item)) return -1;
+    if (item.preRelease) return 3e9;
+    if (item.holdable) return item.estimatedWaitDays ?? 1e6;
+    return 2e9;
+  }
+
+  /** True when at least one facet filter is narrowing the results. */
+  filtersActive(): boolean {
+    return this.filterFormat() !== 'all' || this.filterAvailableNow()
+      || this.filterMyLanguage() || this.filterHideAbridged();
+  }
+
+  /** Clear every facet filter. */
+  clearFilters(): void {
+    this.filterFormat.set('all');
+    this.filterAvailableNow.set(false);
+    this.filterMyLanguage.set(false);
+    this.filterHideAbridged.set(false);
+  }
+
+  // ── Loans / Holds tab: per-card filter + column sort ──────────────────────────────────────────
+  loanFilterCard = signal<string>('all');
+  loanFilterFormat = signal<'all' | 'ebook' | 'audiobook'>('all');
+  loanSortField = signal<string | null>(null);
+  loanSortOrder = signal<1 | -1>(1);
+  holdFilterCard = signal<string>('all');
+  holdFilterReady = signal(false);
+  holdSortField = signal<string | null>(null);
+  holdSortOrder = signal<1 | -1>(1);
+
+  /** Card options for the loans/holds card filter (only worth showing with >1 selected card). */
+  readonly cardFilterOptions = computed(() => [
+    { label: 'All cards', value: 'all' },
+    ...this.selectedCards().map(c => ({ label: this.shortCardLabel(c.cardId), value: c.cardId })),
+  ]);
+
+  /** Loans with the loans-tab card/format filters and column sort applied. */
+  readonly filteredLoans = computed(() => {
+    const cardId = this.loanFilterCard();
+    const format = this.loanFilterFormat();
+    const rows = this.loans().filter(l => {
+      if (cardId !== 'all' && l.cardId !== cardId) return false;
+      if (format === 'audiobook' && !this.loanIsAudiobook(l)) return false;
+      if (format === 'ebook' && this.loanIsAudiobook(l)) return false;
+      return true;
+    });
+    return this.applySort(rows, this.loanSortField(), this.loanSortOrder(), (f, x) => this.loanSortKey(f, x));
+  });
+
+  /** Holds with the holds-tab card/ready filters and column sort applied. */
+  readonly filteredHolds = computed(() => {
+    const cardId = this.holdFilterCard();
+    const readyOnly = this.holdFilterReady();
+    const rows = this.holds().filter(h => {
+      if (cardId !== 'all' && h.cardId !== cardId) return false;
+      if (readyOnly && !h.ready) return false;
+      return true;
+    });
+    return this.applySort(rows, this.holdSortField(), this.holdSortOrder(), (f, x) => this.holdSortKey(f, x));
+  });
+
+  onSortLoans(event: { field?: string | string[]; order?: number }): void {
+    this.applySortEvent(event, this.loanSortField, this.loanSortOrder);
+  }
+
+  onSortHolds(event: { field?: string | string[]; order?: number }): void {
+    this.applySortEvent(event, this.holdSortField, this.holdSortOrder);
+  }
+
+  loanFiltersActive(): boolean {
+    return this.loanFilterCard() !== 'all' || this.loanFilterFormat() !== 'all';
+  }
+
+  holdFiltersActive(): boolean {
+    return this.holdFilterCard() !== 'all' || this.holdFilterReady();
+  }
+
+  clearLoanFilters(): void {
+    this.loanFilterCard.set('all');
+    this.loanFilterFormat.set('all');
+  }
+
+  clearHoldFilters(): void {
+    this.holdFilterCard.set('all');
+    this.holdFilterReady.set(false);
+  }
+
+  private loanIsAudiobook(loan: OverDriveLoan): boolean {
+    const id = loan.formatId ?? loan.formats?.[0]?.id ?? '';
+    return id.startsWith('audiobook-');
+  }
+
+  private loanSortKey(field: string, loan: OverDriveLoan): string | number {
+    switch (field) {
+      case 'title': return (loan.title ?? '').toLowerCase();
+      case 'author': return this.creatorName(loan).toLowerCase();
+      case 'card': return this.shortCardLabel(loan.cardId).toLowerCase();
+      case 'format': return (this.loanFormat(loan) ?? '').toLowerCase();
+      case 'borrowed': return this.dateEpoch(loan.checkoutDate);
+      case 'expires': return this.dateEpoch(loan.expireDate);
+      default: return '';
+    }
+  }
+
+  private holdSortKey(field: string, hold: OverDriveHold): string | number {
+    switch (field) {
+      case 'title': return (hold.title ?? '').toLowerCase();
+      case 'author': return this.creatorName(hold).toLowerCase();
+      case 'card': return this.shortCardLabel(hold.cardId).toLowerCase();
+      case 'placed': return this.dateEpoch(hold.placedDate);
+      case 'wait': return hold.ready ? -1 : Number(hold.estimatedWaitDays ?? 1e6);
+      default: return '';
+    }
+  }
+
+  /** Parse an ISO date to epoch ms; missing/invalid sorts last (ascending). */
+  private dateEpoch(value: string | null | undefined): number {
+    if (!value) return Number.POSITIVE_INFINITY;
+    const t = Date.parse(value);
+    return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+  }
+
+  /** Mirror a PrimeNG custom-sort event into the given field/order signals. */
+  private applySortEvent(
+    event: { field?: string | string[]; order?: number },
+    fieldSignal: { set(v: string | null): void },
+    orderSignal: { set(v: 1 | -1): void },
+  ): void {
+    const field = Array.isArray(event.field) ? event.field[0] : event.field;
+    fieldSignal.set(field ?? null);
+    orderSignal.set(event.order === -1 ? -1 : 1);
+  }
+
+  /** Stable sort of a copy of {@code rows} by a column key; a null field keeps the source order. */
+  private applySort<T>(
+    rows: T[],
+    field: string | null,
+    order: 1 | -1,
+    key: (field: string, row: T) => string | number,
+  ): T[] {
+    if (!field) {
+      return rows;
+    }
+    return [...rows].sort((a, b) => {
+      const av = key(field, a);
+      const bv = key(field, b);
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av ?? '').localeCompare(String(bv ?? ''));
+      return order * cmp;
+    });
+  }
   // Per-title chosen download format (titleId → formatId); defaults to the title's top preference.
   selectedFormats = signal<Record<string, string>>({});
   // Per-title chosen card to borrow/hold with (titleId → cardId); defaults to the eligible card with
