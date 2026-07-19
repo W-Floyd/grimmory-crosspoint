@@ -224,6 +224,14 @@
     }
   }
 
+  // Actions column header with an inline bulk action (e.g. "Check all other libraries").
+  .actions-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
   // Inline per-row outcome of the last borrow/import/hold action.
   .action-status {
     display: inline-flex;

@@ -37,6 +37,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     sync: vi.fn(),
     search: vi.fn(),
     borrowAndImport: vi.fn(),
+    titleAvailability: vi.fn(),
   };
   const libraryService = {libraries: () => []};
 
@@ -312,6 +313,27 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.isForeignLanguage(item({language: 'es'}))).toBe(true);
     expect(component.isForeignLanguage(item({language: 'en'}))).toBe(false);
     expect(component.isForeignLanguage(item({language: null}))).toBe(false);
+  });
+
+  it('checks every unchecked waiting hold across other libraries in one sweep', () => {
+    const {c2} = setup();
+    // Two waiting holds on c1; c2 is another selected library to check against.
+    component.holds.set([
+      {id: 'title-1', title: 'Dune', cardId: 'c1', ready: false},
+      {id: 'title-2', title: 'Foundation', cardId: 'c1', ready: false},
+    ]);
+    overdriveService.titleAvailability.mockImplementation((titleId: string) =>
+      of([{libraryKey: 'bpl', available: true, holdable: false}]).pipe());
+
+    expect(component.uncheckedHolds().map(h => h.id)).toEqual(['title-1', 'title-2']);
+    component.onCheckAllOtherLibraries();
+
+    expect(overdriveService.titleAvailability).toHaveBeenCalledTimes(2);
+    expect(overdriveService.titleAvailability).toHaveBeenCalledWith('title-1', [c2.cardId]);
+    expect(overdriveService.titleAvailability).toHaveBeenCalledWith('title-2', [c2.cardId]);
+    // Both holds are now checked → nothing left, spinner cleared.
+    expect(component.uncheckedHolds()).toHaveLength(0);
+    expect(component.checkingAll()).toBe(false);
   });
 
   it('flags a search result the user already has on loan', () => {

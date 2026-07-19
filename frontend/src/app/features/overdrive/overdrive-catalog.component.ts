@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
 import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { catchError, map } from 'rxjs/operators';
 import { OverDriveService, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSyncResult } from '../../core/services/overdrive.service';
 
 import { ButtonModule } from 'primeng/button';
@@ -963,6 +963,45 @@ export class OverdriveCatalogComponent {
    /** True once this hold's other-library availability has been fetched. */
    holdChecked(hold: OverDriveHold): boolean {
      return hold.id in this.holdAvailability();
+   }
+
+   /** True while the bulk "check all" sweep is in flight. */
+   checkingAll = signal(false);
+
+   /** Waiting holds that still have an unchecked other-library lookup available. */
+   uncheckedHolds(): OverDriveHold[] {
+     return this.holds().filter(h => !h.ready && this.canCheckOtherLibraries(h) && !this.holdChecked(h));
+   }
+
+   /** Run the other-library availability check for every waiting hold not yet checked, in parallel. */
+   onCheckAllOtherLibraries(): void {
+     const pending = this.uncheckedHolds();
+     if (pending.length === 0) {
+       return;
+     }
+     this.checkingAll.set(true);
+     this.error.set(null);
+     forkJoin(
+       pending.map(h => this.overdriveService.titleAvailability(h.id, this.otherCardsForHold(h).map(c => c.cardId)).pipe(
+         map(avail => ({ id: h.id, avail: avail ?? [] })),
+         catchError(() => of({ id: h.id, avail: [] as OverDriveLibraryAvailability[] }))
+       ))
+     ).subscribe({
+       next: (results) => {
+         this.holdAvailability.update(m => {
+           const next = { ...m };
+           for (const r of results) {
+             next[r.id] = r.avail;
+           }
+           return next;
+         });
+         this.checkingAll.set(false);
+       },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Availability check failed'));
+         this.checkingAll.set(false);
+       }
+     });
    }
 
    /** Query the user's other libraries for this held title's availability. */
