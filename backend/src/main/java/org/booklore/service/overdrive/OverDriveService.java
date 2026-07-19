@@ -8,6 +8,7 @@ import org.booklore.model.dto.overdrive.*;
 import org.booklore.model.dto.response.OverDriveApiResponse;
 import org.booklore.model.entity.OverDriveAuditEntity;
 import org.booklore.model.entity.OverDriveCardShareEntity;
+import org.booklore.model.entity.OverDriveImportDestinationEntity;
 import org.booklore.model.entity.OverDriveLoanEntity;
 import org.booklore.model.entity.OverDriveTokenEntity;
 import org.booklore.model.enums.OverDriveAuditAction;
@@ -19,6 +20,7 @@ import org.booklore.model.dto.settings.MetadataProviderSettings;
 import org.booklore.repository.BookRepository;
 import org.booklore.repository.OverDriveAuditRepository;
 import org.booklore.repository.OverDriveCardShareRepository;
+import org.booklore.repository.OverDriveImportDestinationRepository;
 import org.booklore.repository.OverDriveLoanRepository;
 import org.booklore.repository.OverDriveTokenRepository;
 import org.booklore.repository.UserRepository;
@@ -87,6 +89,7 @@ public class OverDriveService {
     private final OverDriveTokenRepository tokenRepository;
     private final OverDriveCardShareRepository cardShareRepository;
     private final OverDriveAuditRepository auditRepository;
+    private final OverDriveImportDestinationRepository importDestinationRepository;
     private final UserRepository userRepository;
     private final AuthenticationService authenticationService;
     private final AppSettingService appSettingService;
@@ -1462,6 +1465,51 @@ public class OverDriveService {
         return audiobookHandler.isConfigured();
       }
 
+      // ── Per-document-type import destinations (per user) ─────────────────
+
+      /** The current user's per-document-type import destinations (nulls when unset). */
+      public OverDriveImportDestinations getImportDestinations() {
+        return importDestinationRepository.findByUserId(currentUserId())
+                .map(d -> new OverDriveImportDestinations(d.getEbookLibraryId(), d.getEbookPathId(),
+                        d.getAudiobookLibraryId(), d.getAudiobookPathId()))
+                .orElseGet(() -> new OverDriveImportDestinations(null, null, null, null));
+      }
+
+      /** Store the current user's per-document-type import destinations (an upsert). */
+      @Transactional
+      public void setImportDestinations(OverDriveImportDestinations d) {
+        Long userId = currentUserId();
+        OverDriveImportDestinationEntity entity = importDestinationRepository.findByUserId(userId)
+                .orElseGet(() -> OverDriveImportDestinationEntity.builder().userId(userId).build());
+        entity.setEbookLibraryId(d.ebookLibraryId());
+        entity.setEbookPathId(d.ebookPathId());
+        entity.setAudiobookLibraryId(d.audiobookLibraryId());
+        entity.setAudiobookPathId(d.audiobookPathId());
+        importDestinationRepository.save(entity);
+      }
+
+      /** A resolved import destination (either may be null when nothing routes the type). */
+      private record ImportDestination(Long libraryId, Long pathId) {}
+
+      /**
+       * Resolve where a borrowed document of the given type should import: an explicit per-borrow
+       * destination (both ids present) wins; otherwise the user's per-type default (audiobook vs ebook);
+       * otherwise nothing (→ Bookdrop).
+       */
+      private ImportDestination resolveImportDestination(BookFileType fileType, Long requestLibraryId, Long requestPathId) {
+        if (requestLibraryId != null && requestPathId != null) {
+            return new ImportDestination(requestLibraryId, requestPathId);
+        }
+        OverDriveImportDestinationEntity d = importDestinationRepository.findByUserId(currentUserId()).orElse(null);
+        if (d == null) {
+            return new ImportDestination(null, null);
+        }
+        if (fileType == BookFileType.AUDIOBOOK) {
+            return new ImportDestination(d.getAudiobookLibraryId(), d.getAudiobookPathId());
+        }
+        return new ImportDestination(d.getEbookLibraryId(), d.getEbookPathId());
+      }
+
       /**
        * Build the audiobook handoff request for a card: decrypt its stored card + PIN so the external
        * tool can authenticate itself (with its own chip + UA). Throws a clear error when the card has no
@@ -1597,14 +1645,19 @@ public class OverDriveService {
         // wouldn't keep this file type (it purges disallowed formats on scan), in which case drop it into
         // Bookdrop instead so the fulfilled file survives for the operator to place somewhere that accepts
         // it. Without a destination at all, Bookdrop is the default.
+        // Resolve the destination by document type: an explicit per-borrow library+path overrides,
+        // else the user's per-type default (ebook vs audiobook), else Bookdrop.
+        ImportDestination dest = resolveImportDestination(fileType, libraryId, pathId);
+        Long destLibraryId = dest.libraryId();
+        Long destPathId = dest.pathId();
         Book book;
-        if (libraryId != null && pathId != null && overDriveImportService.acceptsFormat(libraryId, fileType)) {
-            book = overDriveImportService.importBook(content, fileName, libraryId, pathId, metadata, fileType);
+        if (destLibraryId != null && destPathId != null && overDriveImportService.acceptsFormat(destLibraryId, fileType)) {
+            book = overDriveImportService.importBook(content, fileName, destLibraryId, destPathId, metadata, fileType);
         } else {
-            if (libraryId != null && pathId != null) {
+            if (destLibraryId != null && destPathId != null) {
                 log.warn("Destination library {} does not accept {} files — dropping loan {} ('{}') into "
                         + "Bookdrop instead of importing (it would be purged on the next scan).",
-                        libraryId, fileType, loanId, title);
+                        destLibraryId, fileType, loanId, title);
             }
             overDriveImportService.dropToBookdrop(content, fileName);
             book = null;

@@ -191,6 +191,31 @@ public class OverDriveController {
         return ResponseEntity.ok(overDriveService.listHistory());
     }
 
+    /**
+     * GET /api/overdrive/import-destinations — the current user's per-document-type import destinations.
+     */
+    @Operation(summary = "Get per-document-type import destinations")
+    @ApiResponse(responseCode = "200", description = "Destinations returned")
+    @GetMapping("/import-destinations")
+    public ResponseEntity<OverDriveImportDestinations> getImportDestinations() {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.getImportDestinations());
+    }
+
+    /**
+     * PUT /api/overdrive/import-destinations — set the current user's per-document-type import
+     * destinations (ebook vs audiobook). A null library/path for a type falls back to Bookdrop.
+     */
+    @Operation(summary = "Set per-document-type import destinations")
+    @ApiResponse(responseCode = "204", description = "Destinations saved")
+    @PutMapping("/import-destinations")
+    public ResponseEntity<Void> setImportDestinations(@RequestBody OverDriveImportDestinations destinations) {
+        requireEnabled();
+        overDriveService.setImportDestinations(destinations != null ? destinations
+                : new OverDriveImportDestinations(null, null, null, null));
+        return ResponseEntity.noContent().build();
+    }
+
     // ── Card Sharing ────────────────────────────────────────────────────
 
     /**

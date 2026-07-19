@@ -39,6 +39,7 @@ class OverDriveServiceTest {
     @Mock private OverDriveTokenRepository tokenRepository;
     @Mock private org.booklore.repository.OverDriveCardShareRepository cardShareRepository;
     @Mock private org.booklore.repository.OverDriveAuditRepository auditRepository;
+    @Mock private org.booklore.repository.OverDriveImportDestinationRepository importDestinationRepository;
     @Mock private org.booklore.repository.UserRepository userRepository;
     @Mock private AuthenticationService authenticationService;
     @Mock private org.booklore.service.appsettings.AppSettingService appSettingService;
@@ -51,7 +52,7 @@ class OverDriveServiceTest {
         OverDriveCredentialCipher cipher = new OverDriveCredentialCipher("");
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, restClient,
                 overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                userRepository, authenticationService, appSettingService, cipher);
+                importDestinationRepository, userRepository, authenticationService, appSettingService, cipher);
     }
 
     private void authAs(long userId) {
