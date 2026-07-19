@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpResponse } from '@angular/common/http';
 import { API_CONFIG } from '../../core/config/api-config';
 import { Observable } from 'rxjs';
 
@@ -405,6 +405,22 @@ export class OverDriveService {
   /** Fulfill a loan to download its ACSM fulfillment token. */
   fulfill(cardId: string, loanId: string): Observable<OverDriveFulfillResult> {
     return this.http.post<OverDriveFulfillResult>(`${this.baseUrl}/${cardId}/fulfill/${loanId}`, null);
+  }
+
+  /**
+   * Download an audiobook loan as an assembled file via the external audiobook handler. Returns the raw
+   * response so the caller can read the tool-chosen filename from Content-Disposition and save the blob.
+   */
+  downloadAudiobook(cardId: string, loanId: string, formatId?: string): Observable<HttpResponse<Blob>> {
+    const params: Record<string, string> = {};
+    if (formatId) {
+      params['formatId'] = formatId;
+    }
+    return this.http.post(`${this.baseUrl}/${cardId}/fulfill/${loanId}/download-audiobook`, null, {
+      params,
+      observe: 'response',
+      responseType: 'blob',
+    });
   }
 
   /** Return a borrowed book. */

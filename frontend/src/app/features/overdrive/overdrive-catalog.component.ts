@@ -2,7 +2,7 @@ import { Component, computed, effect, inject, signal, untracked } from '@angular
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
 import { forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
@@ -208,8 +208,8 @@ export class OverdriveCatalogComponent {
     const imported = this.loanFilterImported();
     const rows = this.loans().filter(l => {
       if (cardId !== 'all' && l.cardId !== cardId) return false;
-      if (format === 'audiobook' && !this.loanIsAudiobook(l)) return false;
-      if (format === 'ebook' && this.loanIsAudiobook(l)) return false;
+      if (format === 'audiobook' && !this.isAudiobookLoan(l)) return false;
+      if (format === 'ebook' && this.isAudiobookLoan(l)) return false;
       if (imported === 'imported' && l.bookId == null) return false;
       if (imported === 'unimported' && l.bookId != null) return false;
       return true;
@@ -257,7 +257,8 @@ export class OverdriveCatalogComponent {
     this.holdFilterReady.set(false);
   }
 
-  private loanIsAudiobook(loan: OverDriveLoan): boolean {
+  /** True when a loan is an audiobook (its format is an audiobook-* format). */
+  isAudiobookLoan(loan: OverDriveLoan): boolean {
     const id = loan.formatId ?? loan.formats?.[0]?.id ?? '';
     return id.startsWith('audiobook-');
   }
@@ -1493,6 +1494,44 @@ export class OverdriveCatalogComponent {
          }
       });
      }
+
+   /** Download an audiobook loan as a file via the external handler (the audiobook analogue of ACSM). */
+   onDownloadAudiobook(loan: OverDriveLoan): void {
+     const cardId = loan.cardId;
+     if (!cardId) return;
+
+     this.importingTitleId.set(loan.id);
+     this.error.set(null);
+     this.overdriveService.downloadAudiobook(cardId, loan.id, loan.formatId).subscribe({
+       next: (response) => {
+         const blob = response.body;
+         if (!blob) {
+           this.error.set('Audiobook download returned no data');
+           this.importingTitleId.set(null);
+           return;
+         }
+         const url = URL.createObjectURL(blob);
+         const a = document.createElement('a');
+         a.href = url;
+         a.download = this.downloadFilename(response, `${loan.title || loan.id}`);
+         a.click();
+         URL.revokeObjectURL(url);
+         this.messageService.add({ severity: 'success', summary: 'Downloaded', detail: 'Audiobook downloaded' });
+         this.importingTitleId.set(null);
+       },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Audiobook download failed'));
+         this.importingTitleId.set(null);
+       },
+     });
+   }
+
+   /** Filename for a blob download: the server's Content-Disposition name, else a sensible fallback. */
+   private downloadFilename(response: HttpResponse<Blob>, fallback: string): string {
+     const disposition = response.headers.get('Content-Disposition') ?? '';
+     const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+     return match ? decodeURIComponent(match[1]) : fallback;
+   }
 
    clearError(): void {
      this.error.set(null);

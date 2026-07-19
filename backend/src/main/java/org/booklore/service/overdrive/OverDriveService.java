@@ -1605,6 +1605,46 @@ public class OverDriveService {
                 card.getWebsiteId(), card.getIlsName(), identity, titleId, formatId);
       }
 
+      /**
+       * Fulfill an audiobook loan into a file via the external audiobook handler and return it for
+       * download — the audiobook analogue of the ACSM download. Unlike borrow-and-import, this neither
+       * borrows nor imports: the loan already exists, and the bytes go straight to the browser. In
+       * OverDrive a checked-out title's loan id is its title id, so {@code loanId} doubles as the title
+       * id the handler needs.
+       *
+       * @param formatId the loan's audiobook format (e.g. {@code audiobook-mp3}); when null/not an
+       *                 audiobook format, it is discovered from the active loan.
+       */
+      public AudiobookHandler.Result downloadAudiobook(String identity, String authToken, String loanId, String formatId) {
+        authToken = resolveToken(identity, authToken);
+        String chosenFormat = isAudiobookFormat(formatId) ? formatId : null;
+        if (chosenFormat == null) {
+            LoanRef loan = findActiveLoan(identity, authToken, loanId);
+            chosenFormat = loan == null ? null : loan.formatIds().stream()
+                    .filter(OverDriveService::isAudiobookFormat)
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (chosenFormat == null) {
+            recordAuditFailure(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, "No audiobook format for loan");
+            throw new RestClientException("No audiobook format found for loan " + loanId);
+        }
+        try {
+            AudiobookHandler.Result result = audiobookHandler.handle(audiobookRequest(identity, loanId, chosenFormat));
+            if (result == null || result.content() == null || result.content().length == 0) {
+                recordAuditFailure(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, "Audiobook handler produced no file");
+                throw new RestClientException("The audiobook handler did not produce a file for loan " + loanId + ".");
+            }
+            recordAudit(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, null, null, null);
+            log.info("OverDrive audiobook downloaded: {} bytes (.{}) for loan {}", result.content().length,
+                    result.extension(), loanId);
+            return result;
+        } catch (RuntimeException e) {
+            recordAuditFailure(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, e.getMessage());
+            throw e;
+        }
+      }
+
       /** The configured OverDrive library keys (for metadata search) from metadata provider settings. */
       private List<String> configuredLibraryKeys() {
         var appSettings = appSettingService.getAppSettings();

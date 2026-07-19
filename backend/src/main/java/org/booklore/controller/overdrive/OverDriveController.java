@@ -13,6 +13,7 @@ import org.booklore.model.dto.overdrive.*;
 import org.booklore.model.dto.settings.OverdriveProperties;
 import org.booklore.service.acsm.AcsmHandler;
 import org.booklore.service.acsm.AcsmHandlerConfig;
+import org.booklore.service.audiobook.AudiobookHandler;
 import org.booklore.service.metadata.parser.OverDriveItemExtractor;
 import org.booklore.service.overdrive.OverDriveService;
 import org.springframework.http.*;
@@ -35,6 +36,7 @@ public class OverDriveController {
     private final OverDriveService overDriveService;
     private final AcsmHandler acsmHandler;
     private final AcsmHandlerConfig acsmHandlerConfig;
+    private final AudiobookHandler audiobookHandler;
     private final OverdriveProperties overdriveProperties;
 
     /** Feature switch: reject when the operator has not enabled the OverDrive integration. */
@@ -516,6 +518,44 @@ public class OverDriveController {
                      return null;
                    }
                  }
+
+    /**
+     * POST /api/overdrive/{identity}/fulfill/{loanId}/download-audiobook —
+     * The audiobook analogue of {@link #downloadViaAcsm}: hands the loan to the external audiobook tool,
+     * which authenticates itself and assembles the audiobook file, and streams that file back. The tool
+     * picks the container, so the download name uses the extension it reports.
+     */
+    @Operation(summary = "Download an audiobook loan via the external audiobook handler",
+               description = "Hands the audiobook loan to the configured external audiobook tool, which fulfills and assembles the file, and returns it as a download.")
+    @ApiResponse(responseCode = "200", description = "Audiobook file returned")
+    @ApiResponse(responseCode = "400", description = "Audiobook handler not configured or failed")
+    @PostMapping(value = "/{identity}/fulfill/{loanId}/download-audiobook", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public ResponseEntity<byte[]> downloadAudiobook(
+            @Parameter(description = "Library card id") @PathVariable String identity,
+            @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
+            @Parameter(description = "Loan ID to fulfill") @PathVariable String loanId,
+            @Parameter(description = "Audiobook format id (optional; discovered from the loan when omitted)") @RequestParam(required = false) String formatId
+    ) {
+        requireEnabled();
+        if (!audiobookHandler.isConfigured()) {
+            log.warn("Audiobook handler not configured; cannot download audiobook for loan {}", loanId);
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Audiobook handler not configured");
+        }
+        try {
+            AudiobookHandler.Result result = overDriveService.downloadAudiobook(identity, token, loanId, formatId);
+            String filename = loanId + "." + result.extension();
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .body(result.content());
+        } catch (APIException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("OverDrive audiobook download failed for loan {}: {}", loanId, e.getMessage());
+            throw ApiError.GENERIC_BAD_REQUEST.createException(
+                    e.getMessage() != null ? e.getMessage() : "OverDrive audiobook download failed");
+        }
+    }
 
     /**
      * POST /api/overdrive/{identity}/return — return a book.

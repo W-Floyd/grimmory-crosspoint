@@ -463,12 +463,25 @@
               [loading]="importingTitleId() === loan.id"
               (onClick)="onImportLoan(loan)"
               class="mr-2" />
-            <p-button label="Download" icon="pi pi-download"
-              severity="secondary"
-              pTooltip="Download the raw ACSM file to your browser"
-              tooltipPosition="top"
-              (onClick)="onFulfill(loan)"
-              class="mr-2" />
+            @if (isAudiobookLoan(loan)) {
+              @if (audiobookConfigured()) {
+                <p-button label="Download" icon="pi pi-download"
+                  severity="secondary"
+                  pTooltip="Fulfill and download the assembled audiobook file to your browser (via the external audiobook handler)"
+                  tooltipPosition="top"
+                  [disabled]="importingTitleId() !== null"
+                  [loading]="importingTitleId() === loan.id"
+                  (onClick)="onDownloadAudiobook(loan)"
+                  class="mr-2" />
+              }
+            } @else {
+              <p-button label="Download" icon="pi pi-download"
+                severity="secondary"
+                pTooltip="Download the raw ACSM file to your browser"
+                tooltipPosition="top"
+                (onClick)="onFulfill(loan)"
+                class="mr-2" />
+            }
             <p-button label="Return" icon="pi pi-sign-out"
               severity="danger"
               pTooltip="Return this loan to the library"
