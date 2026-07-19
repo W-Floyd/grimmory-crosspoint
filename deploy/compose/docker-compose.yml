@@ -50,8 +50,12 @@ services:
       # Grimmory imports as an audiobook. Requires the card to be linked by number + PIN with
       # OVERDRIVE_CREDENTIAL_KEY set. Grimmory ships no such tool. Leave AUDIOBOOK_ENABLED unset to keep off.
       # - AUDIOBOOK_ENABLED=true
-      # - AUDIOBOOK_TOOL_PATH=/opt/audiobook/od-audiobook   # your tool or wrapper script (executable in the container)
+      # - AUDIOBOOK_TOOL_PATH=/opt/audiobook/go-od-audiobook   # your tool or wrapper script (executable in the container)
       # - AUDIOBOOK_TOOL_ARGS=--manifest {input} --out-dir {output}
+      # Grimmory runs the tool in a fresh temp dir each time, so the tool's default chip cache
+      # (./account) is thrown away between runs (it just re-authenticates from card+PIN — fine). To
+      # persist the chip across runs, point it at a mounted dir and add the volume below:
+      # - AUDIOBOOK_TOOL_ARGS=--manifest {input} --out-dir {output} --account-dir /opt/audiobook/account
       # - AUDIOBOOK_TIMEOUT_SECONDS=1800               # audiobooks are large; default 30 min
       # Override JVM memory defaults (the image ships sensible defaults for ~512 MB heap).
       # Uncomment and adjust if you want a tighter or looser cap:
@@ -75,7 +79,9 @@ services:
       # ./acsm/account — is writable by and owned by the container user (USER_ID:GROUP_ID, 1000).
       # - ./acsm:/opt/acsm
       # Operator-supplied audiobook handler tool (see the AUDIOBOOK_* env vars above). Same image
-      # caveats as the ACSM tool: Alpine/musl, no python runtime — mount a self-contained executable.
+      # caveats as the ACSM tool: Alpine/musl, no python runtime — mount a self-contained executable
+      # (a CGO_ENABLED=0 Go binary is ideal). Mount READ-WRITE only if you use --account-dir for chip
+      # caching (that subdir, e.g. ./audiobook/account, must be writable by the container user 1000).
       # - ./audiobook:/opt/audiobook
     # Uncomment the block below if you need to override the defaults:
     #healthcheck:
