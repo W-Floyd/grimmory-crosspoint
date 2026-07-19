@@ -166,7 +166,9 @@
   .capacity-row {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    // Tight vertical gap so the Loans/Holds bars sit close together when they wrap onto their own
+    // lines (mobile), while keeping a comfortable horizontal gap when they fit on one line.
+    gap: 0.25rem 1rem;
     flex-wrap: wrap;
 
     .capacity-card {
