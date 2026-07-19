@@ -190,6 +190,8 @@ export interface OverDriveCatalogItem {
   bookId?: number | null;
   /** Normalized primary language code (e.g. "en", "es"), or null. */
   language?: string | null;
+  /** True for an abridged audiobook (from the title's edition label); null/absent when not applicable. */
+  abridged?: boolean | null;
 }
 
 export interface OverDriveBorrowImportRequest {

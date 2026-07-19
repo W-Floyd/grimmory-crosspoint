@@ -238,6 +238,61 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void searchCatalog_flagsAbridgedAudiobook() {
+        var item = audiobookItem("title-1", "Abridged");
+
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook")).thenReturn(List.of(item));
+
+        assertThat(service.searchCatalog("dune", List.of("card-1")).getFirst().abridged()).isTrue();
+    }
+
+    @Test
+    void searchCatalog_doesNotFlagUnabridgedAudiobook() {
+        var item = audiobookItem("title-1", "Unabridged");
+
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook")).thenReturn(List.of(item));
+
+        assertThat(service.searchCatalog("dune", List.of("card-1")).getFirst().abridged()).isNull();
+    }
+
+    @Test
+    void searchCatalog_doesNotFlagEbookWithAbridgedEdition() {
+        // An "Abridged" edition label on a non-audiobook (no audiobook format) must not raise the flag.
+        var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        item.setId("title-1");
+        item.setTitle("Dune");
+        item.setEdition("Abridged");
+        var ebook = new org.booklore.model.dto.response.OverDriveApiResponse.Item.Format();
+        ebook.setId("ebook-epub-adobe");
+        item.setFormats(List.of(ebook));
+
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook")).thenReturn(List.of(item));
+
+        assertThat(service.searchCatalog("dune", List.of("card-1")).getFirst().abridged()).isNull();
+    }
+
+    /** An audiobook-format catalog item with the given edition label. */
+    private static org.booklore.model.dto.response.OverDriveApiResponse.Item audiobookItem(String id, String edition) {
+        var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        item.setId(id);
+        item.setTitle("Dune");
+        item.setEdition(edition);
+        var audio = new org.booklore.model.dto.response.OverDriveApiResponse.Item.Format();
+        audio.setId("audiobook-mp3");
+        item.setFormats(List.of(audio));
+        return item;
+    }
+
+    @Test
     void searchCatalog_defaultsAvailabilityToSafeValuesWhenAbsent() {
         var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
         item.setId("title-1");

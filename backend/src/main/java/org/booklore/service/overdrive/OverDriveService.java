@@ -270,6 +270,30 @@ public class OverDriveService {
         return formatId != null && formatId.startsWith("audiobook-");
     }
 
+    /** True when the title offers any audiobook format (i.e. it is an audiobook, not an ebook). */
+    private static boolean isAudiobookItem(OverDriveApiResponse.Item item) {
+        return item.getFormats() != null && item.getFormats().stream()
+                .map(OverDriveApiResponse.Item.Format::getId)
+                .anyMatch(OverDriveService::isAudiobookFormat);
+    }
+
+    /**
+     * Whether an audiobook title is abridged, read from its {@code edition} label. Returns null for
+     * ebooks and for audiobooks whose edition is absent or "Unabridged" (only an explicit "Abridged"
+     * edition warrants the warning — silence means "not flagged", never a false positive).
+     */
+    private static Boolean detectAbridged(OverDriveApiResponse.Item item) {
+        if (!isAudiobookItem(item)) {
+            return null;
+        }
+        String edition = item.getEdition();
+        if (edition == null || edition.isBlank()) {
+            return null;
+        }
+        String normalized = edition.toLowerCase(Locale.ROOT);
+        return normalized.contains("abridged") && !normalized.contains("unabridged") ? Boolean.TRUE : null;
+    }
+
     private static BookFileType bookFileType(String formatId) {
         if (isAudiobookFormat(formatId)) {
             return BookFileType.AUDIOBOOK;
@@ -1358,7 +1382,8 @@ public class OverDriveService {
                 display.formats(),
                 availability,
                 display.bookId(),
-                display.language());
+                display.language(),
+                existing.abridged() != null ? existing.abridged() : incoming.abridged());
       }
 
       /** Sum two nullable copy counts, treating null as zero; null when both are null. */
@@ -1777,7 +1802,8 @@ public class OverDriveService {
                 formats,
                 new ArrayList<>(List.of(availability)),
                 resolveLinkedBookId(isbn, OverDriveItemExtractor.asin(item)),
-                OverDriveItemExtractor.languageCode(item));
+                OverDriveItemExtractor.languageCode(item),
+                detectAbridged(item));
       }
 
       /**

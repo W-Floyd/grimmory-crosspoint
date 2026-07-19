@@ -39,6 +39,8 @@ public class OverDriveApiResponse {
         private List<Format> formats;
         private DetailedSeries detailedSeries;
         private Double starRating;
+        /** Audiobook edition label, e.g. "Unabridged" / "Abridged" (absent for most ebooks). */
+        private String edition;
 
         // Availability fields (present on the browse/media responses; see docs §7b). Nullable — the
         // metadata-only search path does not depend on them, so absence is tolerated.

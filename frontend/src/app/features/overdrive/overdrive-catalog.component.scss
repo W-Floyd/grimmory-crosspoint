@@ -389,6 +389,21 @@
     }
   }
 
+  // Badge flagging an abridged audiobook search result.
+  .abridged-warning {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--orange-500, #f97316);
+
+    i {
+      font-size: 0.7rem;
+    }
+  }
+
   // Badge flagging a search result the user already has out on loan.
   .loan-warning {
     display: inline-flex;

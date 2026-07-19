@@ -154,6 +154,11 @@
                     <i class="pi pi-exclamation-triangle"></i> {{ foreignLanguageLabel(item) }}
                   </span>
                 }
+                @if (item.abridged) {
+                  <span class="abridged-warning" pTooltip="This audiobook is abridged — some of the original text has been cut. Look for an unabridged edition if you want the full recording.">
+                    <i class="pi pi-exclamation-triangle"></i> Abridged
+                  </span>
+                }
               </td>
               <td>{{ item.author }}</td>
               <td [pTooltip]="availabilityBreakdown(item)" tooltipPosition="top" tooltipStyleClass="availability-tooltip">

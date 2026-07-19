@@ -42,5 +42,7 @@ public record OverDriveCatalogItem(
         /** Id of an existing library book this title matches (by ISBN), or null if not in the library. */
         Long bookId,
         /** Normalized primary language code (e.g. "en", "es"), or null. */
-        String language
+        String language,
+        /** True for an abridged audiobook (from the title's edition label); null when not applicable. */
+        Boolean abridged
 ) {}
