@@ -7,6 +7,7 @@ package org.booklore.model.enums;
 public enum OverDriveAuditAction {
     BORROW,
     BORROW_AND_IMPORT,
+    IMPORT,
     RETURN,
     HOLD_PLACED,
     HOLD_CANCELLED,

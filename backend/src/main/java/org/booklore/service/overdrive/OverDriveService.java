@@ -1574,7 +1574,10 @@ public class OverDriveService {
         // borrowed the title but failed at fulfill/import, leaving the loan (and a consumed checkout
         // slot) in place. Borrowing is not automatically retried; we only pick up the existing loan.
         LoanRef loan = findActiveLoan(identity, authToken, titleId);
-        if (loan != null) {
+        // Was it already on loan? Then this is an import of an existing loan, not a fresh borrow — the
+        // history should say so.
+        boolean alreadyBorrowed = loan != null;
+        if (alreadyBorrowed) {
             log.info("OverDrive: resuming existing loan {} for title {} (skipping re-borrow)", loan.loanId(), titleId);
         } else {
             Map<String, Object> borrowed = borrowLoan(identity, authToken, titleId);
@@ -1681,8 +1684,8 @@ public class OverDriveService {
         entity.setLastSync(Instant.now());
         loanRepository.save(entity);
 
-        recordAudit(OverDriveAuditAction.BORROW_AND_IMPORT, identity, titleId, loanId,
-                book != null ? book.getId() : null, title,
+        recordAudit(alreadyBorrowed ? OverDriveAuditAction.IMPORT : OverDriveAuditAction.BORROW_AND_IMPORT,
+                identity, titleId, loanId, book != null ? book.getId() : null, title,
                 book != null ? "Imported to library" : "Dropped into Bookdrop");
         log.info("OverDrive borrow-and-import complete: loan {} ({}) -> {}", loanId, chosenFormat,
                 book != null ? "book " + book.getId() : "Bookdrop");

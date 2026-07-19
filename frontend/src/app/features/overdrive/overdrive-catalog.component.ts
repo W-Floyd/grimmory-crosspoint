@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -70,9 +70,18 @@ export class OverdriveCatalogComponent {
   history = signal<OverDriveAuditEntry[]>([]);
   loadingHistory = signal(false);
   // Whether the Library Cards + capacity section is folded away to give the loans/holds tables room.
-  // Defaults to folded on short viewports (e.g. mobile), where the tall card would otherwise squeeze
-  // the tab tables to nothing; the user can always toggle it back open.
-  cardsCollapsed = signal(typeof window !== 'undefined' && window.innerHeight < 720);
+  // Remembered across sessions (localStorage); with no saved preference, defaults to folded on short
+  // viewports (e.g. mobile) where the tall card would otherwise squeeze the tab tables to nothing.
+  private static readonly CARDS_COLLAPSED_KEY = 'overdrive.cardsCollapsed';
+  cardsCollapsed = signal(OverdriveCatalogComponent.readCardsCollapsedPref());
+
+  private static readCardsCollapsedPref(): boolean {
+    try {
+      const v = localStorage.getItem(OverdriveCatalogComponent.CARDS_COLLAPSED_KEY);
+      if (v !== null) return v === 'true';
+    } catch { /* localStorage unavailable */ }
+    return typeof window !== 'undefined' && window.innerHeight < 720;
+  }
 
    // Linked Libby cards (per user). The checkbox-selected cards form the set of libraries to search
    // and the pool of eligible cards to borrow/hold with. Linking/unlinking and diagnostics live on the
@@ -108,6 +117,13 @@ export class OverdriveCatalogComponent {
   audiobookConfigured = signal(false);
 
    constructor() {
+     // Remember the folded/expanded state of the Library Cards section across sessions.
+     effect(() => {
+       const collapsed = this.cardsCollapsed();
+       try {
+         localStorage.setItem(OverdriveCatalogComponent.CARDS_COLLAPSED_KEY, String(collapsed));
+       } catch { /* localStorage unavailable */ }
+     });
      this.loadCards();
      this.overdriveService.capabilities().subscribe({
        next: (c) => {
@@ -1250,6 +1266,7 @@ export class OverdriveCatalogComponent {
    private static readonly ACTION_LABELS: Record<string, string> = {
      BORROW: 'Borrowed',
      BORROW_AND_IMPORT: 'Borrowed & imported',
+     IMPORT: 'Imported',
      RETURN: 'Returned',
      HOLD_PLACED: 'Hold placed',
      HOLD_CANCELLED: 'Hold cancelled',
@@ -1271,6 +1288,7 @@ export class OverdriveCatalogComponent {
      switch (action) {
        case 'BORROW':
        case 'BORROW_AND_IMPORT':
+       case 'IMPORT':
        case 'DOWNLOAD':
          return 'borrow';
        case 'RETURN':
