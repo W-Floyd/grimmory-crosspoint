@@ -33,6 +33,14 @@ export interface OverDriveShareUser {
   name?: string | null;
 }
 
+/** A user's per-document-type OverDrive import destinations (null = unset → Bookdrop). */
+export interface OverDriveImportDestinations {
+  ebookLibraryId?: number | null;
+  ebookPathId?: number | null;
+  audiobookLibraryId?: number | null;
+  audiobookPathId?: number | null;
+}
+
 /** One entry in a user's OverDrive activity history. */
 export interface OverDriveAuditEntry {
   id: number;
@@ -292,6 +300,16 @@ export class OverDriveService {
   /** The current user's recent OverDrive activity history (newest first). */
   history(): Observable<OverDriveAuditEntry[]> {
     return this.http.get<OverDriveAuditEntry[]>(`${this.baseUrl}/history`);
+  }
+
+  /** The current user's per-document-type import destinations. */
+  importDestinations(): Observable<OverDriveImportDestinations> {
+    return this.http.get<OverDriveImportDestinations>(`${this.baseUrl}/import-destinations`);
+  }
+
+  /** Save the current user's per-document-type import destinations. */
+  setImportDestinations(destinations: OverDriveImportDestinations): Observable<void> {
+    return this.http.put<void>(`${this.baseUrl}/import-destinations`, destinations);
   }
 
   /** Report which OverDrive features are available (e.g. whether an ACSM handler is configured). */

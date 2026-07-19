@@ -177,6 +177,33 @@
   }
 }
 
+// Per-document-type import destinations: type label + library select + path select per row.
+.import-dest-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  margin-top: 0.5rem;
+
+  .import-dest-type {
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  ::ng-deep .import-dest-select {
+    width: 100%;
+  }
+
+  @media (width <= 640px) {
+    grid-template-columns: 1fr;
+    row-gap: 0.35rem;
+
+    .import-dest-type {
+      margin-top: 0.5rem;
+    }
+  }
+}
+
 .share-dialog-intro,
 .cred-dialog-intro {
   margin: 0 0 0.75rem;

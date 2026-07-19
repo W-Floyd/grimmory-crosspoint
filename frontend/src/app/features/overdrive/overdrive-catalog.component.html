@@ -102,31 +102,7 @@
       </p-tablist>
       <p-tabpanels>
         <p-tabpanel value="search">
-      <div class="field">
-        <label for="dest-library-select">Destination library</label>
-        <div class="destination-row">
-          <p-select
-            inputId="dest-library-select"
-            [options]="grimmoryLibraries()"
-            optionLabel="name"
-            [ngModel]="selectedLibrary()"
-            (ngModelChange)="onLibraryChange($event)"
-            placeholder="Bookdrop (no library)"
-            [showClear]="true"
-            appendTo="body"
-            />
-          <p-select
-            [options]="selectedLibrary()?.paths ?? []"
-            optionLabel="path"
-            [ngModel]="selectedPath()"
-            (ngModelChange)="onPathChange($event)"
-            [disabled]="!selectedLibrary()"
-            placeholder="Select a path"
-            appendTo="body"
-            />
-        </div>
-        <small class="hint">Applies to every borrow, whichever card you use. Leave empty to drop borrowed books into Bookdrop for review instead.</small>
-      </div>
+      <small class="hint dest-hint">Borrowed titles import to your per-type destinations (Settings → OverDrive) — ebooks and audiobooks route separately; unset types go to Bookdrop.</small>
       <div class="field search-row">
         <input
           pInputText
@@ -377,9 +353,6 @@
                     }
                   }
                 }
-              }
-              @if (borrowableNow(item) && canBorrow(item) && destinationRejectsFormat(item)) {
-                <span class="format-warning" pTooltip="{{ selectedLibrary()?.name }} only keeps {{ selectedLibrary()?.allowedFormats?.join(', ') }} files, so this {{ chosenBookType(item) }} would be purged — it'll go to Bookdrop for review instead. Pick an EPUB format or a different destination library to import it.">→ Bookdrop: {{ selectedLibrary()?.name }} won't keep {{ chosenBookType(item) }}</span>
               }
               @if (actionOutcome()[item.titleId]; as st) {
                 <span class="action-status" [class.error]="st === 'error'">

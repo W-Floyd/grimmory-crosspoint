@@ -20,7 +20,6 @@ import { TooltipModule } from 'primeng/tooltip';
 import { InputTextModule } from 'primeng/inputtext';
 import { TabsModule } from 'primeng/tabs';
 import { LibraryService } from '../../features/book/service/library.service';
-import { Library, LibraryPath } from '../../features/book/model/library.model';
 import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
 import { OverdriveCoverComponent } from './overdrive-cover.component';
 
@@ -92,8 +91,6 @@ export class OverdriveCatalogComponent {
   searchQuery = signal('');
   searching = signal(false);
   results = signal<OverDriveCatalogItem[]>([]);
-  selectedLibrary = signal<Library | null>(null);
-  selectedPath = signal<LibraryPath | null>(null);
   importingTitleId = signal<string | null>(null);
   // Per-title chosen download format (titleId → formatId); defaults to the title's top preference.
   selectedFormats = signal<Record<string, string>>({});
@@ -264,7 +261,6 @@ export class OverdriveCatalogComponent {
          this.cards.set(cards ?? []);
          if (cards && cards.length > 0) {
            this.selectedCards.set([...cards]);
-           this.applyDestinationDefault();
            this.syncSelectedCards();
          } else {
            this.selectedCards.set([]);
@@ -277,39 +273,7 @@ export class OverdriveCatalogComponent {
 
    onCardsChange(cards: OverDriveCard[]): void {
      this.selectedCards.set(cards ?? []);
-     this.applyDestinationDefault();
      this.syncSelectedCards();
-   }
-
-   /** The primary (first selected) card — drives the remembered destination default. */
-   private primaryCard(): OverDriveCard | null {
-     return this.selectedCards()[0] ?? null;
-   }
-
-   /** Pre-select the destination from the primary card's remembered default (resolved against known libraries). */
-   private applyDestinationDefault(): void {
-     const card = this.primaryCard();
-     const libs = this.grimmoryLibraries();
-     const library = card?.defaultLibraryId != null ? libs.find(l => l.id === card.defaultLibraryId) ?? null : null;
-     this.selectedLibrary.set(library);
-     const path = (library && card?.defaultPathId != null)
-       ? library.paths?.find(p => p.id === card.defaultPathId) ?? null
-       : null;
-     this.selectedPath.set(path);
-   }
-
-   /** Persist the current destination as the primary card's default (fire-and-forget) and keep it locally. */
-   private persistDestinationDefault(): void {
-     const card = this.primaryCard();
-     if (!card) return;
-     const libraryId = this.selectedLibrary()?.id ?? null;
-     const pathId = this.selectedPath()?.id ?? null;
-     this.overdriveService.setDefaultLibrary(card.cardId, libraryId, pathId).subscribe({
-       error: (err: unknown) => this.error.set(this.errorMessage(err, 'Failed to save default library'))
-     });
-     const updated = { ...card, defaultLibraryId: libraryId, defaultPathId: pathId };
-     this.cards.update(cs => cs.map(c => c.cardId === card.cardId ? updated : c));
-     this.selectedCards.update(cs => cs.map(c => c.cardId === card.cardId ? updated : c));
    }
 
    /** Sync every selected card (upfront) so per-card counts, loans and holds are ready. */
@@ -368,18 +332,6 @@ export class OverdriveCatalogComponent {
      this.libraries.set([...libraries.values()]);
      // Holds changed — drop any stale "available elsewhere" results so they're re-checked on demand.
      this.holdAvailability.set({});
-   }
-
-   onLibraryChange(library: Library | null): void {
-     this.selectedLibrary.set(library);
-     // Auto-select the only path, otherwise clear.
-     this.selectedPath.set(library?.paths?.length === 1 ? library.paths[0] : null);
-     this.persistDestinationDefault();
-   }
-
-   onPathChange(path: LibraryPath | null): void {
-     this.selectedPath.set(path);
-     this.persistDestinationDefault();
    }
 
    onSearch(): void {
@@ -642,8 +594,6 @@ export class OverdriveCatalogComponent {
 
    onBorrowImport(item: OverDriveCatalogItem): void {
      const card = this.chosenCard(item);
-     const library = this.selectedLibrary();
-     const path = this.selectedPath();
      if (!card) {
        this.error.set('No eligible card for this title — select a card whose library has it');
        return;
@@ -657,8 +607,8 @@ export class OverdriveCatalogComponent {
      this.error.set(null);
      this.overdriveService.borrowAndImport(card.cardId, {
        titleId: item.titleId,
-       libraryId: library?.id ?? null,
-       pathId: path?.id ?? null,
+       libraryId: null,
+       pathId: null,
        title: this.fullTitle(item),
        author: item.author,
        coverUrl: item.coverUrl,
@@ -835,24 +785,6 @@ export class OverdriveCatalogComponent {
      this.selectedFormats.update((m) => ({ ...m, [titleId]: formatId }));
      }
 
-   /** The library book type the chosen format for a title would import as. */
-   chosenBookType(item: OverDriveCatalogItem): 'PDF' | 'EPUB' | 'AUDIOBOOK' | null {
-     const f = this.chosenFormat(item);
-     if (!f) return null;
-     if (f.startsWith('audiobook-')) return 'AUDIOBOOK';
-     return f.startsWith('ebook-pdf') ? 'PDF' : 'EPUB';
-     }
-
-   /**
-    * True when the selected destination library restricts formats and excludes the chosen format's type.
-    * Importing there would be purged on the next scan, so the borrow will land in Bookdrop instead.
-    */
-   destinationRejectsFormat(item: OverDriveCatalogItem): boolean {
-     const allowed = this.selectedLibrary()?.allowedFormats;
-     if (!allowed || allowed.length === 0) return false;
-     const type = this.chosenBookType(item);
-     return type != null && !allowed.includes(type);
-     }
 
    /**
     * Best author label for a loan or hold: sync provides a flat firstCreatorName rather than a
@@ -908,14 +840,12 @@ export class OverdriveCatalogComponent {
    onImportLoan(loan: OverDriveLoan): void {
      const cardId = loan.cardId;
      if (!cardId) return;
-     const library = this.selectedLibrary();
-     const path = this.selectedPath();
      this.importingTitleId.set(loan.id);
      this.error.set(null);
      this.overdriveService.borrowAndImport(cardId, {
        titleId: loan.id,
-       libraryId: library?.id ?? null,
-       pathId: path?.id ?? null,
+       libraryId: null,
+       pathId: null,
        title: loan.title,
        author: this.creatorName(loan) || undefined,
        coverUrl: loan.coverUrl || undefined,
@@ -946,14 +876,12 @@ export class OverdriveCatalogComponent {
    onBorrowHold(hold: OverDriveHold): void {
      const cardId = hold.cardId;
      if (!cardId) return;
-     const library = this.selectedLibrary();
-     const path = this.selectedPath();
      this.importingTitleId.set(hold.id);
      this.error.set(null);
      this.overdriveService.borrowAndImport(cardId, {
        titleId: hold.id,
-       libraryId: library?.id ?? null,
-       pathId: path?.id ?? null,
+       libraryId: null,
+       pathId: null,
        title: hold.subtitle ? `${hold.title}: ${hold.subtitle}` : hold.title,
        author: this.creatorName(hold) || undefined,
        coverUrl: hold.coverUrl || undefined
@@ -1128,14 +1056,12 @@ export class OverdriveCatalogComponent {
    onBorrowElsewhereAndCancel(hold: OverDriveHold): void {
      const card = this.availableElsewhere(hold);
      if (!card || !hold.cardId) return;
-     const library = this.selectedLibrary();
-     const path = this.selectedPath();
      this.importingTitleId.set(hold.id);
      this.error.set(null);
      this.overdriveService.borrowAndImport(card.cardId, {
        titleId: hold.id,
-       libraryId: library?.id ?? null,
-       pathId: path?.id ?? null,
+       libraryId: null,
+       pathId: null,
        title: hold.subtitle ? `${hold.title}: ${hold.subtitle}` : hold.title,
        author: this.creatorName(hold) || undefined,
        coverUrl: hold.coverUrl || undefined

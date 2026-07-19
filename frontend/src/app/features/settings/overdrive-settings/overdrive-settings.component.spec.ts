@@ -5,7 +5,8 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {AppSettings} from '../../../shared/model/app-settings.model';
 import {AppSettingsService} from '../../../shared/service/app-settings.service';
-import {OverDriveService, OverDriveCard, OverDriveShareUser} from '../../../core/services/overdrive.service';
+import {OverDriveService, OverDriveCard, OverDriveImportDestinations, OverDriveShareUser} from '../../../core/services/overdrive.service';
+import {LibraryService} from '../../../features/book/service/library.service';
 import {OverdriveSettingsComponent} from './overdrive-settings.component';
 
 const overdriveService = {
@@ -15,6 +16,8 @@ const overdriveService = {
   listShares: vi.fn(() => of([] as OverDriveShareUser[])),
   setShares: vi.fn(() => of(void 0)),
   linkCard: vi.fn(() => of([] as OverDriveCard[])),
+  importDestinations: vi.fn(() => of({} as OverDriveImportDestinations)),
+  setImportDestinations: vi.fn(() => of(void 0)),
 };
 
 const appSettingsState = signal<AppSettings | null>(null);
@@ -25,6 +28,7 @@ function setup(): OverdriveSettingsComponent {
     providers: [
       {provide: OverDriveService, useValue: overdriveService},
       {provide: AppSettingsService, useValue: {appSettings: () => appSettingsState(), saveSettings: () => of(void 0)}},
+      {provide: LibraryService, useValue: {libraries: () => []}},
     ],
   });
   // Render with a stub template so the suite tests component logic without PrimeNG DOM.

@@ -7,12 +7,15 @@ import { MessageModule } from 'primeng/message';
 import { CardModule } from 'primeng/card';
 import { MessageService } from 'primeng/api';
 
-import { OverDriveService, OverDriveCard, OverDriveLibraryResolution, OverDriveShareUser } from '../../../core/services/overdrive.service';
+import { OverDriveService, OverDriveCard, OverDriveImportDestinations, OverDriveLibraryResolution, OverDriveShareUser } from '../../../core/services/overdrive.service';
 import { ButtonModule } from 'primeng/button';
 import { TooltipModule } from 'primeng/tooltip';
 import { OrderListModule } from 'primeng/orderlist';
 import { DialogModule } from 'primeng/dialog';
 import { MultiSelectModule } from 'primeng/multiselect';
+import { SelectModule } from 'primeng/select';
+import { LibraryService } from '../../../features/book/service/library.service';
+import { Library, LibraryPath } from '../../../features/book/model/library.model';
 
 @Component({
   selector: 'app-overdrive-settings',
@@ -26,7 +29,8 @@ import { MultiSelectModule } from 'primeng/multiselect';
     TooltipModule,
     OrderListModule,
     DialogModule,
-    MultiSelectModule
+    MultiSelectModule,
+    SelectModule
 ],
   templateUrl: './overdrive-settings.component.html',
   styleUrl: './overdrive-settings.component.scss',
@@ -36,6 +40,15 @@ export class OverdriveSettingsComponent {
   private readonly appSettingsService = inject(AppSettingsService);
   private readonly overdriveService = inject(OverDriveService);
   private readonly messageService = inject(MessageService);
+  private readonly libraryService = inject(LibraryService);
+
+  // Grimmory libraries (with paths) for the per-type import-destination selectors.
+  readonly grimmoryLibraries = this.libraryService.libraries;
+  // Per-document-type import destinations: ebooks (EPUB/PDF) vs audiobooks. Null = Bookdrop.
+  ebookLibrary = signal<Library | null>(null);
+  ebookPath = signal<LibraryPath | null>(null);
+  audiobookLibrary = signal<Library | null>(null);
+  audiobookPath = signal<LibraryPath | null>(null);
 
   // The list of OverDrive library keys to search for metadata (source of truth).
   libraryKeys = signal<string[]>([]);
@@ -102,6 +115,59 @@ export class OverdriveSettingsComponent {
         this.credentialStorageEnabled.set(false);
         this.acsmHandlerConfigured.set(false);
       }
+    });
+    this.loadImportDestinations();
+  }
+
+  /** Load the per-document-type import destinations and resolve their ids to library/path objects. */
+  private loadImportDestinations(): void {
+    this.overdriveService.importDestinations().subscribe({
+      next: (d) => {
+        const libs = this.grimmoryLibraries();
+        const eLib = libs.find(l => l.id === d.ebookLibraryId) ?? null;
+        this.ebookLibrary.set(eLib);
+        this.ebookPath.set(eLib?.paths.find(p => p.id === d.ebookPathId) ?? null);
+        const aLib = libs.find(l => l.id === d.audiobookLibraryId) ?? null;
+        this.audiobookLibrary.set(aLib);
+        this.audiobookPath.set(aLib?.paths.find(p => p.id === d.audiobookPathId) ?? null);
+      },
+      error: () => { /* leave unset (Bookdrop) */ }
+    });
+  }
+
+  onEbookLibraryChange(library: Library | null): void {
+    this.ebookLibrary.set(library);
+    this.ebookPath.set(library?.paths.length === 1 ? library.paths[0] : null);
+    this.saveImportDestinations();
+  }
+
+  onEbookPathChange(path: LibraryPath | null): void {
+    this.ebookPath.set(path);
+    this.saveImportDestinations();
+  }
+
+  onAudiobookLibraryChange(library: Library | null): void {
+    this.audiobookLibrary.set(library);
+    this.audiobookPath.set(library?.paths.length === 1 ? library.paths[0] : null);
+    this.saveImportDestinations();
+  }
+
+  onAudiobookPathChange(path: LibraryPath | null): void {
+    this.audiobookPath.set(path);
+    this.saveImportDestinations();
+  }
+
+  /** Persist the per-type import destinations (fire-and-forget; a toast confirms). */
+  private saveImportDestinations(): void {
+    const payload: OverDriveImportDestinations = {
+      ebookLibraryId: this.ebookLibrary()?.id ?? null,
+      ebookPathId: this.ebookPath()?.id ?? null,
+      audiobookLibraryId: this.audiobookLibrary()?.id ?? null,
+      audiobookPathId: this.audiobookPath()?.id ?? null
+    };
+    this.setupError.set(null);
+    this.overdriveService.setImportDestinations(payload).subscribe({
+      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Failed to save import destinations')
     });
   }
 

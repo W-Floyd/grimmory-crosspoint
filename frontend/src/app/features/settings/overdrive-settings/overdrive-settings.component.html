@@ -69,6 +69,28 @@
       </p-orderList>
     </div>
 
+    <div class="field">
+      <span class="field-label">Import Destinations</span>
+      <small>Where borrowed titles are imported, by type. Leave a type empty to drop it into Bookdrop for review. Applies to every card; the Search &amp; Borrow tab can still override per borrow.</small>
+      <div class="import-dest-grid">
+        <span class="import-dest-type">Ebooks (EPUB/PDF)</span>
+        <p-select [options]="grimmoryLibraries()" optionLabel="name" [ngModel]="ebookLibrary()"
+          (ngModelChange)="onEbookLibraryChange($event)" [ngModelOptions]="{ standalone: true }"
+          placeholder="Bookdrop (no library)" [showClear]="true" appendTo="body" styleClass="import-dest-select" />
+        <p-select [options]="ebookLibrary()?.paths ?? []" optionLabel="path" [ngModel]="ebookPath()"
+          (ngModelChange)="onEbookPathChange($event)" [ngModelOptions]="{ standalone: true }"
+          [disabled]="!ebookLibrary()" placeholder="Select a path" appendTo="body" styleClass="import-dest-select" />
+
+        <span class="import-dest-type">Audiobooks</span>
+        <p-select [options]="grimmoryLibraries()" optionLabel="name" [ngModel]="audiobookLibrary()"
+          (ngModelChange)="onAudiobookLibraryChange($event)" [ngModelOptions]="{ standalone: true }"
+          placeholder="Bookdrop (no library)" [showClear]="true" appendTo="body" styleClass="import-dest-select" />
+        <p-select [options]="audiobookLibrary()?.paths ?? []" optionLabel="path" [ngModel]="audiobookPath()"
+          (ngModelChange)="onAudiobookPathChange($event)" [ngModelOptions]="{ standalone: true }"
+          [disabled]="!audiobookLibrary()" placeholder="Select a path" appendTo="body" styleClass="import-dest-select" />
+      </div>
+    </div>
+
     @if (setupError()) {
       <p-message severity="error">{{ setupError() }}</p-message>
     }
