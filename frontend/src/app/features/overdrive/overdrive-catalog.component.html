@@ -546,16 +546,23 @@
         <tr>
           <th>When</th>
           <th>Action</th>
+          <th>Status</th>
           <th>Title</th>
           <th>Card</th>
           <th>Details</th>
         </tr>
       </ng-template>
       <ng-template pTemplate="body" let-entry>
-        <tr>
+        <tr [class.history-row-failed]="entry.success === false">
           <td class="history-when">{{ formatDateTime(entry.createdAt) }}</td>
           <td>
             <span class="history-action" [class]="actionClass(entry.action)">{{ actionLabel(entry.action) }}</span>
+          </td>
+          <td>
+            <span class="history-status" [class.is-failed]="entry.success === false">
+              <i class="pi" [class.pi-check-circle]="entry.success !== false" [class.pi-times-circle]="entry.success === false"></i>
+              {{ entry.success === false ? 'Failed' : 'OK' }}
+            </span>
           </td>
           <td>
             @if (entry.bookId) {
@@ -570,7 +577,7 @@
       </ng-template>
       <ng-template pTemplate="emptymessage">
         <tr>
-          <td colspan="5" class="history-empty">No OverDrive activity recorded yet.</td>
+          <td colspan="6" class="history-empty">No OverDrive activity recorded yet.</td>
         </tr>
       </ng-template>
     </p-table>

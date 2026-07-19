@@ -251,6 +251,28 @@
     }
   }
 
+  .history-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--green-500, #22c55e);
+
+    &.is-failed {
+      color: var(--red-400, #f87171);
+    }
+
+    i {
+      font-size: 0.85rem;
+    }
+  }
+
+  .history-row-failed .history-detail {
+    color: var(--red-400, #f87171);
+  }
+
   .history-when {
     white-space: nowrap;
     color: var(--text-color-secondary);

@@ -157,6 +157,17 @@ public class OverDriveService {
      */
     private void recordAudit(OverDriveAuditAction action, String identity, String titleId, String loanId,
                              Long bookId, String title, String detail) {
+        recordAudit(action, identity, titleId, loanId, bookId, title, detail, true);
+    }
+
+    /** Record a failed action to the history (the detail should carry the reason). */
+    private void recordAuditFailure(OverDriveAuditAction action, String identity, String titleId, String loanId,
+                                    String reason) {
+        recordAudit(action, identity, titleId, loanId, null, null, reason, false);
+    }
+
+    private void recordAudit(OverDriveAuditAction action, String identity, String titleId, String loanId,
+                             Long bookId, String title, String detail, boolean success) {
         try {
             Long userId = currentUserId();
             String libraryKey = null;
@@ -184,7 +195,7 @@ public class OverDriveService {
                     .bookId(bookId)
                     .title(truncate(resolvedTitle, 1024))
                     .detail(truncate(detail, 1024))
-                    .success(true)
+                    .success(success)
                     .createdAt(Instant.now())
                     .build());
         } catch (Exception e) {
@@ -831,9 +842,16 @@ public class OverDriveService {
         // stored identity and re-mints only reactively when the endpoint returns missing_chip, which
         // fetchFulfillment already handles. Minting up front adds needless chip churn.
         authToken = resolveToken(identity, authToken);
-        byte[] body = fetchFulfillment(identity, authToken, loanId, FORMAT_EPUB_ADOBE);
+        byte[] body;
+        try {
+            body = fetchFulfillment(identity, authToken, loanId, FORMAT_EPUB_ADOBE);
+        } catch (RuntimeException e) {
+            recordAuditFailure(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, e.getMessage());
+            throw e;
+        }
         if (body == null || body.length == 0) {
             log.warn("OverDrive fulfill returned empty body for loan {}", loanId);
+            recordAuditFailure(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, "Empty fulfillment body");
             return null;
         }
 
@@ -856,12 +874,17 @@ public class OverDriveService {
        * Returns the created loan id.
        */
       public String borrow(String identity, String authToken, String titleId) {
-        Map<String, Object> loan = borrowLoan(identity, resolveToken(identity, authToken), titleId);
-        Object id = loan.get("id");
-        String loanId = id != null ? id.toString() : null;
-        recordAudit(OverDriveAuditAction.BORROW, identity, titleId, loanId, null,
-                loan.get("title") != null ? loan.get("title").toString() : null, null);
-        return loanId;
+        try {
+            Map<String, Object> loan = borrowLoan(identity, resolveToken(identity, authToken), titleId);
+            Object id = loan.get("id");
+            String loanId = id != null ? id.toString() : null;
+            recordAudit(OverDriveAuditAction.BORROW, identity, titleId, loanId, null,
+                    loan.get("title") != null ? loan.get("title").toString() : null, null);
+            return loanId;
+        } catch (RuntimeException e) {
+            recordAuditFailure(OverDriveAuditAction.BORROW, identity, titleId, null, e.getMessage());
+            throw e;
+        }
       }
 
       /** Borrow a title and return the raw loan object (which includes the available {@code formats}). */
@@ -1565,6 +1588,11 @@ public class OverDriveService {
        */
       public Book borrowAndImport(String identity, String authToken, String titleId, Long libraryId, Long pathId,
                                   String title, String author, String coverUrl, String isbn, String preferredFormat) {
+        // Track whether this became an import of an existing loan (vs a fresh borrow) so both the
+        // success and the failure history entries can report the right action. Hoisted out of the try
+        // so the catch can see it.
+        boolean alreadyBorrowed = false;
+        try {
         // Borrow and fulfill with the stored identity as-is, mirroring the web client: it does not
         // pre-mint, and fetchFulfillment re-mints reactively on missing_chip. Pre-minting here only
         // added chip churn without avoiding the missing_chip round-trip.
@@ -1576,7 +1604,7 @@ public class OverDriveService {
         LoanRef loan = findActiveLoan(identity, authToken, titleId);
         // Was it already on loan? Then this is an import of an existing loan, not a fresh borrow — the
         // history should say so.
-        boolean alreadyBorrowed = loan != null;
+        alreadyBorrowed = loan != null;
         if (alreadyBorrowed) {
             log.info("OverDrive: resuming existing loan {} for title {} (skipping re-borrow)", loan.loanId(), titleId);
         } else {
@@ -1690,6 +1718,11 @@ public class OverDriveService {
         log.info("OverDrive borrow-and-import complete: loan {} ({}) -> {}", loanId, chosenFormat,
                 book != null ? "book " + book.getId() : "Bookdrop");
         return book;
+        } catch (RuntimeException e) {
+            recordAuditFailure(alreadyBorrowed ? OverDriveAuditAction.IMPORT : OverDriveAuditAction.BORROW_AND_IMPORT,
+                    identity, titleId, null, e.getMessage());
+            throw e;
+        }
       }
 
       private String buildFileName(String title, String loanId, String extension) {
@@ -1882,6 +1915,7 @@ public class OverDriveService {
             log.info("OverDrive book returned: {}", loanId);
              } catch (Exception e) {
                log.error("OverDrive return failed for loan {}: {}", loanId, e.getMessage());
+               recordAuditFailure(OverDriveAuditAction.RETURN, identity, null, loanId, e.getMessage());
                throw new RestClientException("OverDrive return failed: " + e.getMessage());
              }
            }
@@ -1910,6 +1944,7 @@ public class OverDriveService {
             log.info("OverDrive hold placed for title {}", titleId);
          } catch (Exception e) {
             log.error("OverDrive hold failed: {}", e.getMessage());
+            recordAuditFailure(OverDriveAuditAction.HOLD_PLACED, identity, titleId, null, e.getMessage());
             throw new RestClientException("OverDrive hold failed: " + e.getMessage());
          }
       }
@@ -1933,6 +1968,7 @@ public class OverDriveService {
             log.info("OverDrive hold cancelled for title {}", titleId);
          } catch (Exception e) {
             log.error("OverDrive cancel hold failed: {}", e.getMessage());
+            recordAuditFailure(OverDriveAuditAction.HOLD_CANCELLED, identity, titleId, null, e.getMessage());
             throw new RestClientException("OverDrive cancel hold failed: " + e.getMessage());
          }
       }
