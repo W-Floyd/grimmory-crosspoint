@@ -42,6 +42,16 @@ services:
       # - ACSM_TOOL_PATH=/opt/acsm/acsm-tool           # your tool or wrapper script (must be executable in the container)
       # - ACSM_TOOL_ARGS=-f {acsm} -o {output}
       # - ACSM_TIMEOUT_SECONDS=120
+      #
+      # Audiobook titles work the same way, via a separate operator-supplied tool. Grimmory writes a
+      # JSON manifest (the card's chip token + loan/card/format ids) to {input}; your tool fulfils,
+      # downloads and assembles the audiobook itself and writes a single file into the {output} dir,
+      # which Grimmory imports as an audiobook. Grimmory ships no such tool. Leave AUDIOBOOK_ENABLED
+      # unset/false to keep it off.
+      # - AUDIOBOOK_ENABLED=true
+      # - AUDIOBOOK_TOOL_PATH=/opt/audiobook/od-audiobook   # your tool or wrapper script (executable in the container)
+      # - AUDIOBOOK_TOOL_ARGS=--manifest {input} --out-dir {output}
+      # - AUDIOBOOK_TIMEOUT_SECONDS=1800               # audiobooks are large; default 30 min
       # Override JVM memory defaults (the image ships sensible defaults for ~512 MB heap).
       # Uncomment and adjust if you want a tighter or looser cap:
       # JAVA_TOOL_OPTIONS=-Xmx256m
@@ -63,6 +73,9 @@ services:
       # certificate there and reads it back to build rights.xml). Ensure ./acsm — especially
       # ./acsm/account — is writable by and owned by the container user (USER_ID:GROUP_ID, 1000).
       # - ./acsm:/opt/acsm
+      # Operator-supplied audiobook handler tool (see the AUDIOBOOK_* env vars above). Same image
+      # caveats as the ACSM tool: Alpine/musl, no python runtime — mount a self-contained executable.
+      # - ./audiobook:/opt/audiobook
     # Uncomment the block below if you need to override the defaults:
     #healthcheck:
     #  test: wget -q --spider http://localhost:6060/api/v1/healthcheck
