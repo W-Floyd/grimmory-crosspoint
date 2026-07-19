@@ -74,10 +74,8 @@ public class FileService {
     private static final long   MAX_IMAGE_PIXELS              = 20_000_000L;
     private static final int    THUMBNAIL_WIDTH               = 250;
     private static final int    THUMBNAIL_HEIGHT              = 350;
-    private static final int    SQUARE_THUMBNAIL_SIZE         = 250;
     private static final int    MAX_ORIGINAL_WIDTH            = 1000;
     private static final int    MAX_ORIGINAL_HEIGHT           = 1500;
-    private static final int    MAX_SQUARE_SIZE               = 1000;
     private static final String IMAGE_FORMAT                  = "JPEG";
     // @formatter:on
 
@@ -675,7 +673,8 @@ public class FileService {
                 log.warn("Skipping audiobook thumbnail creation for book {}: image decode failed", bookId);
                 return;
             }
-            boolean success = saveAudiobookCoverImages(originalImage, bookId);
+            // Pass the raw bytes so a suitably-sized source JPEG is kept verbatim (no re-compression).
+            boolean success = saveAudiobookCoverImages(originalImage, imageBytes, bookId);
             if (!success) {
                 throw ApiError.FILE_READ_ERROR.createException("Failed to save audiobook cover images");
             }
@@ -707,58 +706,19 @@ public class FileService {
     }
 
     public boolean saveAudiobookCoverImages(BufferedImage coverImage, long bookId) throws IOException {
-        BufferedImage rgbImage = null;
-        BufferedImage resized = null;
-        BufferedImage thumb = null;
-        try {
-            String folderPath = getImagesFolder(bookId);
-            File folder = new File(folderPath);
-            if (!folder.exists() && !folder.mkdirs()) {
-                throw new IOException("Failed to create directory: " + folder.getAbsolutePath());
-            }
+        return saveAudiobookCoverImages(coverImage, null, bookId);
+    }
 
-            rgbImage = new BufferedImage(
-                    coverImage.getWidth(),
-                    coverImage.getHeight(),
-                    BufferedImage.TYPE_INT_RGB
-            );
-            Graphics2D g = rgbImage.createGraphics();
-            g.drawImage(coverImage, 0, 0, Color.WHITE, null);
-            g.dispose();
-
-            // Resize to square if needed, maintaining 1:1 aspect ratio
-            int size = Math.min(rgbImage.getWidth(), rgbImage.getHeight());
-            int x = (rgbImage.getWidth() - size) / 2;
-            int y = (rgbImage.getHeight() - size) / 2;
-            BufferedImage cropped = rgbImage.getSubimage(x, y, size, size);
-
-            // Resize if too large
-            if (size > MAX_SQUARE_SIZE) {
-                resized = resizeImage(cropped, MAX_SQUARE_SIZE, MAX_SQUARE_SIZE);
-            } else {
-                resized = cropped;
-            }
-
-            File originalFile = new File(folder, AUDIOBOOK_COVER_FILENAME);
-            boolean originalSaved = ImageIO.write(resized, IMAGE_FORMAT, originalFile);
-
-            // Create square thumbnail
-            thumb = resizeImage(resized, SQUARE_THUMBNAIL_SIZE, SQUARE_THUMBNAIL_SIZE);
-            File thumbnailFile = new File(folder, AUDIOBOOK_THUMBNAIL_FILENAME);
-            boolean thumbnailSaved = ImageIO.write(thumb, IMAGE_FORMAT, thumbnailFile);
-
-            return originalSaved && thumbnailSaved;
-        } finally {
-            if (rgbImage != null) {
-                rgbImage.flush();
-            }
-            if (resized != null && resized != rgbImage) {
-                resized.flush();
-            }
-            if (thumb != null) {
-                thumb.flush();
-            }
-        }
+    /**
+     * Save an audiobook's cover using the <b>same aspect-aware rules as a regular book</b> (crop only per
+     * the operator's cover-cropping settings, preserve native aspect otherwise, keep the source JPEG
+     * verbatim when untouched), just stored under the separate audiobook cover files. OverDrive
+     * audiobooks frequently ship portrait covers, so we no longer force a 1:1 square crop (which would
+     * trim the top/bottom of a portrait cover); the frontend renders audiobook covers with
+     * {@code object-fit: contain}, so any aspect displays correctly.
+     */
+    public boolean saveAudiobookCoverImages(BufferedImage coverImage, byte[] originalBytes, long bookId) throws IOException {
+        return saveCoverImagesTo(coverImage, originalBytes, bookId, AUDIOBOOK_COVER_FILENAME, AUDIOBOOK_THUMBNAIL_FILENAME);
     }
 
     public boolean saveCoverImages(BufferedImage coverImage, long bookId) throws IOException {
@@ -772,6 +732,11 @@ public class FileService {
      * image is written as JPEG. The thumbnail is always derived (resized) from the decoded image.
      */
     public boolean saveCoverImages(BufferedImage coverImage, byte[] originalBytes, long bookId) throws IOException {
+        return saveCoverImagesTo(coverImage, originalBytes, bookId, COVER_FILENAME, THUMBNAIL_FILENAME);
+    }
+
+    private boolean saveCoverImagesTo(BufferedImage coverImage, byte[] originalBytes, long bookId,
+                                      String coverFilename, String thumbnailFilename) throws IOException {
         BufferedImage rgbImage = null;
         BufferedImage cropped = null;
         BufferedImage resized = null;
@@ -812,7 +777,7 @@ public class FileService {
                 rgbImage = resized;
             }
 
-            File originalFile = new File(folder, COVER_FILENAME);
+            File originalFile = new File(folder, coverFilename);
             boolean originalSaved;
             if (originalBytes != null && !didCrop && !didResize && isJpeg(originalBytes)) {
                 // Source is already a suitably-sized JPEG needing no crop/resize — keep it verbatim so we
@@ -836,7 +801,7 @@ public class FileService {
                 thumbHeight = THUMBNAIL_HEIGHT;
             }
             thumb = resizeImage(rgbImage, thumbWidth, thumbHeight);
-            File thumbnailFile = new File(folder, THUMBNAIL_FILENAME);
+            File thumbnailFile = new File(folder, thumbnailFilename);
             boolean thumbnailSaved = ImageIO.write(thumb, IMAGE_FORMAT, thumbnailFile);
 
             return originalSaved && thumbnailSaved;

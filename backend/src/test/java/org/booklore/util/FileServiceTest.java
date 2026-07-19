@@ -209,6 +209,26 @@ class FileServiceTest {
         }
 
         @Nested
+        @DisplayName("saveAudiobookCoverImages")
+        class SaveAudiobookCoverImagesTests {
+
+            @Test
+            @DisplayName("keeps a portrait cover portrait (no forced 1:1 square crop)")
+            void preservesPortraitAspect() throws Exception {
+                lenient().when(appProperties.getPathConfig()).thenReturn(tempDir.toString());
+                // 2:3 portrait, below the 2.5 crop threshold → should be preserved, not squared.
+                BufferedImage portrait = createTestImage(400, 600);
+
+                assertTrue(fileService.saveAudiobookCoverImages(portrait, 42L));
+
+                BufferedImage saved = ImageIO.read(new File(fileService.getImagesFolder(42L), "audiobook-cover.jpg"));
+                assertEquals(400, saved.getWidth());
+                assertEquals(600, saved.getHeight()); // not 400x400
+                assertTrue(saved.getHeight() > saved.getWidth(), "audiobook cover must stay portrait, not squared");
+            }
+        }
+
+        @Nested
         @DisplayName("getThumbnailFile")
         class GetThumbnailFileTests {
 
