@@ -743,22 +743,34 @@ export class OverdriveCatalogComponent {
      return (item.formats?.length ?? 0) > 0;
      }
 
-   /** Why a title has no importable format — only mentions ACSM setup when it isn't already configured. */
-   unsupportedFormatTooltip(): string {
+   /** Whether an unsupported title is an audiobook (its only formats are audiobook-*). */
+   private isAudiobookTitle(item: OverDriveCatalogItem): boolean {
+     const f = item.formatId ?? item.formats?.[0] ?? null;
+     return !!f && f.startsWith('audiobook-');
+   }
+
+   /**
+    * Why a title has no importable format. Points at the audiobook handler for audiobook titles, and
+    * at the ACSM handler for Adobe-DRM ebooks — but only when that handler isn't already configured.
+    */
+   unsupportedFormatTooltip(item: OverDriveCatalogItem): string {
+     if (this.isAudiobookTitle(item)) {
+       return 'This is an audiobook. Configure an audiobook handler on the server to borrow and import audiobooks.';
+     }
      return this.acsmConfigured()
        ? 'This title isn\'t offered in a format Grimmory can import.'
        : 'This title isn\'t offered in a DRM-free format. Configure an ACSM handler to also import Adobe-DRM formats.';
      }
 
    /** Warning shown on the borrow button for a title with no importable format. */
-   unsupportedBorrowTooltip(): string {
-     return this.unsupportedFormatTooltip()
+   unsupportedBorrowTooltip(item: OverDriveCatalogItem): string {
+     return this.unsupportedFormatTooltip(item)
        + ' Borrowing won\'t import it here, but it still places the loan on your Libby account for use in the Libby app.';
      }
 
    /** Warning shown on the hold button for a title with no importable format. */
-   unsupportedHoldTooltip(): string {
-     return this.unsupportedFormatTooltip()
+   unsupportedHoldTooltip(item: OverDriveCatalogItem): string {
+     return this.unsupportedFormatTooltip(item)
        + ' Placing a hold won\'t let you import it here, but it still holds the title on your Libby account for use in the Libby app.';
      }
 

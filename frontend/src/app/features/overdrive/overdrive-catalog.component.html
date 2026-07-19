@@ -256,7 +256,7 @@
                   <span class="format-single" pTooltip="Available in these formats">{{ formatSummary(item) }}</span>
                 }
               } @else {
-                <span class="format-single unsupported" [pTooltip]="unsupportedFormatTooltip()">No supported format</span>
+                <span class="format-single unsupported" [pTooltip]="unsupportedFormatTooltip(item)">No supported format</span>
               }
               <!-- Card picker: which eligible card to borrow/hold with (defaults to the one with the
               fewest current loans/holds). Shown whenever an action button is offered — including when the
@@ -348,7 +348,7 @@
                     label="Borrow anyway"
                     icon="pi pi-exclamation-triangle"
                     severity="warn"
-                    [pTooltip]="unsupportedBorrowTooltip()"
+                    [pTooltip]="unsupportedBorrowTooltip(item)"
                     [disabled]="!item.titleId || importingTitleId() !== null || !chosenCardId(item)"
                     [loading]="importingTitleId() === item.titleId"
                     (onClick)="onBorrowImport(item)" />
@@ -362,7 +362,7 @@
                       [label]="isOnHold(item) ? 'Also hold anyway' : 'Place Hold anyway'"
                       icon="pi pi-exclamation-triangle"
                       severity="warn"
-                      [pTooltip]="unsupportedHoldTooltip()"
+                      [pTooltip]="unsupportedHoldTooltip(item)"
                       [disabled]="!item.titleId || !chosenCardId(item)"
                       (onClick)="onPlaceHold(item)" />
                     @if (soonerElsewhere(item)) {
