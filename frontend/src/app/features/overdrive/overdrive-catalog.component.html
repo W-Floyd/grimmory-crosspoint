@@ -176,6 +176,9 @@
                   [subtitle]="item.subtitle"
                   [bookId]="item.bookId"
                   [libbyUrl]="libbyUrl(item.titleId, chosenCard(item)?.libraryKey)" />
+                @if (narratorLabel(item); as narrator) {
+                  <span class="narrator-label" pTooltip="Narrated by {{ narrator }}" tooltipPosition="top">({{ narrator }})</span>
+                }
                 @if (isOnLoan(item)) {
                   <span class="loan-warning" pTooltip="You already have this out on loan at {{ loanLibraryLabel(item) }} — import it from the Loans tab, or borrow again to re-import.">
                     <i class="pi pi-bookmark-fill"></i> Already borrowed
@@ -186,9 +189,14 @@
                     <i class="pi pi-exclamation-triangle"></i> {{ foreignLanguageLabel(item) }}
                   </span>
                 }
-                @if (item.abridged) {
-                  <span class="abridged-warning" pTooltip="This audiobook is abridged — some of the original text has been cut. Look for an unabridged edition if you want the full recording.">
-                    <i class="pi pi-exclamation-triangle"></i> Abridged
+                @if (item.edition) {
+                  <span class="edition-label" [class.is-abridged]="isAbridged(item)"
+                    [pTooltip]="isAbridged(item)
+                      ? ('Edition: ' + item.edition + ' — looks abridged, so some of the original text has been cut. Look for an unabridged edition for the full recording.')
+                      : ('Edition: ' + item.edition)"
+                    tooltipPosition="top">
+                    @if (isAbridged(item)) { <i class="pi pi-exclamation-triangle"></i> }
+                    {{ item.edition }}
                   </span>
                 }
               </td>

@@ -458,7 +458,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       component.results.set([
         item({titleId: 'ebook', audiobook: false, available: true, language: 'en'}),
         item({titleId: 'audio', audiobook: true, available: false, holdable: true, language: 'en'}),
-        item({titleId: 'abridged', audiobook: true, available: true, language: 'en', abridged: true}),
+        item({titleId: 'abridged', audiobook: true, available: true, language: 'en', edition: 'Abridged'}),
         item({titleId: 'spanish', audiobook: false, available: true, language: 'es'}),
       ]);
     }
@@ -494,6 +494,13 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       results();
       component.filterHideAbridged.set(true);
       expect(component.filteredResults().map(r => r.titleId)).toEqual(['ebook', 'audio', 'spanish']);
+    });
+
+    it('detects abridged from the raw edition label (not "unabridged")', () => {
+      expect(component.isAbridged(item({edition: 'Abridged'}))).toBe(true);
+      expect(component.isAbridged(item({edition: 'Unabridged'}))).toBe(false);
+      expect(component.isAbridged(item({edition: null}))).toBe(false);
+      expect(component.isAbridged(item({edition: 'Special Edition'}))).toBe(false);
     });
 
     it('combines filters and clears them', () => {

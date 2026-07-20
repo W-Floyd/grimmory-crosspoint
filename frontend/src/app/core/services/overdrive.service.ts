@@ -190,10 +190,12 @@ export interface OverDriveCatalogItem {
   bookId?: number | null;
   /** Normalized primary language code (e.g. "en", "es"), or null. */
   language?: string | null;
-  /** True for an abridged audiobook (from the title's edition label); null/absent when not applicable. */
-  abridged?: boolean | null;
+  /** Raw OverDrive edition label (e.g. "Unabridged"/"Abridged"), surfaced as-is; null/absent otherwise. */
+  edition?: string | null;
   /** True when the title is an audiobook (offers an audiobook format), false for an ebook. */
   audiobook?: boolean;
+  /** Narrator name(s) for an audiobook (comma-joined), or null. */
+  narrator?: string | null;
 }
 
 /** Facet filters pushed into the catalog search server-side (see {@link OverDriveService.search}). */

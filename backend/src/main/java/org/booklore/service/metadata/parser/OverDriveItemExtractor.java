@@ -49,6 +49,19 @@ public final class OverDriveItemExtractor {
         return authors == null || authors.isEmpty() ? null : authors.getFirst();
     }
 
+    /** Narrator names (creators roled "narrator"), comma-joined, or null when none — for audiobooks. */
+    public static String narrator(OverDriveApiResponse.Item item) {
+        if (item.getCreators() == null || item.getCreators().isEmpty()) {
+            return null;
+        }
+        List<String> narrators = item.getCreators().stream()
+                .filter(c -> c.getName() != null && c.getRole() != null && c.getRole().toLowerCase().contains("narrator"))
+                .map(OverDriveApiResponse.Item.Creator::getName)
+                .filter(n -> !n.isBlank())
+                .toList();
+        return narrators.isEmpty() ? null : String.join(", ", narrators);
+    }
+
     /** Href of the largest available cover rendition (by width), determined at runtime, or null. */
     public static String coverHref(OverDriveApiResponse.Item.Covers covers) {
         if (covers == null) {

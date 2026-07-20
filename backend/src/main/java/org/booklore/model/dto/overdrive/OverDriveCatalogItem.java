@@ -43,8 +43,10 @@ public record OverDriveCatalogItem(
         Long bookId,
         /** Normalized primary language code (e.g. "en", "es"), or null. */
         String language,
-        /** True for an abridged audiobook (from the title's edition label); null when not applicable. */
-        Boolean abridged,
+        /** Raw OverDrive edition label (e.g. "Unabridged"/"Abridged"), surfaced as-is; null when absent. */
+        String edition,
         /** True when the title is an audiobook (offers an audiobook format), false for an ebook. */
-        boolean audiobook
+        boolean audiobook,
+        /** Narrator name(s) for an audiobook (comma-joined), or null. */
+        String narrator
 ) {}

@@ -294,36 +294,29 @@ class OverDriveServiceTest {
     }
 
     @Test
-    void searchCatalog_flagsAbridgedAudiobook() {
+    void searchCatalog_surfacesEditionAndNarratorForAudiobook() {
         var item = audiobookItem("title-1", "Abridged");
+        var narrator = new org.booklore.model.dto.response.OverDriveApiResponse.Item.Creator();
+        narrator.setName("Andy Serkis");
+        narrator.setRole("Narrator");
+        item.setCreators(List.of(narrator));
 
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
         when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(item));
 
-        assertThat(service.searchCatalog("dune", List.of("card-1")).getFirst().abridged()).isTrue();
+        var result = service.searchCatalog("dune", List.of("card-1")).getFirst();
+        assertThat(result.edition()).isEqualTo("Abridged"); // raw edition surfaced as-is; FE decides "abridged"
+        assertThat(result.audiobook()).isTrue();
+        assertThat(result.narrator()).isEqualTo("Andy Serkis");
     }
 
     @Test
-    void searchCatalog_doesNotFlagUnabridgedAudiobook() {
-        var item = audiobookItem("title-1", "Unabridged");
-
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
-                OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(item));
-
-        assertThat(service.searchCatalog("dune", List.of("card-1")).getFirst().abridged()).isNull();
-    }
-
-    @Test
-    void searchCatalog_doesNotFlagEbookWithAbridgedEdition() {
-        // An "Abridged" edition label on a non-audiobook (no audiobook format) must not raise the flag.
+    void searchCatalog_leavesEditionNullWhenAbsent() {
         var item = new org.booklore.model.dto.response.OverDriveApiResponse.Item();
         item.setId("title-1");
         item.setTitle("Dune");
-        item.setEdition("Abridged");
         var ebook = new org.booklore.model.dto.response.OverDriveApiResponse.Item.Format();
         ebook.setId("ebook-epub-adobe");
         item.setFormats(List.of(ebook));
@@ -333,7 +326,10 @@ class OverDriveServiceTest {
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
         when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(item));
 
-        assertThat(service.searchCatalog("dune", List.of("card-1")).getFirst().abridged()).isNull();
+        var result = service.searchCatalog("dune", List.of("card-1")).getFirst();
+        assertThat(result.edition()).isNull();
+        assertThat(result.audiobook()).isFalse();
+        assertThat(result.narrator()).isNull();
     }
 
     /** An audiobook-format catalog item with the given edition label. */

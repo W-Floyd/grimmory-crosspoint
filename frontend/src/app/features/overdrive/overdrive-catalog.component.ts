@@ -140,7 +140,7 @@ export class OverdriveCatalogComponent {
       if (format === 'ebook' && item.audiobook) return false;
       if (availableOnly && !this.borrowableNow(item)) return false;
       if (myLanguageOnly && this.isForeignLanguage(item)) return false;
-      if (hideAbridged && item.abridged) return false;
+      if (hideAbridged && this.isAbridged(item)) return false;
       return true;
     });
     return this.applySort(filtered, this.sortField(), this.sortOrder(), (f, x) => this.resultSortKey(f, x));
@@ -720,6 +720,21 @@ export class OverdriveCatalogComponent {
    /** The result's language code, uppercased for the badge (e.g. "ES"). */
    foreignLanguageLabel(item: OverDriveCatalogItem): string {
      return (item.language ?? '').trim().toUpperCase();
+   }
+
+   /**
+    * Whether a result looks abridged, matched from its raw OverDrive edition label: the edition mentions
+    * "abridged" but not "unabridged". The backend surfaces the edition as-is; this is where we interpret it.
+    */
+   isAbridged(item: OverDriveCatalogItem): boolean {
+     const edition = item.edition?.toLowerCase() ?? '';
+     return edition.includes('abridged') && !edition.includes('unabridged');
+   }
+
+   /** Narrator name(s) to show after an audiobook's title, or null when none. */
+   narratorLabel(item: OverDriveCatalogItem): string | null {
+     const n = item.narrator?.trim();
+     return n ? n : null;
    }
 
    /** The user's active language code, uppercased. */

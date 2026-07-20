@@ -277,23 +277,6 @@ public class OverDriveService {
                 .anyMatch(OverDriveService::isAudiobookFormat);
     }
 
-    /**
-     * Whether an audiobook title is abridged, read from its {@code edition} label. Returns null for
-     * ebooks and for audiobooks whose edition is absent or "Unabridged" (only an explicit "Abridged"
-     * edition warrants the warning — silence means "not flagged", never a false positive).
-     */
-    private static Boolean detectAbridged(OverDriveApiResponse.Item item) {
-        if (!isAudiobookItem(item)) {
-            return null;
-        }
-        String edition = item.getEdition();
-        if (edition == null || edition.isBlank()) {
-            return null;
-        }
-        String normalized = edition.toLowerCase(Locale.ROOT);
-        return normalized.contains("abridged") && !normalized.contains("unabridged") ? Boolean.TRUE : null;
-    }
-
     private static BookFileType bookFileType(String formatId) {
         if (isAudiobookFormat(formatId)) {
             return BookFileType.AUDIOBOOK;
@@ -1411,8 +1394,9 @@ public class OverDriveService {
                 availability,
                 display.bookId(),
                 display.language(),
-                existing.abridged() != null ? existing.abridged() : incoming.abridged(),
-                display.audiobook());
+                display.edition() != null ? display.edition() : (existing.edition() != null ? existing.edition() : incoming.edition()),
+                display.audiobook(),
+                display.narrator() != null ? display.narrator() : (existing.narrator() != null ? existing.narrator() : incoming.narrator()));
       }
 
       /** Sum two nullable copy counts, treating null as zero; null when both are null. */
@@ -1872,8 +1856,9 @@ public class OverDriveService {
                 new ArrayList<>(List.of(availability)),
                 resolveLinkedBookId(isbn, OverDriveItemExtractor.asin(item)),
                 OverDriveItemExtractor.languageCode(item),
-                detectAbridged(item),
-                isAudiobookItem(item));
+                item.getEdition(),
+                isAudiobookItem(item),
+                OverDriveItemExtractor.narrator(item));
       }
 
       /**
