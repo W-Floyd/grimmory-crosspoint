@@ -332,6 +332,8 @@ export class OverdriveCatalogComponent {
   reborrowOverrides = signal<Set<string>>(new Set());
   // Per-row outcome of the last borrow/import/hold action (keyed by titleId / loanId / holdId).
   actionOutcome = signal<Record<string, 'success' | 'error'>>({});
+  // Optional per-row success label overriding the table's default word (e.g. "Hold moved" vs "Borrowed").
+  actionOutcomeLabel = signal<Record<string, string>>({});
   // Whether an ACSM handler is configured (enables importing Adobe-DRM formats). Shapes the
   // "No supported format" tooltip: no point suggesting ACSM setup when it's already enabled.
   acsmConfigured = signal(false);
@@ -396,9 +398,21 @@ export class OverdriveCatalogComponent {
      return this.cards().find(c => c.cardId === cardId)?.libraryKey ?? null;
    }
 
-   /** Record a row's borrow/import/hold outcome for its inline status indicator. */
-   private setOutcome(id: string, outcome: 'success' | 'error'): void {
+   /**
+    * Record a row's borrow/import/hold outcome for its inline status indicator. An optional label
+    * overrides the table's default success word (e.g. "Hold moved" rather than "Borrowed") so the pill
+    * describes what actually happened.
+    */
+   private setOutcome(id: string, outcome: 'success' | 'error', label?: string): void {
      this.actionOutcome.update((m) => ({ ...m, [id]: outcome }));
+     if (label) {
+       this.actionOutcomeLabel.update((m) => ({ ...m, [id]: label }));
+     }
+   }
+
+   /** The success-outcome label for a row, or the given default when none was set. */
+   outcomeLabel(id: string, fallback: string): string {
+     return this.actionOutcomeLabel()[id] ?? fallback;
    }
 
    // --- Per-card counts (from each selected card's sync) ---
@@ -1328,14 +1342,14 @@ export class OverdriveCatalogComponent {
            next: () => {
              this.messageService.add({ severity: 'success', summary: 'Hold moved',
                detail: `Placed a hold at ${this.shortCardLabel(target.card.cardId)} (~${target.waitDays}d) and cancelled the original` });
-             this.setOutcome(hold.id, 'success');
+             this.setOutcome(hold.id, 'success', 'Hold moved');
              this.importingTitleId.set(null);
              this.syncSelectedCards();
            },
            error: () => {
              this.messageService.add({ severity: 'warn', summary: 'Hold placed — original not cancelled',
                detail: `New hold placed at ${this.shortCardLabel(target.card.cardId)} but couldn't cancel the original; cancel it manually.` });
-             this.setOutcome(hold.id, 'success');
+             this.setOutcome(hold.id, 'success', 'Hold placed');
              this.importingTitleId.set(null);
              this.syncSelectedCards();
            }

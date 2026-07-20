@@ -612,7 +612,7 @@
             @if (actionOutcome()[hold.id]; as st) {
               <span class="action-status" [class.error]="st === 'error'">
                 <i class="pi" [class.pi-check-circle]="st === 'success'" [class.pi-times-circle]="st === 'error'"></i>
-                {{ st === 'success' ? 'Borrowed' : 'Failed' }}
+                {{ st === 'success' ? outcomeLabel(hold.id, 'Borrowed') : 'Failed' }}
               </span>
             }
           </td>
