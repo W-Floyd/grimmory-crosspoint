@@ -296,6 +296,54 @@ public class OverDriveParser implements BookParser {
     }
 
     /**
+     * Fetch full catalog metadata for many titles at once via the library-agnostic
+     * {@code /v2/media/bulk?titleIds=…} endpoint (no auth), keyed by title id. Used to enrich a card's
+     * loans/holds (which the sync feed carries only sparsely) with narrator, edition and duration in a
+     * single call. Returns an empty map on failure/blank input.
+     */
+    public Map<String, OverDriveApiResponse.Item> fetchMediaBulk(List<String> titleIds) {
+        if (titleIds == null || titleIds.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            waitForRateLimit();
+            URI uri = UriComponentsBuilder.fromUriString(THUNDER_MEDIA_URL)
+                    .pathSegment("bulk")
+                    .queryParam("titleIds", String.join(",", titleIds))
+                    .build()
+                    .encode()
+                    .toUri();
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(uri)
+                    .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.warn("OverDrive: media/bulk fetch returned status {}", response.statusCode());
+                return Map.of();
+            }
+            OverDriveApiResponse.Item[] items = objectMapper.readValue(response.body(), OverDriveApiResponse.Item[].class);
+            Map<String, OverDriveApiResponse.Item> byId = new LinkedHashMap<>();
+            if (items != null) {
+                for (OverDriveApiResponse.Item item : items) {
+                    if (item != null && item.getId() != null) {
+                        byId.put(item.getId(), item);
+                    }
+                }
+            }
+            return byId;
+        } catch (IOException e) {
+            log.warn("OverDrive: failed to fetch media/bulk: {}", e.getMessage());
+            return Map.of();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Map.of();
+        }
+    }
+
+    /**
      * Fetch a single title's catalog item (including per-library availability) at a specific library via
      * {@code /v2/libraries/{key}/media/{titleId}}. No auth required. Returns null on any failure. Used to
      * check whether a held title is borrowable at another of the user's libraries.

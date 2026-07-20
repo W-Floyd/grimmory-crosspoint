@@ -473,6 +473,28 @@
               [subtitle]="loan.subtitle"
               [bookId]="loan.bookId"
               [libbyUrl]="libbyUrl(loan.id, cardLibraryKey(loan.cardId))" />
+            @if (narratorLabel(loan) || durationLabel(loan) || loan.edition) {
+              <div class="result-tags">
+                @if (narratorLabel(loan); as narrator) {
+                  <span class="narrator-label" pTooltip="Narrated by {{ narrator }}" tooltipPosition="top">({{ narrator }})</span>
+                }
+                @if (durationLabel(loan); as duration) {
+                  <span class="extent-label" pTooltip="Audiobook length {{ loan.duration }}" tooltipPosition="top">
+                    <i class="pi pi-clock"></i> {{ duration }}
+                  </span>
+                }
+                @if (loan.edition) {
+                  <span class="edition-label" [class.is-abridged]="isAbridged(loan)"
+                    [pTooltip]="isAbridged(loan)
+                      ? ('Edition: ' + loan.edition + ' — looks abridged, so some of the original text has been cut.')
+                      : ('Edition: ' + loan.edition)"
+                    tooltipPosition="top">
+                    @if (isAbridged(loan)) { <i class="pi pi-exclamation-triangle"></i> }
+                    {{ loan.edition }}
+                  </span>
+                }
+              </div>
+            }
           </td>
           <td>{{ creatorName(loan) }}</td>
           <td>{{ shortCardLabel(loan.cardId) }}</td>
@@ -576,6 +598,28 @@
               [title]="hold.title"
               [subtitle]="hold.subtitle"
               [libbyUrl]="libbyUrl(hold.id, cardLibraryKey(hold.cardId))" />
+            @if (narratorLabel(hold) || durationLabel(hold) || hold.edition) {
+              <div class="result-tags">
+                @if (narratorLabel(hold); as narrator) {
+                  <span class="narrator-label" pTooltip="Narrated by {{ narrator }}" tooltipPosition="top">({{ narrator }})</span>
+                }
+                @if (durationLabel(hold); as duration) {
+                  <span class="extent-label" pTooltip="Audiobook length {{ hold.duration }}" tooltipPosition="top">
+                    <i class="pi pi-clock"></i> {{ duration }}
+                  </span>
+                }
+                @if (hold.edition) {
+                  <span class="edition-label" [class.is-abridged]="isAbridged(hold)"
+                    [pTooltip]="isAbridged(hold)
+                      ? ('Edition: ' + hold.edition + ' — looks abridged, so some of the original text has been cut.')
+                      : ('Edition: ' + hold.edition)"
+                    tooltipPosition="top">
+                    @if (isAbridged(hold)) { <i class="pi pi-exclamation-triangle"></i> }
+                    {{ hold.edition }}
+                  </span>
+                }
+              </div>
+            }
           </td>
           <td>{{ creatorName(hold) }}</td>
           <td>{{ shortCardLabel(hold.cardId) }}</td>

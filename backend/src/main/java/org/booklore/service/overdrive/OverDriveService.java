@@ -2289,6 +2289,30 @@ public class OverDriveService {
         return result;
       }
 
+      /** Extra display metadata for a title, enriched from the catalog (narrator/edition/duration). */
+      public record MediaExtras(String narrator, String edition, String duration) {}
+
+      /**
+       * Fetch narrator/edition/duration for many titles at once (one {@code /media/bulk} call), keyed by
+       * title id. Used to enrich a card's loans/holds, which the sync feed carries only sparsely.
+       */
+      public Map<String, MediaExtras> mediaExtras(List<String> titleIds) {
+        if (titleIds == null || titleIds.isEmpty()) {
+            return Map.of();
+        }
+        List<String> ids = titleIds.stream().filter(id -> id != null && !id.isBlank()).distinct().toList();
+        Map<String, OverDriveApiResponse.Item> bulk = overDriveParser.fetchMediaBulk(ids);
+        Map<String, MediaExtras> out = new LinkedHashMap<>();
+        for (Map.Entry<String, OverDriveApiResponse.Item> entry : bulk.entrySet()) {
+            OverDriveApiResponse.Item item = entry.getValue();
+            out.put(entry.getKey(), new MediaExtras(
+                    OverDriveItemExtractor.narrator(item),
+                    item.getEdition(),
+                    OverDriveItemExtractor.audiobookDuration(item)));
+        }
+        return out;
+      }
+
       /** Map a Thunder availability/media item to our per-library availability DTO. */
       private static OverDriveLibraryAvailability toLibraryAvailability(String libraryKey, OverDriveApiResponse.Item item) {
         return new OverDriveLibraryAvailability(

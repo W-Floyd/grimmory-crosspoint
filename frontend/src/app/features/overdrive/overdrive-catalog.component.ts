@@ -726,19 +726,19 @@ export class OverdriveCatalogComponent {
     * Whether a result looks abridged, matched from its raw OverDrive edition label: the edition mentions
     * "abridged" but not "unabridged". The backend surfaces the edition as-is; this is where we interpret it.
     */
-   isAbridged(item: OverDriveCatalogItem): boolean {
+   isAbridged(item: { edition?: string | null }): boolean {
      const edition = item.edition?.toLowerCase() ?? '';
      return edition.includes('abridged') && !edition.includes('unabridged');
    }
 
-   /** Narrator name(s) to show after an audiobook's title, or null when none. */
-   narratorLabel(item: OverDriveCatalogItem): string | null {
+   /** Narrator name(s) to show after a title, or null when none (shared by search, loans and holds). */
+   narratorLabel(item: { narrator?: string | null }): string | null {
      const n = item.narrator?.trim();
      return n ? n : null;
    }
 
    /** An audiobook's playback length as a compact "Xh Ym" (or "Ym"), from the raw "HH:MM:SS", or null. */
-   durationLabel(item: OverDriveCatalogItem): string | null {
+   durationLabel(item: { duration?: string | null }): string | null {
      const raw = item.duration?.trim();
      if (!raw) return null;
      const parts = raw.split(':').map(n => parseInt(n, 10));

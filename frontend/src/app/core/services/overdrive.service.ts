@@ -78,6 +78,10 @@ export interface OverDriveLoan {
   bookId?: number | null;
   /** Client-side tag: the card this loan belongs to (set when aggregating across selected cards). */
   cardId?: string;
+  /** Catalog-enriched: narrator name(s), raw edition label, and audiobook duration ("HH:MM:SS"). */
+  narrator?: string | null;
+  edition?: string | null;
+  duration?: string | null;
 }
 
 export interface OverDriveHold {
@@ -99,6 +103,10 @@ export interface OverDriveHold {
   placedDate?: string | null;
   /** Client-side tag: the card this hold belongs to (set when aggregating across selected cards). */
   cardId?: string;
+  /** Catalog-enriched: narrator name(s), raw edition label, and audiobook duration ("HH:MM:SS"). */
+  narrator?: string | null;
+  edition?: string | null;
+  duration?: string | null;
 }
 
 export interface OverDriveCreator {

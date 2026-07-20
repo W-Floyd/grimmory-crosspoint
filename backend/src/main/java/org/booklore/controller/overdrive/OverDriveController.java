@@ -697,12 +697,22 @@ public class OverDriveController {
         List<OverDriveHold> holds = sync.getHolds() != null ? sync.getHolds() : List.of();
         List<OverDriveLibrary> libraries = sync.getLibraries() != null ? sync.getLibraries() : List.of();
 
+        // Enrich loans/holds with narrator/edition/duration in one catalog call — the sync feed carries
+        // these only sparsely, if at all.
+        List<String> titleIds = java.util.stream.Stream.concat(
+                        loans.stream().map(OverDriveLoan::getId),
+                        holds.stream().map(OverDriveHold::getId))
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        Map<String, OverDriveService.MediaExtras> extras = overDriveService.mediaExtras(titleIds);
+
         List<OverDriveLoanDto> loanDtos = loans.stream()
-                .map(this::loanToDto)
+                .map(loan -> loanToDto(loan, extras.get(loan.getId())))
                 .toList();
 
         List<OverDriveHoldDto> holdDtos = holds.stream()
-                .map(this::holdToDto)
+                .map(hold -> holdToDto(hold, extras.get(hold.getId())))
                 .toList();
 
         // The card's loan/hold usage vs. its limits, so the UI can show "5 of 10" and stop at the cap.
@@ -731,7 +741,7 @@ public class OverDriveController {
                 loanCount, loanLimit, holdCount, holdLimit, canPlaceHolds);
     }
 
-    private OverDriveLoanDto loanToDto(OverDriveLoan loan) {
+    private OverDriveLoanDto loanToDto(OverDriveLoan loan, OverDriveService.MediaExtras extras) {
         return new OverDriveLoanDto(
                 loan.getId(),
                 loan.getTitle(),
@@ -743,7 +753,10 @@ public class OverDriveController {
                 loan.getCreators(),
                 loanFormatId(loan),
                 loan.getFormats(),
-                overDriveService.resolveLoanBookId(loan.getId(), loanIsbn(loan), loanAsin(loan))
+                overDriveService.resolveLoanBookId(loan.getId(), loanIsbn(loan), loanAsin(loan)),
+                extras != null ? extras.narrator() : null,
+                extras != null ? extras.edition() : null,
+                extras != null ? extras.duration() : null
         );
     }
 
@@ -824,7 +837,7 @@ public class OverDriveController {
         return best != null ? OverDriveItemExtractor.encodeCoverUrl(best.getHref()) : null;
     }
 
-    private OverDriveHoldDto holdToDto(OverDriveHold hold) {
+    private OverDriveHoldDto holdToDto(OverDriveHold hold, OverDriveService.MediaExtras extras) {
         return new OverDriveHoldDto(
                 hold.getId(),
                 hold.getTitle(),
@@ -835,7 +848,10 @@ public class OverDriveController {
                 hold.getEstimatedWaitDays(),
                 Boolean.TRUE.equals(hold.getAvailable()),
                 hold.getExpireDate(),
-                hold.getPlacedDate()
+                hold.getPlacedDate(),
+                extras != null ? extras.narrator() : null,
+                extras != null ? extras.edition() : null,
+                extras != null ? extras.duration() : null
         );
     }
 
@@ -868,7 +884,10 @@ public class OverDriveController {
             List<OverDriveCreator> creators,
             String formatId,
             List<OverDriveFormat> formats,
-            Long bookId
+            Long bookId,
+            String narrator,
+            String edition,
+            String duration
     ) {}
 
     record OverDriveHoldDto(
@@ -881,7 +900,10 @@ public class OverDriveController {
             String estimatedWaitDays,
             boolean ready,
             String expireDate,
-            String placedDate
+            String placedDate,
+            String narrator,
+            String edition,
+            String duration
     ) {}
 
     record OverDriveBorrowResult(String loanId) {}
