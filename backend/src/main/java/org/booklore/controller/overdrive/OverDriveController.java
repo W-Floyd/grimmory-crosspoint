@@ -214,7 +214,7 @@ public class OverDriveController {
     public ResponseEntity<Void> setImportDestinations(@RequestBody OverDriveImportDestinations destinations) {
         requireEnabled();
         overDriveService.setImportDestinations(destinations != null ? destinations
-                : new OverDriveImportDestinations(null, null, null, null));
+                : new OverDriveImportDestinations(null, null, null, null, null, null));
         return ResponseEntity.noContent().build();
     }
 
@@ -316,7 +316,7 @@ public class OverDriveController {
     public ResponseEntity<OverDriveCapabilities> capabilities() {
         return ResponseEntity.ok(new OverDriveCapabilities(
                 acsmHandler.isConfigured(), overDriveService.credentialStorageEnabled(),
-                overDriveService.audiobookHandlerConfigured()));
+                overDriveService.audiobookHandlerConfigured(), overDriveService.magazineHandlerConfigured()));
     }
 
     /**
@@ -758,7 +758,8 @@ public class OverDriveController {
                 extras != null ? extras.narrator() : null,
                 extras != null ? extras.edition() : null,
                 extras != null ? extras.duration() : null,
-                extras != null && extras.audiobook()
+                extras != null && extras.audiobook(),
+                extras != null && extras.magazine()
         );
     }
 
@@ -854,14 +855,15 @@ public class OverDriveController {
                 extras != null ? extras.narrator() : null,
                 extras != null ? extras.edition() : null,
                 extras != null ? extras.duration() : null,
-                extras != null && extras.audiobook()
+                extras != null && extras.audiobook(),
+                extras != null && extras.magazine()
         );
     }
 
     // ── Response DTOs ────────────────────────────────────────────────────
 
     record OverDriveCapabilities(boolean acsmHandlerConfigured, boolean credentialStorageEnabled,
-                                 boolean audiobookHandlerConfigured) {}
+                                 boolean audiobookHandlerConfigured, boolean magazineHandlerConfigured) {}
 
     record OverDriveChipResult(String identity, String token) {}
 
@@ -891,7 +893,8 @@ public class OverDriveController {
             String narrator,
             String edition,
             String duration,
-            boolean audiobook
+            boolean audiobook,
+            boolean magazine
     ) {}
 
     record OverDriveHoldDto(
@@ -908,7 +911,8 @@ public class OverDriveController {
             String narrator,
             String edition,
             String duration,
-            boolean audiobook
+            boolean audiobook,
+            boolean magazine
     ) {}
 
     record OverDriveBorrowResult(String loanId) {}

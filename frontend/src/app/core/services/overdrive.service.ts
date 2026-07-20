@@ -39,6 +39,8 @@ export interface OverDriveImportDestinations {
   ebookPathId?: number | null;
   audiobookLibraryId?: number | null;
   audiobookPathId?: number | null;
+  magazineLibraryId?: number | null;
+  magazinePathId?: number | null;
 }
 
 /** One entry in a user's OverDrive activity history. */
@@ -83,6 +85,7 @@ export interface OverDriveLoan {
   edition?: string | null;
   duration?: string | null;
   audiobook?: boolean;
+  magazine?: boolean;
 }
 
 export interface OverDriveHold {
@@ -109,6 +112,7 @@ export interface OverDriveHold {
   edition?: string | null;
   duration?: string | null;
   audiobook?: boolean;
+  magazine?: boolean;
 }
 
 export interface OverDriveCreator {
@@ -149,6 +153,8 @@ export interface OverDriveCapabilities {
   credentialStorageEnabled: boolean;
   /** Whether an external audiobook handler is configured, enabling audiobook borrows. */
   audiobookHandlerConfigured: boolean;
+  /** Whether an external magazine handler is configured, enabling magazine borrows. */
+  magazineHandlerConfigured: boolean;
 }
 
 /** Result of validating/resolving an OverDrive library key against the Thunder directory. */
@@ -208,6 +214,8 @@ export interface OverDriveCatalogItem {
   narrator?: string | null;
   /** Audiobook playback length ("HH:MM:SS"), or null. */
   duration?: string | null;
+  /** True when the title is a magazine (offers a magazine format). */
+  magazine?: boolean;
 }
 
 /** Facet filters pushed into the catalog search server-side (see {@link OverDriveService.search}). */

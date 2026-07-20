@@ -35,6 +35,7 @@ class OverDriveServiceTest {
     @Mock private org.booklore.repository.BookRepository bookRepository;
     @Mock private AcsmHandler acsmHandler;
     @Mock private org.booklore.service.audiobook.AudiobookHandler audiobookHandler;
+    @Mock private org.booklore.service.magazine.MagazineHandler magazineHandler;
     @Mock private RestClient restClient;
     @Mock private OverDriveImportService overDriveImportService;
     @Mock private OverDriveParser overDriveParser;
@@ -52,8 +53,8 @@ class OverDriveServiceTest {
     void setUp() {
         // Credential cipher with no key configured -> disabled (token-only), matching default deploys.
         OverDriveCredentialCipher cipher = new OverDriveCredentialCipher("");
-        service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, restClient,
-                overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
+        service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
+                restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 importDestinationRepository, userRepository, authenticationService, appSettingService, cipher);
     }
 
@@ -147,7 +148,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(item));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(item));
 
         var results = service.searchCatalog("dune", List.of("card-1"));
 
@@ -204,7 +205,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(item));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(item));
 
         var result = service.searchCatalog("dune", List.of("card-1")).getFirst();
 
@@ -229,7 +230,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(item));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(item));
 
         var result = service.searchCatalog("dune", List.of("card-1")).getFirst();
 
@@ -286,7 +287,7 @@ class OverDriveServiceTest {
             it.setTitle("Dune " + i);
             many.add(it);
         }
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 2)).thenReturn(many);
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 2)).thenReturn(many);
 
         var results = service.searchCatalog("dune", List.of("card-1"), null, false, null, 2);
 
@@ -304,7 +305,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(item));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(item));
 
         var result = service.searchCatalog("dune", List.of("card-1")).getFirst();
         assertThat(result.edition()).isEqualTo("Abridged"); // raw edition surfaced as-is; FE decides "abridged"
@@ -324,7 +325,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(item));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(item));
 
         var result = service.searchCatalog("dune", List.of("card-1")).getFirst();
         assertThat(result.edition()).isNull();
@@ -353,7 +354,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").libraryKey("lapl").token("t").build()));
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(item));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(item));
 
         var result = service.searchCatalog("dune", List.of("card-1")).getFirst();
 
@@ -380,8 +381,8 @@ class OverDriveServiceTest {
                 OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build()));
         when(tokenRepository.findByUserIdAndIdentity(7L, "c2")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("c2").libraryKey("bpl").token("t").build()));
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(unavailable));
-        when(overDriveParser.searchLibrary("bpl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(available));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(unavailable));
+        when(overDriveParser.searchLibrary("bpl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(available));
 
         var results = service.searchCatalog("dune", List.of("c1", "c2"));
 
@@ -406,8 +407,8 @@ class OverDriveServiceTest {
                 OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build()));
         when(tokenRepository.findByUserIdAndIdentity(7L, "c2")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("c2").libraryKey("bpl").token("t").build()));
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(itemA));
-        when(overDriveParser.searchLibrary("bpl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(itemDup, itemB));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(itemA));
+        when(overDriveParser.searchLibrary("bpl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(itemDup, itemB));
 
         var results = service.searchCatalog("dune", List.of("c1", "c2"));
 
@@ -468,13 +469,13 @@ class OverDriveServiceTest {
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "c1")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build()));
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(item));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(item));
 
         var results = service.searchCatalog("dune", List.of("c1"));
 
         assertThat(results).extracting(c -> c.titleId()).containsExactly("title-1");
         // Only the selected card's library was searched: no admin-key path, no other cards.
-        verify(overDriveParser).searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60);
+        verify(overDriveParser).searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 60);
         verifyNoInteractions(appSettingService);
     }
 
@@ -507,8 +508,8 @@ class OverDriveServiceTest {
                 OverDriveTokenEntity.builder().userId(7L).identity("c1").libraryKey("lapl").token("t").build()));
         when(tokenRepository.findByUserIdAndIdentity(7L, "c2")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("c2").libraryKey("bpl").token("t").build()));
-        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(holdableOnly));
-        when(overDriveParser.searchLibrary("bpl", "dune", "ebook,audiobook", false, null, 60)).thenReturn(List.of(availableHere));
+        when(overDriveParser.searchLibrary("lapl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(holdableOnly));
+        when(overDriveParser.searchLibrary("bpl", "dune", "ebook,audiobook,magazine", false, null, 60)).thenReturn(List.of(availableHere));
 
         var result = service.searchCatalog("dune", List.of("c1", "c2")).getFirst();
 

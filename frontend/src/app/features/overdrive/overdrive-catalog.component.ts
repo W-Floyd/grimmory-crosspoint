@@ -109,7 +109,7 @@ export class OverdriveCatalogComponent {
   loadingMore = signal(false);
 
   // Client-side facet filters over the fetched search results (applied by filteredResults).
-  filterFormat = signal<'all' | 'ebook' | 'audiobook'>('all');
+  filterFormat = signal<'all' | 'ebook' | 'audiobook' | 'magazine'>('all');
   filterAvailableNow = signal(false);
   filterMyLanguage = signal(false);
   filterHideAbridged = signal(false);
@@ -123,6 +123,7 @@ export class OverdriveCatalogComponent {
     { label: 'All formats', value: 'all' },
     { label: 'Ebooks', value: 'ebook' },
     { label: 'Audiobooks', value: 'audiobook' },
+    { label: 'Magazines', value: 'magazine' },
   ];
 
   // Column sort over the search results (null field = keep the source/relevance order from OverDrive).
@@ -137,7 +138,8 @@ export class OverdriveCatalogComponent {
     const hideAbridged = this.filterHideAbridged();
     const filtered = this.results().filter(item => {
       if (format === 'audiobook' && !item.audiobook) return false;
-      if (format === 'ebook' && item.audiobook) return false;
+      if (format === 'magazine' && !item.magazine) return false;
+      if (format === 'ebook' && (item.audiobook || item.magazine)) return false;
       if (availableOnly && !this.borrowableNow(item)) return false;
       if (myLanguageOnly && this.isForeignLanguage(item)) return false;
       if (hideAbridged && this.isAbridged(item)) return false;
@@ -343,6 +345,8 @@ export class OverdriveCatalogComponent {
   acsmConfigured = signal(false);
   // Whether an audiobook handler is configured server-side (enables audiobook borrows).
   audiobookConfigured = signal(false);
+  // Whether a magazine handler is configured server-side (enables magazine borrows).
+  magazineConfigured = signal(false);
 
    constructor() {
      // Remember the folded/expanded state of the Library Cards section across sessions.
@@ -375,6 +379,7 @@ export class OverdriveCatalogComponent {
        next: (c) => {
          this.acsmConfigured.set(!!c?.acsmHandlerConfigured);
          this.audiobookConfigured.set(!!c?.audiobookHandlerConfigured);
+         this.magazineConfigured.set(!!c?.magazineHandlerConfigured);
        },
        error: () => { /* leave default (assume not configured) */ }
      });
@@ -738,8 +743,9 @@ export class OverdriveCatalogComponent {
     */
    trackRow = (_: number, row: { titleId?: string; id?: string }): string => row.titleId ?? row.id ?? '';
 
-   /** The borrow title_format hint for a title/loan/hold ("audiobook" vs "ebook"). */
-   private titleFormatOf(item: { audiobook?: boolean }): string {
+   /** The borrow title_format hint for a title/loan/hold ("magazine"/"audiobook"/"ebook"). */
+   private titleFormatOf(item: { audiobook?: boolean; magazine?: boolean }): string {
+     if (item.magazine) return 'magazine';
      return item.audiobook ? 'audiobook' : 'ebook';
    }
 
@@ -1105,6 +1111,9 @@ export class OverdriveCatalogComponent {
     * at the ACSM handler for Adobe-DRM ebooks — but only when that handler isn't already configured.
     */
    unsupportedFormatTooltip(item: OverDriveCatalogItem): string {
+     if (item.magazine) {
+       return 'This is a magazine. Configure a magazine handler on the server to borrow and import magazines.';
+     }
      if (this.isAudiobookTitle(item)) {
        return 'This is an audiobook. Configure an audiobook handler on the server to borrow and import audiobooks.';
      }

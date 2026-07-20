@@ -27,6 +27,7 @@ import org.booklore.repository.UserRepository;
 import org.springframework.data.domain.PageRequest;
 import org.booklore.service.acsm.AcsmHandler;
 import org.booklore.service.audiobook.AudiobookHandler;
+import org.booklore.service.magazine.MagazineHandler;
 import org.booklore.service.appsettings.AppSettingService;
 import org.booklore.service.metadata.parser.OverDriveItemExtractor;
 import org.booklore.service.metadata.parser.OverDriveParser;
@@ -76,6 +77,7 @@ public class OverDriveService {
     private final BookRepository bookRepository;
     private final AcsmHandler acsmHandler;
     private final AudiobookHandler audiobookHandler;
+    private final MagazineHandler magazineHandler;
 
      @Value("${app.overdrive.sentry-base-url:https://sentry.libbyapp.com}")
     private String sentryBaseUrl;
@@ -275,6 +277,23 @@ public class OverDriveService {
         return item.getFormats() != null && item.getFormats().stream()
                 .map(OverDriveApiResponse.Item.Format::getId)
                 .anyMatch(OverDriveService::isAudiobookFormat);
+    }
+
+    /** Any OverDrive magazine format (e.g. magazine-overdrive) — fulfilled by the magazine tool. */
+    private static boolean isMagazineFormat(String formatId) {
+        return formatId != null && formatId.startsWith("magazine");
+    }
+
+    /** True when the title offers a magazine format. */
+    private static boolean isMagazineItem(OverDriveApiResponse.Item item) {
+        return item.getFormats() != null && item.getFormats().stream()
+                .map(OverDriveApiResponse.Item.Format::getId)
+                .anyMatch(OverDriveService::isMagazineFormat);
+    }
+
+    /** A magazine issue is delivered as a PDF or an EPUB; pick the type from the produced extension. */
+    private static BookFileType magazineFileType(String extension) {
+        return "pdf".equalsIgnoreCase(extension) ? BookFileType.PDF : BookFileType.EPUB;
     }
 
     private static BookFileType bookFileType(String formatId) {
@@ -1302,7 +1321,7 @@ public class OverDriveService {
             return List.of();
         }
         int effectiveLimit = limit > 0 ? limit : DEFAULT_CATALOG_LIMIT;
-        String effectiveMediaTypes = (mediaTypes == null || mediaTypes.isBlank()) ? "ebook,audiobook" : mediaTypes.trim();
+        String effectiveMediaTypes = (mediaTypes == null || mediaTypes.isBlank()) ? "ebook,audiobook,magazine" : mediaTypes.trim();
         // Scope strictly to the selected cards' libraries (cards the user owns or that are shared with them).
         Long userId = currentUserId();
         Set<String> libraryKeys = new LinkedHashSet<>();
@@ -1420,7 +1439,8 @@ public class OverDriveService {
                 display.edition() != null ? display.edition() : (existing.edition() != null ? existing.edition() : incoming.edition()),
                 display.audiobook(),
                 display.narrator() != null ? display.narrator() : (existing.narrator() != null ? existing.narrator() : incoming.narrator()),
-                display.duration() != null ? display.duration() : (existing.duration() != null ? existing.duration() : incoming.duration()));
+                display.duration() != null ? display.duration() : (existing.duration() != null ? existing.duration() : incoming.duration()),
+                display.magazine());
       }
 
       /** Sum two nullable copy counts, treating null as zero; null when both are null. */
@@ -1550,14 +1570,19 @@ public class OverDriveService {
         return audiobookHandler.isConfigured();
       }
 
+      public boolean magazineHandlerConfigured() {
+        return magazineHandler.isConfigured();
+      }
+
       // ── Per-document-type import destinations (per user) ─────────────────
 
       /** The current user's per-document-type import destinations (nulls when unset). */
       public OverDriveImportDestinations getImportDestinations() {
         return importDestinationRepository.findByUserId(currentUserId())
                 .map(d -> new OverDriveImportDestinations(d.getEbookLibraryId(), d.getEbookPathId(),
-                        d.getAudiobookLibraryId(), d.getAudiobookPathId()))
-                .orElseGet(() -> new OverDriveImportDestinations(null, null, null, null));
+                        d.getAudiobookLibraryId(), d.getAudiobookPathId(),
+                        d.getMagazineLibraryId(), d.getMagazinePathId()))
+                .orElseGet(() -> new OverDriveImportDestinations(null, null, null, null, null, null));
       }
 
       /** Store the current user's per-document-type import destinations (an upsert). */
@@ -1570,18 +1595,23 @@ public class OverDriveService {
         entity.setEbookPathId(d.ebookPathId());
         entity.setAudiobookLibraryId(d.audiobookLibraryId());
         entity.setAudiobookPathId(d.audiobookPathId());
+        entity.setMagazineLibraryId(d.magazineLibraryId());
+        entity.setMagazinePathId(d.magazinePathId());
         importDestinationRepository.save(entity);
       }
 
       /** A resolved import destination (either may be null when nothing routes the type). */
       private record ImportDestination(Long libraryId, Long pathId) {}
 
+      /** The document kind an import routes by (each has its own per-user default destination). */
+      private enum MediaKind { EBOOK, AUDIOBOOK, MAGAZINE }
+
       /**
-       * Resolve where a borrowed document of the given type should import: an explicit per-borrow
-       * destination (both ids present) wins; otherwise the user's per-type default (audiobook vs ebook);
-       * otherwise nothing (→ Bookdrop).
+       * Resolve where a borrowed document of the given kind should import: an explicit per-borrow
+       * destination (both ids present) wins; otherwise the user's per-type default (ebook/audiobook/
+       * magazine); otherwise nothing (→ Bookdrop).
        */
-      private ImportDestination resolveImportDestination(BookFileType fileType, Long requestLibraryId, Long requestPathId) {
+      private ImportDestination resolveImportDestination(MediaKind kind, Long requestLibraryId, Long requestPathId) {
         if (requestLibraryId != null && requestPathId != null) {
             return new ImportDestination(requestLibraryId, requestPathId);
         }
@@ -1589,10 +1619,11 @@ public class OverDriveService {
         if (d == null) {
             return new ImportDestination(null, null);
         }
-        if (fileType == BookFileType.AUDIOBOOK) {
-            return new ImportDestination(d.getAudiobookLibraryId(), d.getAudiobookPathId());
-        }
-        return new ImportDestination(d.getEbookLibraryId(), d.getEbookPathId());
+        return switch (kind) {
+            case AUDIOBOOK -> new ImportDestination(d.getAudiobookLibraryId(), d.getAudiobookPathId());
+            case MAGAZINE -> new ImportDestination(d.getMagazineLibraryId(), d.getMagazinePathId());
+            case EBOOK -> new ImportDestination(d.getEbookLibraryId(), d.getEbookPathId());
+        };
       }
 
       /**
@@ -1695,6 +1726,10 @@ public class OverDriveService {
         // success and the failure history entries can report the right action. Hoisted out of the try
         // so the catch can see it.
         boolean alreadyBorrowed = false;
+        // Magazines route to their own handler with no Grimmory borrow (the tool borrows + fulfils itself).
+        if ("magazine".equals(normalizeTitleFormat(titleFormat)) || isMagazineFormat(preferredFormat)) {
+            return importMagazine(identity, authToken, titleId, libraryId, pathId, title, author, coverUrl, isbn);
+        }
         try {
         // Borrow and fulfill with the stored identity as-is, mirroring the web client: it does not
         // pre-mint, and fetchFulfillment re-mints reactively on missing_chip. Pre-minting here only
@@ -1776,28 +1811,8 @@ public class OverDriveService {
             metadata = buildImportMetadata(title, author, coverUrl, isbn);
         }
         String fileName = buildFileName(title, loanId, extension);
-
-        // With a destination library + path, import straight into the library — unless that library
-        // wouldn't keep this file type (it purges disallowed formats on scan), in which case drop it into
-        // Bookdrop instead so the fulfilled file survives for the operator to place somewhere that accepts
-        // it. Without a destination at all, Bookdrop is the default.
-        // Resolve the destination by document type: an explicit per-borrow library+path overrides,
-        // else the user's per-type default (ebook vs audiobook), else Bookdrop.
-        ImportDestination dest = resolveImportDestination(fileType, libraryId, pathId);
-        Long destLibraryId = dest.libraryId();
-        Long destPathId = dest.pathId();
-        Book book;
-        if (destLibraryId != null && destPathId != null && overDriveImportService.acceptsFormat(destLibraryId, fileType)) {
-            book = overDriveImportService.importBook(content, fileName, destLibraryId, destPathId, metadata, fileType);
-        } else {
-            if (destLibraryId != null && destPathId != null) {
-                log.warn("Destination library {} does not accept {} files — dropping loan {} ('{}') into "
-                        + "Bookdrop instead of importing (it would be purged on the next scan).",
-                        destLibraryId, fileType, loanId, title);
-            }
-            overDriveImportService.dropToBookdrop(content, fileName);
-            book = null;
-        }
+        MediaKind kind = fileType == BookFileType.AUDIOBOOK ? MediaKind.AUDIOBOOK : MediaKind.EBOOK;
+        Book book = importOrBookdrop(content, fileName, fileType, kind, metadata, libraryId, pathId, title);
 
         Long userId = currentUserId();
         OverDriveLoanEntity entity = loanRepository.findByUserIdAndOverdriveLoanId(userId, loanId)
@@ -1829,6 +1844,107 @@ public class OverDriveService {
             throw e;
         }
       }
+
+      /**
+       * Import the fulfilled bytes into the resolved destination library, or drop them into Bookdrop when
+       * there's no destination or the destination wouldn't keep this file type (it purges disallowed
+       * formats on scan). Shared by the borrow-and-import and magazine paths.
+       */
+      private Book importOrBookdrop(byte[] content, String fileName, BookFileType fileType, MediaKind kind,
+                                    BookMetadata metadata, Long libraryId, Long pathId, String title) {
+        ImportDestination dest = resolveImportDestination(kind, libraryId, pathId);
+        Long destLibraryId = dest.libraryId();
+        Long destPathId = dest.pathId();
+        if (destLibraryId != null && destPathId != null && overDriveImportService.acceptsFormat(destLibraryId, fileType)) {
+            return overDriveImportService.importBook(content, fileName, destLibraryId, destPathId, metadata, fileType);
+        }
+        if (destLibraryId != null && destPathId != null) {
+            log.warn("Destination library {} does not accept {} files — dropping '{}' into Bookdrop instead "
+                    + "of importing (it would be purged on the next scan).", destLibraryId, fileType, title);
+        }
+        overDriveImportService.dropToBookdrop(content, fileName);
+        return null;
+      }
+
+      /**
+       * Import a magazine issue. Unlike borrow-and-import, Grimmory does <b>no</b> borrow: the external
+       * magazine tool authenticates from the card+PIN and borrows + fulfils the issue itself (mediaType
+       * "magazine", no formatId). The produced file is a PDF or EPUB — its type is taken from the extension.
+       * A loan row is tracked keyed by the title id (a magazine loan's id equals its title id) so the
+       * Loans tab links the imported book.
+       */
+      public Book importMagazine(String identity, String authToken, String titleId, Long libraryId, Long pathId,
+                                 String title, String author, String coverUrl, String isbn) {
+        try {
+            resolveToken(identity, authToken); // validate the card is accessible even though the tool re-auths
+
+            MagazineHandler.Result magazine = magazineHandler.handle(magazineRequest(identity, titleId));
+            byte[] content = magazine.content();
+            if (content == null || content.length == 0) {
+                throw new RestClientException("The magazine handler did not produce a file for title " + titleId + ".");
+            }
+            String extension = magazine.extension();
+            BookFileType fileType = magazineFileType(extension);
+
+            BookMetadata metadata = overDriveParser.fetchTitleMetadata(titleId);
+            if (metadata == null) {
+                metadata = buildImportMetadata(title, author, coverUrl, isbn);
+            }
+            String fileName = buildFileName(title, titleId, extension);
+            Book book = importOrBookdrop(content, fileName, fileType, MediaKind.MAGAZINE, metadata, libraryId, pathId, title);
+
+            Long userId = currentUserId();
+            OverDriveLoanEntity entity = loanRepository.findByUserIdAndOverdriveLoanId(userId, titleId)
+                    .orElseGet(() -> {
+                        OverDriveLoanEntity e = new OverDriveLoanEntity();
+                        e.setOverdriveLoanId(titleId);
+                        e.setIdentity(identity);
+                        e.setUserId(userId);
+                        return e;
+                    });
+            entity.setTitle(title);
+            entity.setAuthor(author);
+            entity.setFormatId(FORMAT_MAGAZINE);
+            entity.setState("ACTIVE");
+            entity.setFulfilled(true);
+            entity.setBookId(book != null ? book.getId() : null);
+            entity.setLastSync(Instant.now());
+            loanRepository.save(entity);
+
+            recordAudit(OverDriveAuditAction.BORROW_AND_IMPORT, identity, titleId, titleId,
+                    book != null ? book.getId() : null, title,
+                    book != null ? "Imported to library" : "Dropped into Bookdrop");
+            log.info("OverDrive magazine import complete: title {} (.{}) -> {}", titleId, extension,
+                    book != null ? "book " + book.getId() : "Bookdrop");
+            return book;
+        } catch (RuntimeException e) {
+            recordAuditFailure(OverDriveAuditAction.BORROW_AND_IMPORT, identity, titleId, null, e.getMessage());
+            throw e;
+        }
+      }
+
+      /** Build the magazine handoff request (card+PIN, no formatId) — mirrors {@link #audiobookRequest}. */
+      private MagazineHandler.Request magazineRequest(String identity, String titleId) {
+        OverDriveTokenEntity card = accessibleTokenRow(currentUserId(), identity)
+                .orElseThrow(() -> new RestClientException("No such card for magazine fulfillment: " + identity));
+        String label = (card.getCardName() != null && !card.getCardName().isBlank()
+                ? "\"" + card.getCardName() + "\" " : "") + "(" + identity + ")";
+        if (!credentialCipher.isEnabled()) {
+            throw new RestClientException("Magazine download needs stored card credentials, but credential "
+                    + "storage is off: set OVERDRIVE_CREDENTIAL_KEY and re-link the card by number + PIN.");
+        }
+        if (card.getCredCard() == null) {
+            throw new RestClientException("Card " + label + " has no stored card + PIN, so it can't download "
+                    + "magazines. Re-link THIS card by number + PIN, then retry.");
+        }
+        String cardNumber = credentialCipher.decrypt(card.getCredCard());
+        String pin = card.getCredPin() != null ? credentialCipher.decrypt(card.getCredPin()) : null;
+        return new MagazineHandler.Request(sentryBaseUrl, cardNumber, pin, card.getLibraryKey(),
+                card.getWebsiteId(), card.getIlsName(), identity, titleId);
+      }
+
+      /** OverDrive magazine format id (the tool fulfils the issue as PDF or EPUB). */
+      private static final String FORMAT_MAGAZINE = "magazine-overdrive";
 
       private String buildFileName(String title, String loanId, String extension) {
         String base = (title != null && !title.isBlank()) ? title : ("overdrive-" + loanId);
@@ -1886,7 +2002,8 @@ public class OverDriveService {
                 item.getEdition(),
                 isAudiobookItem(item),
                 OverDriveItemExtractor.narrator(item),
-                OverDriveItemExtractor.audiobookDuration(item));
+                OverDriveItemExtractor.audiobookDuration(item),
+                isMagazineItem(item));
       }
 
       /**
@@ -1976,6 +2093,14 @@ public class OverDriveService {
             }
             for (String f : offered) {
                 if (isAudiobookFormat(f) && !ordered.contains(f)) {
+                    ordered.add(f);
+                }
+            }
+        }
+        // Magazine formats, when the magazine handler is configured (a title is one medium).
+        if (magazineHandler.isConfigured()) {
+            for (String f : offered) {
+                if (isMagazineFormat(f) && !ordered.contains(f)) {
                     ordered.add(f);
                 }
             }
@@ -2315,8 +2440,8 @@ public class OverDriveService {
         return result;
       }
 
-      /** Extra metadata for a title, enriched from the catalog (narrator/edition/duration + audiobook). */
-      public record MediaExtras(String narrator, String edition, String duration, boolean audiobook) {}
+      /** Extra metadata for a title, enriched from the catalog (narrator/edition/duration + media type). */
+      public record MediaExtras(String narrator, String edition, String duration, boolean audiobook, boolean magazine) {}
 
       /**
        * Fetch narrator/edition/duration for many titles at once (one {@code /media/bulk} call), keyed by
@@ -2335,7 +2460,8 @@ public class OverDriveService {
                     OverDriveItemExtractor.narrator(item),
                     item.getEdition(),
                     OverDriveItemExtractor.audiobookDuration(item),
-                    isAudiobookItem(item)));
+                    isAudiobookItem(item),
+                    isMagazineItem(item)));
         }
         return out;
       }

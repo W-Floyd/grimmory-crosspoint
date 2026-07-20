@@ -67,6 +67,13 @@ services:
       # Safe here because Grimmory re-supplies card+PIN in the manifest on every run; drop it only if you
       # want the tool to be able to silently re-auth a fully-lapsed card without a fresh manifest.
       # - AUDIOBOOK_TIMEOUT_SECONDS=1800               # audiobooks are large; default 30 min
+      #
+      # Magazines mirror audiobooks: same manifest + (typically) the same tool binary, separate config.
+      # The tool borrows + fulfils the issue itself from card+PIN and writes a single PDF or EPUB.
+      # - MAGAZINE_ENABLED=true
+      # - MAGAZINE_TOOL_PATH=/opt/audiobook/go-od-audiobook       # usually the same binary as AUDIOBOOK_TOOL_PATH
+      # - MAGAZINE_TOOL_ARGS=download --manifest {input} --out-dir {output} --account-dir /opt/audiobook/account --no-store-pin
+      # - MAGAZINE_TIMEOUT_SECONDS=600                            # magazines are smaller than audiobooks
       # Override JVM memory defaults (the image ships sensible defaults for ~512 MB heap).
       # Uncomment and adjust if you want a tighter or looser cap:
       # JAVA_TOOL_OPTIONS=-Xmx256m

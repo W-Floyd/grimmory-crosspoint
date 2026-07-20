@@ -49,6 +49,8 @@ export class OverdriveSettingsComponent {
   ebookPath = signal<LibraryPath | null>(null);
   audiobookLibrary = signal<Library | null>(null);
   audiobookPath = signal<LibraryPath | null>(null);
+  magazineLibrary = signal<Library | null>(null);
+  magazinePath = signal<LibraryPath | null>(null);
 
   // The list of OverDrive library keys to search for metadata (source of truth).
   libraryKeys = signal<string[]>([]);
@@ -130,6 +132,9 @@ export class OverdriveSettingsComponent {
         const aLib = libs.find(l => l.id === d.audiobookLibraryId) ?? null;
         this.audiobookLibrary.set(aLib);
         this.audiobookPath.set(aLib?.paths.find(p => p.id === d.audiobookPathId) ?? null);
+        const mLib = libs.find(l => l.id === d.magazineLibraryId) ?? null;
+        this.magazineLibrary.set(mLib);
+        this.magazinePath.set(mLib?.paths.find(p => p.id === d.magazinePathId) ?? null);
       },
       error: () => { /* leave unset (Bookdrop) */ }
     });
@@ -157,13 +162,26 @@ export class OverdriveSettingsComponent {
     this.saveImportDestinations();
   }
 
+  onMagazineLibraryChange(library: Library | null): void {
+    this.magazineLibrary.set(library);
+    this.magazinePath.set(library?.paths.length === 1 ? library.paths[0] : null);
+    this.saveImportDestinations();
+  }
+
+  onMagazinePathChange(path: LibraryPath | null): void {
+    this.magazinePath.set(path);
+    this.saveImportDestinations();
+  }
+
   /** Persist the per-type import destinations (fire-and-forget; a toast confirms). */
   private saveImportDestinations(): void {
     const payload: OverDriveImportDestinations = {
       ebookLibraryId: this.ebookLibrary()?.id ?? null,
       ebookPathId: this.ebookPath()?.id ?? null,
       audiobookLibraryId: this.audiobookLibrary()?.id ?? null,
-      audiobookPathId: this.audiobookPath()?.id ?? null
+      audiobookPathId: this.audiobookPath()?.id ?? null,
+      magazineLibraryId: this.magazineLibrary()?.id ?? null,
+      magazinePathId: this.magazinePath()?.id ?? null
     };
     this.setupError.set(null);
     this.overdriveService.setImportDestinations(payload).subscribe({

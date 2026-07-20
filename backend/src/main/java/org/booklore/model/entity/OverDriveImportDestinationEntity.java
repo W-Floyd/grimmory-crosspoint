@@ -32,4 +32,10 @@ public class OverDriveImportDestinationEntity {
 
     @Column(name = "audiobook_path_id")
     private Long audiobookPathId;
+
+    @Column(name = "magazine_library_id")
+    private Long magazineLibraryId;
+
+    @Column(name = "magazine_path_id")
+    private Long magazinePathId;
 }

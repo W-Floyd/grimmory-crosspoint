@@ -36,8 +36,14 @@ app:
   audiobook:
     enabled: ${AUDIOBOOK_ENABLED:false}
     tool-path: ${AUDIOBOOK_TOOL_PATH:}
-    tool-args: ${AUDIOBOOK_TOOL_ARGS:--manifest {input} --out-dir {output}}
+    tool-args: ${AUDIOBOOK_TOOL_ARGS:download --manifest {input} --out-dir {output}}
     timeout-seconds: ${AUDIOBOOK_TIMEOUT_SECONDS:1800}
+  # Magazine handler — mirrors audiobook (same manifest + typically the same tool binary), separate config.
+  magazine:
+    enabled: ${MAGAZINE_ENABLED:false}
+    tool-path: ${MAGAZINE_TOOL_PATH:}
+    tool-args: ${MAGAZINE_TOOL_ARGS:download --manifest {input} --out-dir {output}}
+    timeout-seconds: ${MAGAZINE_TIMEOUT_SECONDS:600}
 
   cors:
     # Comma-separated list of allowed CORS origins.
