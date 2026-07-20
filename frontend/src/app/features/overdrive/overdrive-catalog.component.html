@@ -153,7 +153,9 @@
       }
       @if (filteredResults().length > 0) {
         <p-table [value]="filteredResults()" [customSort]="true" (sortFunction)="onSortResults($event)"
-          [sortField]="sortField()" [sortOrder]="sortOrder()">
+          [sortField]="sortField()" [sortOrder]="sortOrder()"
+          [paginator]="true" [rows]="10" [showCurrentPageReport]="true"
+          currentPageReportTemplate="{first}-{last} / {totalRecords}">
           <ng-template pTemplate="header">
             <tr>
               <th>Cover</th>
