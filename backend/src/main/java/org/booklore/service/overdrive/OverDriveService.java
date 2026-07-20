@@ -1326,6 +1326,9 @@ public class OverDriveService {
                         availableOnly, language, effectiveLimit);
             }
             for (OverDriveApiResponse.Item item : items) {
+                if (item == null) {
+                    continue;
+                }
                 OverDriveCatalogItem mapped = toCatalogItem(libraryKey, item);
                 if (mapped.title() == null || mapped.title().isBlank() || mapped.titleId() == null) {
                     continue;

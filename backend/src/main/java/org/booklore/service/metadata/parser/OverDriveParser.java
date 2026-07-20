@@ -130,6 +130,9 @@ public class OverDriveParser implements BookParser {
         for (String libraryKey : libraryKeys) {
             // Include audiobooks so audiobook titles in the library can be matched, not just ebooks.
             for (OverDriveApiResponse.Item item : fetchItems(libraryKey, query, "ebook,audiobook", false, null, MAX_TOTAL_RESULTS)) {
+                if (item == null) {
+                    continue;
+                }
                 // Dedupe by title id; items without one can't be deduped, so keep each under a unique key.
                 String key = (item.getId() != null && !item.getId().isBlank())
                         ? item.getId()
@@ -345,7 +348,9 @@ public class OverDriveParser implements BookParser {
             if (pageResponse == null || pageResponse.getItems() == null || pageResponse.getItems().isEmpty()) {
                 break;
             }
-            collected.addAll(pageResponse.getItems());
+            // Drop null placeholders Thunder can include, so the window count stays accurate and callers
+            // never dereference a null item.
+            pageResponse.getItems().stream().filter(java.util.Objects::nonNull).forEach(collected::add);
             if (pageResponse.getTotalItems() != null) {
                 totalItems = pageResponse.getTotalItems();
             }
@@ -448,7 +453,9 @@ public class OverDriveParser implements BookParser {
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             Map<String, OverDriveApiResponse.Item> byId = new LinkedHashMap<>();
             for (OverDriveApiResponse.Item item : parseItems(response)) {
-                if (item.getId() != null) {
+                // Thunder can return null placeholders in the items array (e.g. titles not carried at this
+                // library), so guard before dereferencing.
+                if (item != null && item.getId() != null) {
                     byId.put(item.getId(), item);
                 }
             }
@@ -473,7 +480,8 @@ public class OverDriveParser implements BookParser {
             if (parsed == null || parsed.getItems() == null) {
                 return List.of();
             }
-            return parsed.getItems();
+            // Thunder may include null placeholders in the items array — drop them so callers never NPE.
+            return parsed.getItems().stream().filter(java.util.Objects::nonNull).toList();
         } catch (Exception e) {
             log.error("OverDrive: failed to parse response: {}", e.getMessage());
             return List.of();
