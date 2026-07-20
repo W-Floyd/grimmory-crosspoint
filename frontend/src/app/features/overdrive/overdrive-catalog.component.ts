@@ -737,6 +737,26 @@ export class OverdriveCatalogComponent {
      return n ? n : null;
    }
 
+   /** An audiobook's playback length as a compact "Xh Ym" (or "Ym"), from the raw "HH:MM:SS", or null. */
+   durationLabel(item: OverDriveCatalogItem): string | null {
+     const raw = item.duration?.trim();
+     if (!raw) return null;
+     const parts = raw.split(':').map(n => parseInt(n, 10));
+     if (parts.some(isNaN)) return null;
+     let hours: number;
+     let minutes: number;
+     if (parts.length === 3) {
+       [hours, minutes] = parts;
+     } else if (parts.length === 2) {
+       [hours, minutes] = [0, parts[0]];
+     } else {
+       return null;
+     }
+     if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+     if (hours > 0) return `${hours}h`;
+     return `${minutes}m`;
+   }
+
    /** The user's active language code, uppercased. */
    userLanguageLabel(): string {
      return (this.userLanguage() ?? '').trim().toUpperCase();

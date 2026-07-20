@@ -112,6 +112,8 @@ public class OverDriveApiResponse {
             private String id;
             private String isbn;
             private List<Identifier> identifiers;
+            /** Audiobook playback length, "HH:MM:SS" (absent for ebooks). */
+            private String duration;
 
             @Data
             @JsonIgnoreProperties(ignoreUnknown = true)

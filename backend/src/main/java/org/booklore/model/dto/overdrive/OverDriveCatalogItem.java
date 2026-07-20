@@ -48,5 +48,7 @@ public record OverDriveCatalogItem(
         /** True when the title is an audiobook (offers an audiobook format), false for an ebook. */
         boolean audiobook,
         /** Narrator name(s) for an audiobook (comma-joined), or null. */
-        String narrator
+        String narrator,
+        /** Audiobook playback length ("HH:MM:SS"), or null. */
+        String duration
 ) {}

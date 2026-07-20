@@ -196,6 +196,8 @@ export interface OverDriveCatalogItem {
   audiobook?: boolean;
   /** Narrator name(s) for an audiobook (comma-joined), or null. */
   narrator?: string | null;
+  /** Audiobook playback length ("HH:MM:SS"), or null. */
+  duration?: string | null;
 }
 
 /** Facet filters pushed into the catalog search server-side (see {@link OverDriveService.search}). */

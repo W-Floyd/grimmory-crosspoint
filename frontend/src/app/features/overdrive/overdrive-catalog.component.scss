@@ -423,7 +423,6 @@
     display: inline-flex;
     align-items: center;
     gap: 0.2rem;
-    margin-top: 0.15rem;
     font-size: 0.75rem;
     font-weight: 600;
     color: var(--orange-500, #f97316);
@@ -433,9 +432,17 @@
     }
   }
 
+  // Row of annotations under a result's title (narrator, edition, warnings) — evenly spaced, wrapping.
+  .result-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.6rem;
+    margin-top: 0.15rem;
+  }
+
   // Narrator shown after an audiobook's title (grey, in parens).
   .narrator-label {
-    margin-left: 0.35rem;
     font-size: 0.85rem;
     color: var(--text-color-secondary);
   }
@@ -445,7 +452,6 @@
     display: inline-flex;
     align-items: center;
     gap: 0.2rem;
-    margin-top: 0.15rem;
     font-size: 0.75rem;
     color: var(--text-color-secondary);
 
@@ -459,12 +465,24 @@
     }
   }
 
+  // Audio duration / page-count chip under a result's title.
+  .extent-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--text-color-secondary);
+
+    i {
+      font-size: 0.7rem;
+    }
+  }
+
   // Badge flagging a search result the user already has out on loan.
   .loan-warning {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
-    margin-top: 0.15rem;
     font-size: 0.75rem;
     font-weight: 600;
     color: var(--primary-color);

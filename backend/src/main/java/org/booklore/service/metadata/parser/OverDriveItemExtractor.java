@@ -49,6 +49,18 @@ public final class OverDriveItemExtractor {
         return authors == null || authors.isEmpty() ? null : authors.getFirst();
     }
 
+    /** Audiobook playback length ("HH:MM:SS") from the first format that carries one, or null. */
+    public static String audiobookDuration(OverDriveApiResponse.Item item) {
+        if (item.getFormats() == null) {
+            return null;
+        }
+        return item.getFormats().stream()
+                .map(OverDriveApiResponse.Item.Format::getDuration)
+                .filter(d -> d != null && !d.isBlank())
+                .findFirst()
+                .orElse(null);
+    }
+
     /** Narrator names (creators roled "narrator"), comma-joined, or null when none — for audiobooks. */
     public static String narrator(OverDriveApiResponse.Item item) {
         if (item.getCreators() == null || item.getCreators().isEmpty()) {

@@ -503,6 +503,13 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       expect(component.isAbridged(item({edition: 'Special Edition'}))).toBe(false);
     });
 
+    it('formats an audiobook duration compactly', () => {
+      expect(component.durationLabel(item({duration: '11:05:04'}))).toBe('11h 5m');
+      expect(component.durationLabel(item({duration: '01:00:00'}))).toBe('1h');
+      expect(component.durationLabel(item({duration: '00:45:12'}))).toBe('45m');
+      expect(component.durationLabel(item({duration: null}))).toBeNull();
+    });
+
     it('combines filters and clears them', () => {
       results();
       component.filterFormat.set('audiobook');

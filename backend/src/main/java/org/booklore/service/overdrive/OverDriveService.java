@@ -1396,7 +1396,8 @@ public class OverDriveService {
                 display.language(),
                 display.edition() != null ? display.edition() : (existing.edition() != null ? existing.edition() : incoming.edition()),
                 display.audiobook(),
-                display.narrator() != null ? display.narrator() : (existing.narrator() != null ? existing.narrator() : incoming.narrator()));
+                display.narrator() != null ? display.narrator() : (existing.narrator() != null ? existing.narrator() : incoming.narrator()),
+                display.duration() != null ? display.duration() : (existing.duration() != null ? existing.duration() : incoming.duration()));
       }
 
       /** Sum two nullable copy counts, treating null as zero; null when both are null. */
@@ -1858,7 +1859,8 @@ public class OverDriveService {
                 OverDriveItemExtractor.languageCode(item),
                 item.getEdition(),
                 isAudiobookItem(item),
-                OverDriveItemExtractor.narrator(item));
+                OverDriveItemExtractor.narrator(item),
+                OverDriveItemExtractor.audiobookDuration(item));
       }
 
       /**

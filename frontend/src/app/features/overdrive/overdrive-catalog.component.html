@@ -176,28 +176,37 @@
                   [subtitle]="item.subtitle"
                   [bookId]="item.bookId"
                   [libbyUrl]="libbyUrl(item.titleId, chosenCard(item)?.libraryKey)" />
-                @if (narratorLabel(item); as narrator) {
-                  <span class="narrator-label" pTooltip="Narrated by {{ narrator }}" tooltipPosition="top">({{ narrator }})</span>
-                }
-                @if (isOnLoan(item)) {
-                  <span class="loan-warning" pTooltip="You already have this out on loan at {{ loanLibraryLabel(item) }} — import it from the Loans tab, or borrow again to re-import.">
-                    <i class="pi pi-bookmark-fill"></i> Already borrowed
-                  </span>
-                }
-                @if (isForeignLanguage(item)) {
-                  <span class="lang-warning" pTooltip="This title is in {{ foreignLanguageLabel(item) }}, not your language ({{ userLanguageLabel() }})">
-                    <i class="pi pi-exclamation-triangle"></i> {{ foreignLanguageLabel(item) }}
-                  </span>
-                }
-                @if (item.edition) {
-                  <span class="edition-label" [class.is-abridged]="isAbridged(item)"
-                    [pTooltip]="isAbridged(item)
-                      ? ('Edition: ' + item.edition + ' — looks abridged, so some of the original text has been cut. Look for an unabridged edition for the full recording.')
-                      : ('Edition: ' + item.edition)"
-                    tooltipPosition="top">
-                    @if (isAbridged(item)) { <i class="pi pi-exclamation-triangle"></i> }
-                    {{ item.edition }}
-                  </span>
+                @if (narratorLabel(item) || durationLabel(item) || isOnLoan(item) || isForeignLanguage(item) || item.edition) {
+                  <div class="result-tags">
+                    @if (narratorLabel(item); as narrator) {
+                      <span class="narrator-label" pTooltip="Narrated by {{ narrator }}" tooltipPosition="top">({{ narrator }})</span>
+                    }
+                    @if (durationLabel(item); as duration) {
+                      <span class="extent-label" pTooltip="Audiobook length {{ item.duration }}" tooltipPosition="top">
+                        <i class="pi pi-clock"></i> {{ duration }}
+                      </span>
+                    }
+                    @if (isOnLoan(item)) {
+                      <span class="loan-warning" pTooltip="You already have this out on loan at {{ loanLibraryLabel(item) }} — import it from the Loans tab, or borrow again to re-import.">
+                        <i class="pi pi-bookmark-fill"></i> Already borrowed
+                      </span>
+                    }
+                    @if (isForeignLanguage(item)) {
+                      <span class="lang-warning" pTooltip="This title is in {{ foreignLanguageLabel(item) }}, not your language ({{ userLanguageLabel() }})">
+                        <i class="pi pi-exclamation-triangle"></i> {{ foreignLanguageLabel(item) }}
+                      </span>
+                    }
+                    @if (item.edition) {
+                      <span class="edition-label" [class.is-abridged]="isAbridged(item)"
+                        [pTooltip]="isAbridged(item)
+                          ? ('Edition: ' + item.edition + ' — looks abridged, so some of the original text has been cut. Look for an unabridged edition for the full recording.')
+                          : ('Edition: ' + item.edition)"
+                        tooltipPosition="top">
+                        @if (isAbridged(item)) { <i class="pi pi-exclamation-triangle"></i> }
+                        {{ item.edition }}
+                      </span>
+                    }
+                  </div>
                 }
               </td>
               <td>{{ item.author }}</td>
