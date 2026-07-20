@@ -383,6 +383,16 @@ export class OverDriveService {
     return this.http.get<OverDriveLibraryAvailability[]>(`${this.baseUrl}/title/${titleId}/availability`, { params });
   }
 
+  /**
+   * Batch availability for many titles across the given cards' libraries in one request, keyed by title
+   * id. Backs the Holds tab's "check all other libraries" so a whole tab of holds costs one call per
+   * library rather than one full lookup per title × library.
+   */
+  titleAvailabilityBatch(titleIds: string[], cardIds: string[]): Observable<Record<string, OverDriveLibraryAvailability[]>> {
+    return this.http.post<Record<string, OverDriveLibraryAvailability[]>>(
+      `${this.baseUrl}/titles/availability`, { titleIds, cards: cardIds });
+  }
+
   /** Borrow a title on the given card and import the fulfilled book into a library. */
   borrowAndImport(cardId: string, request: OverDriveBorrowImportRequest): Observable<OverDriveImportedBook> {
     return this.http.post<OverDriveImportedBook>(`${this.baseUrl}/${cardId}/borrow-and-import`, request);

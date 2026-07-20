@@ -2257,8 +2257,21 @@ public class OverDriveService {
        * user's libraries. Returns one entry per distinct library that responded.
        */
       public List<OverDriveLibraryAvailability> titleAvailability(String titleId, List<String> cardIds) {
-        if (titleId == null || titleId.isBlank() || cardIds == null || cardIds.isEmpty()) {
+        if (titleId == null || titleId.isBlank()) {
             return List.of();
+        }
+        return availabilityForTitles(List.of(titleId), cardIds).getOrDefault(titleId, List.of());
+      }
+
+      /**
+       * Per-library availability for many titles at once, keyed by title id. Issues a single batched
+       * {@code /media/availability?titleIds=…} call per library (one per library, all titles), rather
+       * than a full media fetch per title × library — so checking a whole tab of holds against the
+       * user's other libraries costs one lightweight call per library instead of dozens.
+       */
+      public Map<String, List<OverDriveLibraryAvailability>> availabilityForTitles(List<String> titleIds, List<String> cardIds) {
+        if (titleIds == null || titleIds.isEmpty() || cardIds == null || cardIds.isEmpty()) {
+            return Map.of();
         }
         Long userId = currentUserId();
         Set<String> libraryKeys = new LinkedHashSet<>();
@@ -2268,22 +2281,28 @@ public class OverDriveService {
                     .filter(k -> k != null && !k.isBlank())
                     .ifPresent(libraryKeys::add);
         }
-        List<OverDriveLibraryAvailability> result = new ArrayList<>();
+        Map<String, List<OverDriveLibraryAvailability>> result = new LinkedHashMap<>();
         for (String libraryKey : libraryKeys) {
-            OverDriveApiResponse.Item item = overDriveParser.fetchTitleAtLibrary(libraryKey, titleId);
-            if (item != null) {
-                result.add(new OverDriveLibraryAvailability(
-                        libraryKey,
-                        Boolean.TRUE.equals(item.getAvailable()),
-                        Boolean.TRUE.equals(item.getHoldable()),
-                        item.getAvailableCopies(),
-                        item.getOwnedCopies(),
-                        item.getHoldsCount(),
-                        item.getEstimatedWaitDays(),
-                        item.getLuckyDayAvailableCopies()));
+            Map<String, OverDriveApiResponse.Item> byId = overDriveParser.fetchAvailability(libraryKey, titleIds);
+            for (Map.Entry<String, OverDriveApiResponse.Item> entry : byId.entrySet()) {
+                result.computeIfAbsent(entry.getKey(), k -> new ArrayList<>())
+                        .add(toLibraryAvailability(libraryKey, entry.getValue()));
             }
         }
         return result;
+      }
+
+      /** Map a Thunder availability/media item to our per-library availability DTO. */
+      private static OverDriveLibraryAvailability toLibraryAvailability(String libraryKey, OverDriveApiResponse.Item item) {
+        return new OverDriveLibraryAvailability(
+                libraryKey,
+                Boolean.TRUE.equals(item.getAvailable()),
+                Boolean.TRUE.equals(item.getHoldable()),
+                item.getAvailableCopies(),
+                item.getOwnedCopies(),
+                item.getHoldsCount(),
+                item.getEstimatedWaitDays(),
+                item.getLuckyDayAvailableCopies());
       }
 
       /** The card ids the current user can use (owned + shared with them). */

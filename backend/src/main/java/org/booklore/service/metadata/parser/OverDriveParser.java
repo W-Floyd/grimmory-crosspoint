@@ -50,7 +50,10 @@ public class OverDriveParser implements BookParser {
     private static final String THUNDER_MEDIA_URL = "https://thunder.api.overdrive.com/v2/media";
     /** Libby's public, library-agnostic share link for a title id (e.g. .../title/618973). */
     private static final String LIBBY_TITLE_URL = "https://share.libbyapp.com/title/";
-    private static final int MAX_RESULTS = 20;
+    /** Thunder caps a single page at 100 items; larger perPage silently returns none. */
+    private static final int RESULTS_PER_PAGE = 100;
+    /** Hard cap on total search results collected across pages (bounds how far a broad query paginates). */
+    private static final int MAX_TOTAL_RESULTS = 200;
     private static final long MIN_REQUEST_INTERVAL_MS = 1000;
     private static final Pattern SPECIAL_CHARACTERS_PATTERN = Pattern.compile("[.,\\-\\[\\]{}()!@#$%^&*_=+|~`<>?/\";:]");
 
@@ -301,6 +304,7 @@ public class OverDriveParser implements BookParser {
             URI uri = UriComponentsBuilder.fromUriString(THUNDER_BASE_URL)
                     .pathSegment(libraryKey, "media", titleId)
                     .queryParam("includedFacets", "availability")
+                    .queryParam("includeFacets", "false")
                     .build()
                     .encode()
                     .toUri();
@@ -327,6 +331,39 @@ public class OverDriveParser implements BookParser {
 
     private List<OverDriveApiResponse.Item> fetchItems(String libraryKey, String query, String mediaTypes,
                                                        boolean availableOnly, String language) {
+        List<OverDriveApiResponse.Item> collected = new ArrayList<>();
+        int page = 1;
+        Integer totalItems = null;
+        // Thunder caps a page at 100 items, so a broad query needs paging. Fetch pages up to a bounded
+        // total rather than the old single 20-item page (which silently dropped everything after 20).
+        while (collected.size() < MAX_TOTAL_RESULTS) {
+            OverDriveApiResponse pageResponse = fetchItemsPage(libraryKey, query, mediaTypes, availableOnly, language, page);
+            if (pageResponse == null || pageResponse.getItems() == null || pageResponse.getItems().isEmpty()) {
+                break;
+            }
+            collected.addAll(pageResponse.getItems());
+            if (pageResponse.getTotalItems() != null) {
+                totalItems = pageResponse.getTotalItems();
+            }
+            // Stop once we've pulled everything the query has, or when a short page signals the last one.
+            if (pageResponse.getItems().size() < RESULTS_PER_PAGE
+                    || (totalItems != null && collected.size() >= totalItems)) {
+                break;
+            }
+            page++;
+        }
+        if (collected.size() > MAX_TOTAL_RESULTS) {
+            collected = collected.subList(0, MAX_TOTAL_RESULTS);
+        }
+        if (totalItems != null && totalItems > collected.size()) {
+            log.info("OverDrive search for '{}' at {} returned {} of {} matches (capped at {}).",
+                    query, libraryKey, collected.size(), totalItems, MAX_TOTAL_RESULTS);
+        }
+        return collected;
+    }
+
+    private OverDriveApiResponse fetchItemsPage(String libraryKey, String query, String mediaTypes,
+                                                boolean availableOnly, String language, int page) {
         try {
             waitForRateLimit();
 
@@ -339,8 +376,10 @@ public class OverDriveParser implements BookParser {
                     // Ask Thunder to include per-item availability (isAvailable/isHoldable/holdsCount/
                     // estimatedWaitDays/…) so the borrow UI can offer Borrow vs Place Hold accurately.
                     .queryParam("includedFacets", "availability")
-                    .queryParam("perPage", MAX_RESULTS)
-                    .queryParam("page", 1);
+                    // We never read the result-set facet aggregation block, so drop it (~30% smaller payload).
+                    .queryParam("includeFacets", "false")
+                    .queryParam("perPage", RESULTS_PER_PAGE)
+                    .queryParam("page", page);
             // Optional server-side facet narrowing (Libby's own params) so a broad query's capped page is
             // already filtered rather than trimmed before the client can filter it.
             if (availableOnly) {
@@ -363,14 +402,59 @@ public class OverDriveParser implements BookParser {
                     .build();
 
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            return parseItems(response);
+            if (response.statusCode() != 200) {
+                log.warn("OverDrive Thunder API request failed. Status: {}", response.statusCode());
+                return null;
+            }
+            return objectMapper.readValue(response.body(), OverDriveApiResponse.class);
         } catch (IOException e) {
             log.error("OverDrive: IO error fetching metadata: {}", e.getMessage());
-            return List.of();
+            return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("OverDrive: request interrupted");
-            return List.of();
+            return null;
+        }
+    }
+
+    /**
+     * Batch per-library availability for many titles in one call via
+     * {@code /v2/libraries/{key}/media/availability?titleIds=…}. No auth required. Returns availability
+     * items keyed by title id (empty on failure/blank input). Far cheaper than fetching each title's full
+     * media object per library when all we need is copy counts / hold state.
+     */
+    public Map<String, OverDriveApiResponse.Item> fetchAvailability(String libraryKey, List<String> titleIds) {
+        if (libraryKey == null || libraryKey.isBlank() || titleIds == null || titleIds.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            waitForRateLimit();
+            URI uri = UriComponentsBuilder.fromUriString(THUNDER_BASE_URL)
+                    .pathSegment(libraryKey, "media", "availability")
+                    .queryParam("titleIds", String.join(",", titleIds))
+                    .build()
+                    .encode()
+                    .toUri();
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(uri)
+                    .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            Map<String, OverDriveApiResponse.Item> byId = new LinkedHashMap<>();
+            for (OverDriveApiResponse.Item item : parseItems(response)) {
+                if (item.getId() != null) {
+                    byId.put(item.getId(), item);
+                }
+            }
+            return byId;
+        } catch (IOException e) {
+            log.warn("OverDrive: failed to fetch availability at {}: {}", libraryKey, e.getMessage());
+            return Map.of();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Map.of();
         }
     }
 

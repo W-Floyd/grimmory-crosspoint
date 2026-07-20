@@ -37,6 +37,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     search: vi.fn(),
     borrowAndImport: vi.fn(),
     titleAvailability: vi.fn(),
+    titleAvailabilityBatch: vi.fn(),
     history: vi.fn(() => of([] as OverDriveAuditEntry[])),
   };
   const libraryService = {libraries: () => []};
@@ -299,22 +300,28 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.isForeignLanguage(item({language: null}))).toBe(false);
   });
 
-  it('checks every unchecked waiting hold across other libraries in one sweep', () => {
-    const {c2} = setup();
-    // Two waiting holds on c1; c2 is another selected library to check against.
+  it('checks every unchecked waiting hold across other libraries in one batched call', () => {
+    const {c1, c2} = setup();
+    // Two waiting holds on c1; c2 (bpl) is another selected library to check against.
     component.holds.set([
       {id: 'title-1', title: 'Dune', cardId: 'c1', ready: false},
       {id: 'title-2', title: 'Foundation', cardId: 'c1', ready: false},
     ]);
-    overdriveService.titleAvailability.mockReturnValue(
-      of([{libraryKey: 'bpl', available: true, holdable: false}]));
+    overdriveService.titleAvailabilityBatch.mockReturnValue(of({
+      // Includes c1's own library (lapl) which must be filtered out per hold, plus bpl (the other lib).
+      'title-1': [{libraryKey: 'lapl', available: true, holdable: false}, {libraryKey: 'bpl', available: true, holdable: false}],
+      'title-2': [{libraryKey: 'bpl', available: false, holdable: true}],
+    }));
 
     expect(component.uncheckedHolds().map(h => h.id)).toEqual(['title-1', 'title-2']);
     component.onCheckAllOtherLibraries();
 
-    expect(overdriveService.titleAvailability).toHaveBeenCalledTimes(2);
-    expect(overdriveService.titleAvailability).toHaveBeenCalledWith('title-1', [c2.cardId]);
-    expect(overdriveService.titleAvailability).toHaveBeenCalledWith('title-2', [c2.cardId]);
+    // One batched call for all titles across all selected cards.
+    expect(overdriveService.titleAvailabilityBatch).toHaveBeenCalledTimes(1);
+    expect(overdriveService.titleAvailabilityBatch).toHaveBeenCalledWith(['title-1', 'title-2'], [c1.cardId, c2.cardId]);
+    // title-1's own library (lapl) is filtered out, leaving only bpl.
+    expect(component.holdAvailability()['title-1'].map(a => a.libraryKey)).toEqual(['bpl']);
+    expect(component.holdAvailability()['title-2'].map(a => a.libraryKey)).toEqual(['bpl']);
     // Both holds are now checked → nothing left, spinner cleared.
     expect(component.uncheckedHolds()).toHaveLength(0);
     expect(component.checkingAll()).toBe(false);

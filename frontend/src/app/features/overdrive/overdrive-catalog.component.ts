@@ -5,7 +5,7 @@ import { RouterLink } from '@angular/router';
 import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
 import { forkJoin, of } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { catchError } from 'rxjs/operators';
 import { OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult } from '../../core/services/overdrive.service';
 
 import { ButtonModule } from 'primeng/button';
@@ -1277,7 +1277,11 @@ export class OverdriveCatalogComponent {
      return this.holds().filter(h => !h.ready && this.canCheckOtherLibraries(h) && !this.holdChecked(h));
    }
 
-   /** Run the other-library availability check for every waiting hold not yet checked, in parallel. */
+   /**
+    * Check every waiting hold against the user's other libraries in one batched request — one call per
+    * library covering all titles, rather than a lookup per hold × library. Each hold's result excludes
+    * its own library.
+    */
    onCheckAllOtherLibraries(): void {
      const pending = this.uncheckedHolds();
      if (pending.length === 0) {
@@ -1285,17 +1289,15 @@ export class OverdriveCatalogComponent {
      }
      this.checkingAll.set(true);
      this.error.set(null);
-     forkJoin(
-       pending.map(h => this.overdriveService.titleAvailability(h.id, this.otherCardsForHold(h).map(c => c.cardId)).pipe(
-         map(avail => ({ id: h.id, avail: avail ?? [] })),
-         catchError(() => of({ id: h.id, avail: [] as OverDriveLibraryAvailability[] }))
-       ))
-     ).subscribe({
-       next: (results) => {
+     const titleIds = [...new Set(pending.map(h => h.id))];
+     const cardIds = this.selectedCards().map(c => c.cardId);
+     this.overdriveService.titleAvailabilityBatch(titleIds, cardIds).subscribe({
+       next: (byTitle) => {
          this.holdAvailability.update(m => {
            const next = { ...m };
-           for (const r of results) {
-             next[r.id] = r.avail;
+           for (const h of pending) {
+             const ownKey = this.cardLibraryKey(h.cardId);
+             next[h.id] = (byTitle[h.id] ?? []).filter(a => a.libraryKey !== ownKey);
            }
            return next;
          });

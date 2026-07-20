@@ -403,6 +403,27 @@ public class OverDriveController {
     }
 
     /**
+     * POST /api/overdrive/titles/availability — batch per-library availability for many titles at once,
+     * keyed by title id. Backs the Holds tab's "check all other libraries" with one lightweight call per
+     * library instead of a full media fetch per title × library.
+     */
+    @Operation(summary = "Batch-check availability for many titles across the user's libraries")
+    @ApiResponse(responseCode = "200", description = "Per-title, per-library availability returned")
+    @PostMapping("/titles/availability")
+    public ResponseEntity<Map<String, List<OverDriveLibraryAvailability>>> titlesAvailability(
+            @RequestBody TitlesAvailabilityRequest request
+    ) {
+        requireEnabled();
+        List<String> titleIds = request != null ? request.titleIds() : null;
+        List<String> cards = request != null ? request.cards() : null;
+        return ResponseEntity.ok(overDriveService.availabilityForTitles(
+                titleIds != null ? titleIds : List.of(),
+                cards != null ? cards : List.of()));
+    }
+
+    record TitlesAvailabilityRequest(List<String> titleIds, List<String> cards) {}
+
+    /**
      * POST /api/overdrive/{identity}/borrow-and-import — borrow a title, fulfill it, and import the EPUB.
      */
     @Operation(summary = "Borrow an OverDrive title and import it into a library",
