@@ -731,6 +731,13 @@ export class OverdriveCatalogComponent {
      return edition.includes('abridged') && !edition.includes('unabridged');
    }
 
+   /**
+    * Stable row identity for the search/loans/holds tables. Without it, PrimeNG recreates a row's DOM on
+    * re-render, which restarts (and visually freezes) the in-row action button's loading spinner while an
+    * import/borrow is in flight. Keyed by the title/loan/hold id.
+    */
+   trackRow = (_: number, row: { titleId?: string; id?: string }): string => row.titleId ?? row.id ?? '';
+
    /** Narrator name(s) to show after a title, or null when none (shared by search, loans and holds). */
    narratorLabel(item: { narrator?: string | null }): string | null {
      const n = item.narrator?.trim();
