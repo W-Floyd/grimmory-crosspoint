@@ -53,7 +53,9 @@ import java.util.stream.Stream;
  *   audiobook:
  *     enabled: true
  *     tool-path: "/opt/audiobook/go-od-audiobook"
- *     tool-args: "--manifest {input} --out-dir {output}"
+ *     # go-od is a subcommand CLI: lead with "download". Pin a stable --account-dir so its chip cache
+ *     # and Adobe activation persist across runs (see the deploy compose notes).
+ *     tool-args: "download --manifest {input} --out-dir {output} --account-dir /opt/audiobook/account"
  *     timeout-seconds: 1800
  * }</pre>
  */

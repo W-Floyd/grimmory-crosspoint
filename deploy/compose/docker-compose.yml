@@ -51,8 +51,9 @@ services:
       # OVERDRIVE_CREDENTIAL_KEY set. Grimmory ships no such tool. Leave AUDIOBOOK_ENABLED unset to keep off.
       # - AUDIOBOOK_ENABLED=true
       # - AUDIOBOOK_TOOL_PATH=/opt/audiobook/go-od-audiobook   # your tool or wrapper script (executable in the container)
+      # go-od is a subcommand CLI, so the args must lead with "download" (bare flags error out).
       # STRONGLY RECOMMENDED tool-args — pin a stable, mounted --account-dir (and see the volume below):
-      # - AUDIOBOOK_TOOL_ARGS=--manifest {input} --out-dir {output} --account-dir /opt/audiobook/account --no-store-pin
+      # - AUDIOBOOK_TOOL_ARGS=download --manifest {input} --out-dir {output} --account-dir /opt/audiobook/account --no-store-pin
       #
       # Why --account-dir matters: Grimmory runs the tool in a fresh temp dir each invocation, so without
       # an explicit account dir the tool's default cache (./account) is created inside that temp dir and
