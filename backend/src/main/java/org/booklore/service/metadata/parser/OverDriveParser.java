@@ -129,7 +129,7 @@ public class OverDriveParser implements BookParser {
         int noIdCounter = 0;
         for (String libraryKey : libraryKeys) {
             // Include audiobooks so audiobook titles in the library can be matched, not just ebooks.
-            for (OverDriveApiResponse.Item item : fetchItems(libraryKey, query, "ebook,audiobook", false, null)) {
+            for (OverDriveApiResponse.Item item : fetchItems(libraryKey, query, "ebook,audiobook", false, null, MAX_TOTAL_RESULTS)) {
                 // Dedupe by title id; items without one can't be deduped, so keep each under a unique key.
                 String key = (item.getId() != null && !item.getId().isBlank())
                         ? item.getId()
@@ -160,7 +160,7 @@ public class OverDriveParser implements BookParser {
         if (libraryKey == null || libraryKey.isBlank()) {
             return List.of();
         }
-        return fetchItems(libraryKey, query, mediaTypes, false, null);
+        return fetchItems(libraryKey, query, mediaTypes, false, null, MAX_TOTAL_RESULTS);
     }
 
     /**
@@ -168,13 +168,15 @@ public class OverDriveParser implements BookParser {
      * result page is already narrowed server-side (useful when a broad query returns too many hits):
      * {@code availableOnly} maps to {@code showOnlyAvailable=true}, and {@code language} (an ISO code
      * like "en") restricts to that language. Both are optional; pass {@code false}/{@code null} to skip.
+     * {@code maxResults} bounds how many items are collected across pages (callers use it to fetch a
+     * small first window and grow it on "load more").
      */
     public List<OverDriveApiResponse.Item> searchLibrary(String libraryKey, String query, String mediaTypes,
-                                                         boolean availableOnly, String language) {
+                                                         boolean availableOnly, String language, int maxResults) {
         if (libraryKey == null || libraryKey.isBlank()) {
             return List.of();
         }
-        return fetchItems(libraryKey, query, mediaTypes, availableOnly, language);
+        return fetchItems(libraryKey, query, mediaTypes, availableOnly, language, maxResults);
     }
 
     /**
@@ -330,14 +332,16 @@ public class OverDriveParser implements BookParser {
     }
 
     private List<OverDriveApiResponse.Item> fetchItems(String libraryKey, String query, String mediaTypes,
-                                                       boolean availableOnly, String language) {
+                                                       boolean availableOnly, String language, int maxResults) {
+        int cap = Math.max(1, Math.min(maxResults, MAX_TOTAL_RESULTS));
+        // Request only as large a page as we need (Thunder caps a page at 100), so a small first window
+        // is a single lightweight call rather than always pulling 100.
+        int perPage = Math.min(RESULTS_PER_PAGE, cap);
         List<OverDriveApiResponse.Item> collected = new ArrayList<>();
         int page = 1;
         Integer totalItems = null;
-        // Thunder caps a page at 100 items, so a broad query needs paging. Fetch pages up to a bounded
-        // total rather than the old single 20-item page (which silently dropped everything after 20).
-        while (collected.size() < MAX_TOTAL_RESULTS) {
-            OverDriveApiResponse pageResponse = fetchItemsPage(libraryKey, query, mediaTypes, availableOnly, language, page);
+        while (collected.size() < cap) {
+            OverDriveApiResponse pageResponse = fetchItemsPage(libraryKey, query, mediaTypes, availableOnly, language, page, perPage);
             if (pageResponse == null || pageResponse.getItems() == null || pageResponse.getItems().isEmpty()) {
                 break;
             }
@@ -346,24 +350,24 @@ public class OverDriveParser implements BookParser {
                 totalItems = pageResponse.getTotalItems();
             }
             // Stop once we've pulled everything the query has, or when a short page signals the last one.
-            if (pageResponse.getItems().size() < RESULTS_PER_PAGE
+            if (pageResponse.getItems().size() < perPage
                     || (totalItems != null && collected.size() >= totalItems)) {
                 break;
             }
             page++;
         }
-        if (collected.size() > MAX_TOTAL_RESULTS) {
-            collected = collected.subList(0, MAX_TOTAL_RESULTS);
+        if (collected.size() > cap) {
+            collected = collected.subList(0, cap);
         }
         if (totalItems != null && totalItems > collected.size()) {
-            log.info("OverDrive search for '{}' at {} returned {} of {} matches (capped at {}).",
-                    query, libraryKey, collected.size(), totalItems, MAX_TOTAL_RESULTS);
+            log.info("OverDrive search for '{}' at {} returned {} of {} matches (window {}).",
+                    query, libraryKey, collected.size(), totalItems, cap);
         }
         return collected;
     }
 
     private OverDriveApiResponse fetchItemsPage(String libraryKey, String query, String mediaTypes,
-                                                boolean availableOnly, String language, int page) {
+                                                boolean availableOnly, String language, int page, int perPage) {
         try {
             waitForRateLimit();
 
@@ -378,7 +382,7 @@ public class OverDriveParser implements BookParser {
                     .queryParam("includedFacets", "availability")
                     // We never read the result-set facet aggregation block, so drop it (~30% smaller payload).
                     .queryParam("includeFacets", "false")
-                    .queryParam("perPage", RESULTS_PER_PAGE)
+                    .queryParam("perPage", perPage)
                     .queryParam("page", page);
             // Optional server-side facet narrowing (Libby's own params) so a broad query's capped page is
             // already filtered rather than trimmed before the client can filter it.

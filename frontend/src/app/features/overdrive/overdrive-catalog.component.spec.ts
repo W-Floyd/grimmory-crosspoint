@@ -381,7 +381,28 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     overdriveService.search.mockReturnValue(of([]));
     component.searchQuery.set('dune');
     component.onSearch();
-    expect(overdriveService.search).toHaveBeenCalledWith('dune', [c1.cardId, c2.cardId], undefined);
+    expect(overdriveService.search).toHaveBeenCalledWith('dune', [c1.cardId, c2.cardId], undefined, 60);
+  });
+
+  it('offers load more when the window fills and requests a larger window', () => {
+    setup();
+    const full = Array.from({length: 60}, (_, i) => item({titleId: `t${i}`}));
+    overdriveService.search.mockReturnValue(of(full));
+    component.searchQuery.set('dune');
+    component.onSearch();
+    // A full window (60) means there may be more.
+    expect(component.results()).toHaveLength(60);
+    expect(component.canLoadMore()).toBe(true);
+
+    overdriveService.search.mockClear();
+    component.loadMore();
+    // Grows the window by one page and re-fetches.
+    expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(), undefined, 120);
+
+    // A short window (< requested) means we've reached the end — hide load more.
+    overdriveService.search.mockReturnValue(of(full.slice(0, 30)));
+    component.loadMore();
+    expect(component.canLoadMore()).toBe(false);
   });
 
   describe('server-side filtering', () => {
@@ -392,7 +413,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       component.filterFormat.set('audiobook');
       component.filterAvailableNow.set(true);
       component.onSearch();
-      expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(), undefined);
+      expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(), undefined, 60);
     });
 
     it('pushes the active facets into the query when the toggle is on', () => {
@@ -405,7 +426,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       component.filterMyLanguage.set(true);
       component.onSearch();
       expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(),
-        {mediaTypes: 'audiobook', availableOnly: true, language: 'en'});
+        {mediaTypes: 'audiobook', availableOnly: true, language: 'en'}, 60);
     });
 
     it('omits untouched facets from the server filter', () => {
@@ -415,7 +436,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       component.serverSideFilter.set(true);
       component.filterFormat.set('ebook');
       component.onSearch();
-      expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(), {mediaTypes: 'ebook'});
+      expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(), {mediaTypes: 'ebook'}, 60);
     });
 
     it('re-runs the search when a facet changes while server-side filtering is on', () => {
@@ -427,7 +448,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       overdriveService.search.mockClear();
       component.filterAvailableNow.set(true); // should trigger an auto-refetch
       TestBed.tick(); // flush the auto-refetch effect
-      expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(), {availableOnly: true});
+      expect(overdriveService.search).toHaveBeenLastCalledWith('dune', expect.anything(), {availableOnly: true}, 60);
     });
   });
 

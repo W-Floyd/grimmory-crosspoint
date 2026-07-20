@@ -375,7 +375,9 @@ public class OverDriveController {
             @Parameter(description = "Return only titles borrowable now (server-side showOnlyAvailable)")
             @RequestParam(required = false, defaultValue = "false") boolean availableOnly,
             @Parameter(description = "Restrict to an ISO language code (e.g. \"en\") server-side")
-            @RequestParam(required = false) String language
+            @RequestParam(required = false) String language,
+            @Parameter(description = "Max results to return; the UI grows this on \"load more\"")
+            @RequestParam(required = false, defaultValue = "60") int limit
     ) {
         requireEnabled();
         if (query == null || query.isBlank()) {
@@ -384,7 +386,7 @@ public class OverDriveController {
         if (cards == null || cards.isEmpty()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException("at least one card is required to search");
         }
-        return ResponseEntity.ok(overDriveService.searchCatalog(query, cards, mediaTypes, availableOnly, language));
+        return ResponseEntity.ok(overDriveService.searchCatalog(query, cards, mediaTypes, availableOnly, language, limit));
     }
 
     /**

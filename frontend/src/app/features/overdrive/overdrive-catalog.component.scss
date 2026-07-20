@@ -328,6 +328,13 @@
     }
   }
 
+  // "Load more" affordance centered under the search results table.
+  .load-more-row {
+    display: flex;
+    justify-content: center;
+    padding: 0.5rem 0;
+  }
+
   // Client-side facet filters over the search results (format select + boolean toggles).
   .search-filters {
     display: flex;

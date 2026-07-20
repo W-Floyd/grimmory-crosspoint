@@ -103,6 +103,10 @@ export class OverdriveCatalogComponent {
   searching = signal(false);
   results = signal<OverDriveCatalogItem[]>([]);
   importingTitleId = signal<string | null>(null);
+  // Result window: fetch this many merged results at first, growing by the same step on "load more".
+  readonly SEARCH_PAGE_SIZE = 60;
+  searchLimit = signal(this.SEARCH_PAGE_SIZE);
+  loadingMore = signal(false);
 
   // Client-side facet filters over the fetched search results (applied by filteredResults).
   filterFormat = signal<'all' | 'ebook' | 'audiobook'>('all');
@@ -626,6 +630,21 @@ export class OverdriveCatalogComponent {
    }
 
    onSearch(): void {
+     // A fresh search resets the result window to the first page size.
+     this.performSearch(this.SEARCH_PAGE_SIZE);
+   }
+
+   /** Grow the result window by one page and re-fetch (re-merges the larger set across libraries). */
+   loadMore(): void {
+     this.performSearch(this.searchLimit() + this.SEARCH_PAGE_SIZE, true);
+   }
+
+   /** True when the last fetch filled the requested window, so there may be more to load. */
+   canLoadMore(): boolean {
+     return this.results().length >= this.searchLimit();
+   }
+
+   private performSearch(limit: number, isLoadMore = false): void {
      const query = this.searchQuery().trim();
      if (!query) {
        this.error.set('Enter a search term');
@@ -635,19 +654,28 @@ export class OverdriveCatalogComponent {
        this.error.set('Select at least one card to search');
        return;
        }
-     this.searching.set(true);
+     if (isLoadMore) {
+       this.loadingMore.set(true);
+     } else {
+       this.searching.set(true);
+     }
      this.error.set(null);
+     this.searchLimit.set(limit);
      const filter = this.serverSideFilter() ? this.serverFilter() : undefined;
-     this.overdriveService.search(query, this.selectedCards().map(c => c.cardId), filter).subscribe({
+     this.overdriveService.search(query, this.selectedCards().map(c => c.cardId), filter, limit).subscribe({
        next: (items) => {
          this.results.set(items ?? []);
-         this.selectedActionCard.set({}); // reset per-title card choices to fresh defaults
+         if (!isLoadMore) {
+           this.selectedActionCard.set({}); // reset per-title card choices to fresh defaults
+         }
          this.searching.set(false);
+         this.loadingMore.set(false);
          this.searched = true;
          },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Search failed'));
+         this.error.set(this.errorMessage(err, isLoadMore ? 'Load more failed' : 'Search failed'));
          this.searching.set(false);
+         this.loadingMore.set(false);
          }
        });
      }

@@ -354,7 +354,7 @@ export class OverDriveService {
    * {@code filter} pushes facets into the query server-side (so a broad query's capped page is narrowed
    * before it returns): {@code mediaTypes} ("ebook"/"audiobook"), {@code availableOnly}, {@code language}.
    */
-  search(query: string, cardIds?: string[], filter?: OverDriveSearchFilter): Observable<OverDriveCatalogItem[]> {
+  search(query: string, cardIds?: string[], filter?: OverDriveSearchFilter, limit?: number): Observable<OverDriveCatalogItem[]> {
     const params: Record<string, string | string[]> = { query };
     if (cardIds && cardIds.length > 0) {
       params['cards'] = cardIds;
@@ -367,6 +367,9 @@ export class OverDriveService {
     }
     if (filter?.language) {
       params['language'] = filter.language;
+    }
+    if (limit && limit > 0) {
+      params['limit'] = String(limit);
     }
     return this.http.get<OverDriveCatalogItem[]>(`${this.baseUrl}/search`, { params });
   }

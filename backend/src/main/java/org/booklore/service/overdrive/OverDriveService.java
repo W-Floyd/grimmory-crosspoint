@@ -1273,8 +1273,11 @@ public class OverDriveService {
        * one {@link OverDriveLibraryAvailability} per library so the UI can tell which cards can borrow it
        * now vs only hold it. The scalar availability fields become the aggregate across those libraries.
        */
+      /** Default number of merged catalog results returned before "load more" fetches the next window. */
+      private static final int DEFAULT_CATALOG_LIMIT = 60;
+
       public List<OverDriveCatalogItem> searchCatalog(String query, List<String> cardIds) {
-        return searchCatalog(query, cardIds, null, false, null);
+        return searchCatalog(query, cardIds, null, false, null, DEFAULT_CATALOG_LIMIT);
       }
 
       /**
@@ -1283,12 +1286,16 @@ public class OverDriveService {
        * client can filter it). {@code mediaTypes} restricts the medium ("ebook"/"audiobook"; blank =
        * both), {@code availableOnly} keeps only titles borrowable now, {@code language} restricts to an
        * ISO language code. Abridged has no Thunder facet, so it stays a client-side filter.
+       *
+       * <p>{@code limit} bounds the number of merged results returned; the UI starts small and re-requests
+       * a larger limit on "load more". A returned count equal to {@code limit} means there may be more.
        */
       public List<OverDriveCatalogItem> searchCatalog(String query, List<String> cardIds, String mediaTypes,
-                                                      boolean availableOnly, String language) {
+                                                      boolean availableOnly, String language, int limit) {
         if (cardIds == null || cardIds.isEmpty()) {
             return List.of();
         }
+        int effectiveLimit = limit > 0 ? limit : DEFAULT_CATALOG_LIMIT;
         String effectiveMediaTypes = (mediaTypes == null || mediaTypes.isBlank()) ? "ebook,audiobook" : mediaTypes.trim();
         // Scope strictly to the selected cards' libraries (cards the user owns or that are shared with them).
         Long userId = currentUserId();
@@ -1311,15 +1318,12 @@ public class OverDriveService {
             if (titleId != null) {
                 OverDriveApiResponse.Item item = overDriveParser.fetchTitleAtLibrary(libraryKey, titleId);
                 items = item != null ? List.of(item) : List.of();
-            } else if (availableOnly || (language != null && !language.isBlank())) {
-                // Server-side facet narrowing requested — push the availability/language filters into
-                // the Thunder query alongside the (possibly restricted) media types.
-                items = overDriveParser.searchLibrary(libraryKey, query, effectiveMediaTypes, availableOnly, language);
             } else {
-                // Surface audiobooks alongside ebooks: you can search, borrow and hold them regardless —
-                // only importing needs the audiobook handler (borrow-to-Libby works without it). The
-                // media types may still be narrowed (ebook/audiobook) by a server-side format filter.
-                items = overDriveParser.searchLibrary(libraryKey, query, effectiveMediaTypes);
+                // Fetch up to the requested window per library. Server-side facet narrowing (availability/
+                // language) is applied when requested; media types may still be narrowed by a format filter.
+                // Audiobooks surface alongside ebooks regardless — only importing needs the audiobook handler.
+                items = overDriveParser.searchLibrary(libraryKey, query, effectiveMediaTypes,
+                        availableOnly, language, effectiveLimit);
             }
             for (OverDriveApiResponse.Item item : items) {
                 OverDriveCatalogItem mapped = toCatalogItem(libraryKey, item);
@@ -1329,7 +1333,10 @@ public class OverDriveService {
                 byTitleId.merge(mapped.titleId(), mapped, OverDriveService::mergeCatalogItems);
             }
         }
-        return new ArrayList<>(byTitleId.values());
+        // Cap the merged, deduped set to the requested window so "load more" (a larger limit) grows it
+        // predictably: a full window returned means the UI should offer to fetch more.
+        List<OverDriveCatalogItem> merged = new ArrayList<>(byTitleId.values());
+        return merged.size() > effectiveLimit ? new ArrayList<>(merged.subList(0, effectiveLimit)) : merged;
       }
 
       /** OverDrive title id inside a Libby/OverDrive URL, e.g. share.libbyapp.com/title/618973. */

@@ -402,6 +402,12 @@
         </tr>
       </ng-template>
     </p-table>
+    @if (canLoadMore()) {
+      <div class="load-more-row">
+        <p-button label="Load more" icon="pi pi-angle-down" severity="secondary" [text]="true"
+          [loading]="loadingMore()" [disabled]="searching()" (onClick)="loadMore()" />
+      </div>
+    }
   }
         </p-tabpanel>
 
