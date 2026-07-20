@@ -565,12 +565,19 @@
           </td>
           <td>
             @if (hold.ready) {
-              <p-button label="Borrow" icon="pi pi-download" severity="success"
+              <p-button label="Borrow &amp; Import" icon="pi pi-download" severity="success"
                 pTooltip="Borrow this ready hold and import it (or drop to Bookdrop)"
                 tooltipPosition="top"
                 [disabled]="importingTitleId() !== null || atLoanLimitFor(hold.cardId)"
                 [loading]="importingTitleId() === hold.id"
                 (onClick)="onBorrowHold(hold)"
+                class="mr-2" />
+              <p-button label="Borrow" icon="pi pi-bookmark" severity="success" [outlined]="true"
+                pTooltip="Borrow this ready hold to Libby without importing (appears on the Loans tab)"
+                tooltipPosition="top"
+                [disabled]="importingTitleId() !== null || atLoanLimitFor(hold.cardId)"
+                [loading]="importingTitleId() === hold.id"
+                (onClick)="onBorrowHoldOnly(hold)"
                 class="mr-2" />
             }
             <p-button label="Cancel" icon="pi pi-times" severity="danger"

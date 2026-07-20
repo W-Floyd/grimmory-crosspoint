@@ -1208,6 +1208,29 @@ export class OverdriveCatalogComponent {
        });
      }
 
+   /** Borrow a ready hold into Libby as a loan without importing (it will appear on the Loans tab). */
+   onBorrowHoldOnly(hold: OverDriveHold): void {
+     const cardId = hold.cardId;
+     if (!cardId) return;
+     this.importingTitleId.set(hold.id);
+     this.error.set(null);
+     this.overdriveService.borrow(cardId, hold.id).subscribe({
+       next: () => {
+         this.messageService.add({ severity: 'success', summary: 'Borrowed',
+           detail: `"${hold.title}" borrowed to Libby (not imported)` });
+         this.setOutcome(hold.id, 'success', 'Borrowed');
+         this.importingTitleId.set(null);
+         this.syncSelectedCards();
+         },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Borrow failed'));
+         this.setOutcome(hold.id, 'error');
+         this.importingTitleId.set(null);
+         this.syncSelectedCards();
+         }
+       });
+     }
+
    // --- Holds tab: is this held title available at another of my libraries? ---
 
    /** Other selected cards (libraries) besides the one holding this title. */
