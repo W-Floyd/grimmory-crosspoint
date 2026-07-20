@@ -565,7 +565,7 @@ class OverDriveServiceTest {
     @Test
     void borrowAndImport_failsWithoutImportingWhenBorrowFails() {
         // Provided token → borrow proceeds to the (mocked) RestClient and fails; nothing is imported.
-        assertThatThrownBy(() -> service.borrowAndImport("card", "tok", "title", 1L, 1L, "t", "a", null, null, null))
+        assertThatThrownBy(() -> service.borrowAndImport("card", "tok", "title", 1L, 1L, "t", "a", null, null, null, null))
                 .isInstanceOf(RuntimeException.class);
         verifyNoInteractions(overDriveImportService);
     }
@@ -575,7 +575,7 @@ class OverDriveServiceTest {
         // Blank token and no stored token for the current user's card → resolveToken throws, nothing imported.
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.borrowAndImport("card", "", "title", 1L, 1L, "t", "a", null, null, null))
+        assertThatThrownBy(() -> service.borrowAndImport("card", "", "title", 1L, 1L, "t", "a", null, null, null, null))
                 .isInstanceOf(RuntimeException.class);
         verifyNoInteractions(overDriveImportService);
     }

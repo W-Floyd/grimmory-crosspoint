@@ -78,10 +78,11 @@ export interface OverDriveLoan {
   bookId?: number | null;
   /** Client-side tag: the card this loan belongs to (set when aggregating across selected cards). */
   cardId?: string;
-  /** Catalog-enriched: narrator name(s), raw edition label, and audiobook duration ("HH:MM:SS"). */
+  /** Catalog-enriched: narrator name(s), raw edition label, audiobook duration ("HH:MM:SS"), and media type. */
   narrator?: string | null;
   edition?: string | null;
   duration?: string | null;
+  audiobook?: boolean;
 }
 
 export interface OverDriveHold {
@@ -103,10 +104,11 @@ export interface OverDriveHold {
   placedDate?: string | null;
   /** Client-side tag: the card this hold belongs to (set when aggregating across selected cards). */
   cardId?: string;
-  /** Catalog-enriched: narrator name(s), raw edition label, and audiobook duration ("HH:MM:SS"). */
+  /** Catalog-enriched: narrator name(s), raw edition label, audiobook duration ("HH:MM:SS"), and media type. */
   narrator?: string | null;
   edition?: string | null;
   duration?: string | null;
+  audiobook?: boolean;
 }
 
 export interface OverDriveCreator {
@@ -230,6 +232,8 @@ export interface OverDriveBorrowImportRequest {
   isbn?: string | null;
   /** Optional format to borrow (e.g. ebook-epub-adobe); honored if the loan offers it, else preference decides. */
   formatId?: string | null;
+  /** Media-type hint ("audiobook"/"ebook") so the borrow's title_format matches the title. */
+  titleFormat?: string | null;
 }
 
 /** Minimal shape of the imported book returned by borrow-and-import. */
@@ -422,9 +426,9 @@ export class OverDriveService {
     });
   }
 
-  /** Borrow a title on a card by its title id. */
-  borrow(cardId: string, titleId: string): Observable<{ loanId: string }> {
-    return this.http.post<{ loanId: string }>(`${this.baseUrl}/${cardId}/borrow`, { titleId });
+  /** Borrow a title on a card by its title id. {@code titleFormat} ("audiobook"/"ebook") shapes the loan. */
+  borrow(cardId: string, titleId: string, titleFormat?: string): Observable<{ loanId: string }> {
+    return this.http.post<{ loanId: string }>(`${this.baseUrl}/${cardId}/borrow`, { titleId, titleFormat });
   }
 
   /** Fulfill a loan to download its ACSM fulfillment token. */

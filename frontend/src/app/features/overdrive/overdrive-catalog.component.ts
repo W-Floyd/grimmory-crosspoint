@@ -738,6 +738,11 @@ export class OverdriveCatalogComponent {
     */
    trackRow = (_: number, row: { titleId?: string; id?: string }): string => row.titleId ?? row.id ?? '';
 
+   /** The borrow title_format hint for a title/loan/hold ("audiobook" vs "ebook"). */
+   private titleFormatOf(item: { audiobook?: boolean }): string {
+     return item.audiobook ? 'audiobook' : 'ebook';
+   }
+
    /** Narrator name(s) to show after a title, or null when none (shared by search, loans and holds). */
    narratorLabel(item: { narrator?: string | null }): string | null {
      const n = item.narrator?.trim();
@@ -1008,7 +1013,8 @@ export class OverdriveCatalogComponent {
        author: item.author,
        coverUrl: item.coverUrl,
        isbn: item.isbn,
-       formatId: this.chosenFormat(item)
+       formatId: this.chosenFormat(item),
+       titleFormat: this.titleFormatOf(item)
      }).subscribe({
        next: (book) => {
          if (book?.id != null) {
@@ -1051,7 +1057,7 @@ export class OverdriveCatalogComponent {
      if (!card || !item.titleId) return;
      this.importingTitleId.set(item.titleId);
      this.error.set(null);
-     this.overdriveService.borrow(card.cardId, item.titleId).subscribe({
+     this.overdriveService.borrow(card.cardId, item.titleId, this.titleFormatOf(item)).subscribe({
        next: () => {
          this.messageService.add({ severity: 'success', summary: 'Borrowed',
            detail: `"${this.fullTitle(item)}" borrowed to Libby (not imported)` });
@@ -1244,7 +1250,8 @@ export class OverdriveCatalogComponent {
        title: loan.title,
        author: this.creatorName(loan) || undefined,
        coverUrl: loan.coverUrl || undefined,
-       formatId: loan.formatId
+       formatId: loan.formatId,
+       titleFormat: this.titleFormatOf(loan)
      }).subscribe({
        next: (book) => {
          const detail = book?.id != null
@@ -1279,7 +1286,8 @@ export class OverdriveCatalogComponent {
        pathId: null,
        title: hold.subtitle ? `${hold.title}: ${hold.subtitle}` : hold.title,
        author: this.creatorName(hold) || undefined,
-       coverUrl: hold.coverUrl || undefined
+       coverUrl: hold.coverUrl || undefined,
+       titleFormat: this.titleFormatOf(hold)
      }).subscribe({
        next: (book) => {
          const detail = book?.id != null
@@ -1305,7 +1313,7 @@ export class OverdriveCatalogComponent {
      if (!cardId) return;
      this.importingTitleId.set(hold.id);
      this.error.set(null);
-     this.overdriveService.borrow(cardId, hold.id).subscribe({
+     this.overdriveService.borrow(cardId, hold.id, this.titleFormatOf(hold)).subscribe({
        next: () => {
          this.messageService.add({ severity: 'success', summary: 'Borrowed',
            detail: `"${hold.title}" borrowed to Libby (not imported)` });
@@ -1496,7 +1504,8 @@ export class OverdriveCatalogComponent {
        pathId: null,
        title: hold.subtitle ? `${hold.title}: ${hold.subtitle}` : hold.title,
        author: this.creatorName(hold) || undefined,
-       coverUrl: hold.coverUrl || undefined
+       coverUrl: hold.coverUrl || undefined,
+       titleFormat: this.titleFormatOf(hold)
      }).subscribe({
        next: (book) => {
          // Borrow succeeded — now cancel the original hold on its own card.

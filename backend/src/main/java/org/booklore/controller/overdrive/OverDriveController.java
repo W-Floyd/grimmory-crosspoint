@@ -301,7 +301,8 @@ public class OverDriveController {
             throw ApiError.GENERIC_BAD_REQUEST.createException("titleId is required");
         }
 
-        String loanId = overDriveService.borrow(identity, token, titleId);
+        // Media-type hint so audiobooks borrow as "audiobook" (defaults to ebook when omitted).
+        String loanId = overDriveService.borrow(identity, token, titleId, body.get("titleFormat"));
         return ResponseEntity.ok(new OverDriveBorrowResult(loanId));
     }
 
@@ -451,7 +452,7 @@ public class OverDriveController {
                     request.getLibraryId(), request.getPathId(),
                     request.getTitle(), request.getAuthor(),
                     request.getCoverUrl(), request.getIsbn(),
-                    request.getFormatId());
+                    request.getFormatId(), request.getTitleFormat());
             return ResponseEntity.ok(book);
         } catch (APIException e) {
             throw e; // already a clean, user-facing error (e.g. duplicate file, bad library)
@@ -756,7 +757,8 @@ public class OverDriveController {
                 overDriveService.resolveLoanBookId(loan.getId(), loanIsbn(loan), loanAsin(loan)),
                 extras != null ? extras.narrator() : null,
                 extras != null ? extras.edition() : null,
-                extras != null ? extras.duration() : null
+                extras != null ? extras.duration() : null,
+                extras != null && extras.audiobook()
         );
     }
 
@@ -851,7 +853,8 @@ public class OverDriveController {
                 hold.getPlacedDate(),
                 extras != null ? extras.narrator() : null,
                 extras != null ? extras.edition() : null,
-                extras != null ? extras.duration() : null
+                extras != null ? extras.duration() : null,
+                extras != null && extras.audiobook()
         );
     }
 
@@ -887,7 +890,8 @@ public class OverDriveController {
             Long bookId,
             String narrator,
             String edition,
-            String duration
+            String duration,
+            boolean audiobook
     ) {}
 
     record OverDriveHoldDto(
@@ -903,7 +907,8 @@ public class OverDriveController {
             String placedDate,
             String narrator,
             String edition,
-            String duration
+            String duration,
+            boolean audiobook
     ) {}
 
     record OverDriveBorrowResult(String loanId) {}

@@ -28,4 +28,9 @@ public class OverDriveBorrowImportRequest {
      * offers it and it's importable; otherwise the operator's format preference decides.
      */
     private String formatId;
+    /**
+     * Optional media-type hint ("audiobook"/"ebook"/"magazine") so the borrow request's
+     * {@code title_format} matches the title (audiobooks must borrow as "audiobook"). Defaults to ebook.
+     */
+    private String titleFormat;
 }

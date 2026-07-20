@@ -880,9 +880,9 @@ public class OverDriveService {
        * POST /card/{cardId}/loan/{titleId} — borrow a title by its OverDrive title id.
        * Returns the created loan id.
        */
-      public String borrow(String identity, String authToken, String titleId) {
+      public String borrow(String identity, String authToken, String titleId, String titleFormat) {
         try {
-            Map<String, Object> loan = borrowLoan(identity, resolveToken(identity, authToken), titleId);
+            Map<String, Object> loan = borrowLoan(identity, resolveToken(identity, authToken), titleId, titleFormat);
             Object id = loan.get("id");
             String loanId = id != null ? id.toString() : null;
             recordAudit(OverDriveAuditAction.BORROW, identity, titleId, loanId, null,
@@ -894,13 +894,36 @@ public class OverDriveService {
         }
       }
 
-      /** Borrow a title and return the raw loan object (which includes the available {@code formats}). */
-      private Map<String, Object> borrowLoan(String cardId, String authToken, String titleId) {
+      /**
+       * Map a media-type / format hint to OverDrive's {@code title_format} — the Libby web client sends
+       * "audiobook" for audiobooks, "magazine" for magazines, "ebook" otherwise. Accepts either a media
+       * type ("audiobook") or a format id ("audiobook-mp3"); defaults to "ebook" when unknown.
+       */
+      private static String normalizeTitleFormat(String hint) {
+        if (hint == null || hint.isBlank()) {
+            return "ebook";
+        }
+        String h = hint.toLowerCase(Locale.ROOT);
+        if (h.contains("audiobook")) {
+            return "audiobook";
+        }
+        if (h.contains("magazine")) {
+            return "magazine";
+        }
+        return "ebook";
+      }
+
+      /**
+       * Borrow a title and return the raw loan object (which includes the available {@code formats}).
+       * {@code titleFormatHint} is a media type or format id used to set the borrow's {@code title_format}
+       * (audiobooks must borrow as "audiobook", not "ebook").
+       */
+      private Map<String, Object> borrowLoan(String cardId, String authToken, String titleId, String titleFormatHint) {
         String url = sentryBaseUrl + "/card/" + cardId + "/loan/" + titleId;
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("period", LOAN_PERIOD_DAYS);
         body.put("units", "days");
-        body.put("title_format", "ebook");
+        body.put("title_format", normalizeTitleFormat(titleFormatHint));
 
         HttpHeaders headers = libbyHeaders(authToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -1666,7 +1689,8 @@ public class OverDriveService {
        * @return the persisted {@link Book}
        */
       public Book borrowAndImport(String identity, String authToken, String titleId, Long libraryId, Long pathId,
-                                  String title, String author, String coverUrl, String isbn, String preferredFormat) {
+                                  String title, String author, String coverUrl, String isbn, String preferredFormat,
+                                  String titleFormat) {
         // Track whether this became an import of an existing loan (vs a fresh borrow) so both the
         // success and the failure history entries can report the right action. Hoisted out of the try
         // so the catch can see it.
@@ -1687,7 +1711,9 @@ public class OverDriveService {
         if (alreadyBorrowed) {
             log.info("OverDrive: resuming existing loan {} for title {} (skipping re-borrow)", loan.loanId(), titleId);
         } else {
-            Map<String, Object> borrowed = borrowLoan(identity, authToken, titleId);
+            // Prefer an explicit media-type hint; fall back to deriving it from the requested format id.
+            String hint = (titleFormat != null && !titleFormat.isBlank()) ? titleFormat : preferredFormat;
+            Map<String, Object> borrowed = borrowLoan(identity, authToken, titleId, hint);
             loan = new LoanRef(borrowed.get("id").toString(), loanFormatIds(borrowed));
         }
         String loanId = loan.loanId();
@@ -2289,8 +2315,8 @@ public class OverDriveService {
         return result;
       }
 
-      /** Extra display metadata for a title, enriched from the catalog (narrator/edition/duration). */
-      public record MediaExtras(String narrator, String edition, String duration) {}
+      /** Extra metadata for a title, enriched from the catalog (narrator/edition/duration + audiobook). */
+      public record MediaExtras(String narrator, String edition, String duration, boolean audiobook) {}
 
       /**
        * Fetch narrator/edition/duration for many titles at once (one {@code /media/bulk} call), keyed by
@@ -2308,7 +2334,8 @@ public class OverDriveService {
             out.put(entry.getKey(), new MediaExtras(
                     OverDriveItemExtractor.narrator(item),
                     item.getEdition(),
-                    OverDriveItemExtractor.audiobookDuration(item)));
+                    OverDriveItemExtractor.audiobookDuration(item),
+                    isAudiobookItem(item)));
         }
         return out;
       }
