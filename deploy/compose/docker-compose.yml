@@ -51,11 +51,20 @@ services:
       # OVERDRIVE_CREDENTIAL_KEY set. Grimmory ships no such tool. Leave AUDIOBOOK_ENABLED unset to keep off.
       # - AUDIOBOOK_ENABLED=true
       # - AUDIOBOOK_TOOL_PATH=/opt/audiobook/go-od-audiobook   # your tool or wrapper script (executable in the container)
-      # - AUDIOBOOK_TOOL_ARGS=--manifest {input} --out-dir {output}
-      # Grimmory runs the tool in a fresh temp dir each time, so the tool's default chip cache
-      # (./account) is thrown away between runs (it just re-authenticates from card+PIN — fine). To
-      # persist the chip across runs, point it at a mounted dir and add the volume below:
-      # - AUDIOBOOK_TOOL_ARGS=--manifest {input} --out-dir {output} --account-dir /opt/audiobook/account
+      # STRONGLY RECOMMENDED tool-args — pin a stable, mounted --account-dir (and see the volume below):
+      # - AUDIOBOOK_TOOL_ARGS=--manifest {input} --out-dir {output} --account-dir /opt/audiobook/account --no-store-pin
+      #
+      # Why --account-dir matters: Grimmory runs the tool in a fresh temp dir each invocation, so without
+      # an explicit account dir the tool's default cache (./account) is created inside that temp dir and
+      # thrown away every run. That forces a fresh chip mint on every borrow, and — for Adobe-DRM ebooks —
+      # a fresh anonymous Adobe activation each time, which is wasteful and can trip Adobe's activation
+      # limits (E_ADEPT_REQUEST_REPLAY). Pointing --account-dir at a persistent mounted dir lets the tool
+      # reuse (and auto-refresh) its chip cache (identity.json) and reuse the one-time Adobe activation
+      # (adobe.blob). Treat that dir as credential storage: it also caches chips.
+      #
+      # --no-store-pin (optional hardening): stops the tool persisting the card PIN into its account dir.
+      # Safe here because Grimmory re-supplies card+PIN in the manifest on every run; drop it only if you
+      # want the tool to be able to silently re-auth a fully-lapsed card without a fresh manifest.
       # - AUDIOBOOK_TIMEOUT_SECONDS=1800               # audiobooks are large; default 30 min
       # Override JVM memory defaults (the image ships sensible defaults for ~512 MB heap).
       # Uncomment and adjust if you want a tighter or looser cap:
@@ -80,8 +89,9 @@ services:
       # - ./acsm:/opt/acsm
       # Operator-supplied audiobook handler tool (see the AUDIOBOOK_* env vars above). Same image
       # caveats as the ACSM tool: Alpine/musl, no python runtime — mount a self-contained executable
-      # (a CGO_ENABLED=0 Go binary is ideal). Mount READ-WRITE only if you use --account-dir for chip
-      # caching (that subdir, e.g. ./audiobook/account, must be writable by the container user 1000).
+      # (a CGO_ENABLED=0 Go binary is ideal). Mount READ-WRITE: with the recommended --account-dir the
+      # tool persists its chip cache + Adobe activation under ./audiobook/account, which must be writable
+      # by and owned by the container user (USER_ID:GROUP_ID, 1000).
       # - ./audiobook:/opt/audiobook
     # Uncomment the block below if you need to override the defaults:
     #healthcheck:
