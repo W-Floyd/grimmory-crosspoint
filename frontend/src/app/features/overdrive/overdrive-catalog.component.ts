@@ -600,8 +600,29 @@ export class OverdriveCatalogComponent {
      this.loans.set(loans);
      this.holds.set(holds);
      this.libraries.set([...libraries.values()]);
-     // Holds changed — drop any stale "available elsewhere" results so they're re-checked on demand.
-     this.holdAvailability.set({});
+     // Keep each still-present hold's "available elsewhere" result so acting on one row doesn't force
+     // the user to re-check every other row (and re-hammer the availability endpoint). Only drop entries
+     // for holds that are gone (borrowed/cancelled); the acted-upon row clears its own entry explicitly.
+     const holdIds = new Set(holds.map(h => h.id));
+     this.holdAvailability.update(m => {
+       const next: Record<string, OverDriveLibraryAvailability[]> = {};
+       for (const [id, avail] of Object.entries(m)) {
+         if (holdIds.has(id)) {
+           next[id] = avail;
+         }
+       }
+       return next;
+     });
+   }
+
+   /** Forget one hold's cached "available elsewhere" result so its row re-checks on demand. */
+   private clearHoldAvailability(holdId: string): void {
+     this.holdAvailability.update(m => {
+       if (!(holdId in m)) return m;
+       const next = { ...m };
+       delete next[holdId];
+       return next;
+     });
    }
 
    onSearch(): void {
@@ -1366,6 +1387,7 @@ export class OverdriveCatalogComponent {
              this.messageService.add({ severity: 'success', summary: 'Hold moved',
                detail: `Placed a hold at ${this.shortCardLabel(target.card.cardId)} (~${target.waitDays}d) and cancelled the original` });
              this.setOutcome(hold.id, 'success', 'Hold moved');
+             this.clearHoldAvailability(hold.id); // its wait changed — re-check just this row, keep others
              this.importingTitleId.set(null);
              this.syncSelectedCards();
            },
@@ -1373,6 +1395,7 @@ export class OverdriveCatalogComponent {
              this.messageService.add({ severity: 'warn', summary: 'Hold placed — original not cancelled',
                detail: `New hold placed at ${this.shortCardLabel(target.card.cardId)} but couldn't cancel the original; cancel it manually.` });
              this.setOutcome(hold.id, 'success', 'Hold placed');
+             this.clearHoldAvailability(hold.id);
              this.importingTitleId.set(null);
              this.syncSelectedCards();
            }
