@@ -28,6 +28,7 @@ export class CbxSidebarService {
   private readonly destroyRef = inject(DestroyRef);
   private bookId!: number;
   private altBookType?: string;
+  private altFileId?: number;
 
   private readonly _isOpen = signal(false);
   readonly isOpen = this._isOpen.asReadonly();
@@ -76,9 +77,10 @@ export class CbxSidebarService {
   navigateToPage$ = this._navigateToPage.asObservable();
   editNote$ = this._editNote.asObservable();
 
-  initialize(bookId: number, book: Book, altBookType?: string): void {
+  initialize(bookId: number, book: Book, altBookType?: string, altFileId?: number): void {
     this.bookId = bookId;
     this.altBookType = altBookType;
+    this.altFileId = altFileId;
 
     this._bookInfo.set({
       id: book.id,
@@ -93,7 +95,7 @@ export class CbxSidebarService {
   }
 
   private loadPageInfo(): void {
-    this.cbxReaderService.getPageInfo(this.bookId, this.altBookType)
+    this.cbxReaderService.getPageInfo(this.bookId, this.altBookType, this.altFileId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(pages => this._pages.set(pages));
   }

@@ -30,14 +30,17 @@ export class CbxPageDimensionService {
     return token ? `${url}${url.includes('?') ? '&' : '?'}token=${token}` : url;
   }
 
-  getPageDimensions(bookId: number, bookType?: string): Observable<CbxPageDimension[]> {
-    const cacheKey = `${bookId}-${bookType ?? 'default'}`;
+  getPageDimensions(bookId: number, bookType?: string, fileId?: number): Observable<CbxPageDimension[]> {
+    const cacheKey = `${bookId}-${fileId != null ? 'f' + fileId : (bookType ?? 'default')}`;
     const cached = this.dimensionCache.get(cacheKey);
     if (cached) {
       return of(cached);
     }
+    // fileId takes precedence server-side; it disambiguates two files of the same format.
     let url = `${this.baseUrl}/${bookId}/page-dimensions`;
-    if (bookType) {
+    if (fileId != null) {
+      url += `?fileId=${fileId}`;
+    } else if (bookType) {
       url += `?bookType=${bookType}`;
     }
     return this.http.get<CbxPageDimension[]>(this.appendToken(url)).pipe(

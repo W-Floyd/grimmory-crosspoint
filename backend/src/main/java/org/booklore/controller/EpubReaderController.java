@@ -33,8 +33,9 @@ public class EpubReaderController {
     @GetMapping("/{bookId}/info")
     public ResponseEntity<EpubBookInfo> getBookInfo(
             @Parameter(description = "ID of the book") @PathVariable Long bookId,
-            @Parameter(description = "Optional book type for alternative format (e.g., EPUB)") @RequestParam(required = false) String bookType) {
-        return ResponseEntity.ok(epubReaderService.getBookInfo(bookId, bookType));
+            @Parameter(description = "Optional book type for alternative format (e.g., EPUB)") @RequestParam(required = false) String bookType,
+            @Parameter(description = "Optional exact book-file id; disambiguates two files of the same format") @RequestParam(required = false) Long fileId) {
+        return ResponseEntity.ok(epubReaderService.getBookInfo(bookId, bookType, fileId));
     }
 
     @Operation(summary = "Get file from EPUB", description = "Retrieve a specific file from within the EPUB archive (HTML, CSS, images, fonts, etc.).")
@@ -45,16 +46,17 @@ public class EpubReaderController {
             @Parameter(description = "ID of the book") @PathVariable Long bookId,
             @PathVariable String filePath,
             @Parameter(description = "Optional book type for alternative format (e.g., EPUB)") @RequestParam(required = false) String bookType,
+            @Parameter(description = "Optional exact book-file id; disambiguates two files of the same format") @RequestParam(required = false) Long fileId,
             HttpServletRequest request,
             HttpServletResponse response) throws IOException {
 
         String cleanPath = filePath.startsWith("/") ? filePath.substring(1) : filePath;
         cleanPath = URLDecoder.decode(cleanPath, StandardCharsets.UTF_8);
 
-        String contentType = epubReaderService.getContentType(bookId, bookType, cleanPath);
+        String contentType = epubReaderService.getContentType(bookId, bookType, fileId, cleanPath);
         response.setContentType(contentType);
 
-        long fileSize = epubReaderService.getFileSize(bookId, bookType, cleanPath);
+        long fileSize = epubReaderService.getFileSize(bookId, bookType, fileId, cleanPath);
         if (fileSize > 0) {
             response.setContentLengthLong(fileSize);
         }
@@ -71,7 +73,7 @@ public class EpubReaderController {
         response.setHeader("Cache-Control", "private, max-age=3600");
 
         try {
-            epubReaderService.streamFile(bookId, bookType, cleanPath, response.getOutputStream());
+            epubReaderService.streamFile(bookId, bookType, fileId, cleanPath, response.getOutputStream());
         } catch (FileNotFoundException e) {
             response.reset();
             response.sendError(HttpServletResponse.SC_NOT_FOUND);

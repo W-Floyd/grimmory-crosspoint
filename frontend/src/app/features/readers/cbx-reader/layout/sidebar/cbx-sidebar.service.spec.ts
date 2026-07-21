@@ -116,7 +116,7 @@ describe('CbxSidebarService', () => {
   it('initializes book info and loads pages, bookmarks, and notes', () => {
     service.initialize(7, createBook(), 'CBX');
 
-    expect(cbxReaderService.getPageInfo).toHaveBeenCalledWith(7, 'CBX');
+    expect(cbxReaderService.getPageInfo).toHaveBeenCalledWith(7, 'CBX', undefined);
     expect(bookMarkService.getBookmarksForBook).toHaveBeenCalledWith(7);
     expect(bookNoteV2Service.getNotesForBook).toHaveBeenCalledWith(7);
     expect(urlHelper.getThumbnailUrl).toHaveBeenCalledWith(7, '2026-03-26T00:00:00Z');

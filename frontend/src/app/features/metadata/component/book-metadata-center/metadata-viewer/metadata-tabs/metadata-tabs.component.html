@@ -312,7 +312,7 @@
                             severity="primary"
                             [pTooltip]="t('readTooltip')"
                             tooltipPosition="top"
-                            (onClick)="read(currentBook.id, undefined, format.bookType)">
+                            (onClick)="read(currentBook.id, undefined, format.bookType, format.id)">
                           </p-button>
                           <p-button
                             icon="pi pi-play"
@@ -321,7 +321,7 @@
                             severity="info"
                             [pTooltip]="t('streamingReaderTooltip')"
                             tooltipPosition="top"
-                            (onClick)="read(currentBook.id, 'epub-streaming', format.bookType)">
+                            (onClick)="read(currentBook.id, 'epub-streaming', format.bookType, format.id)">
                           </p-button>
                         } @else if (format.bookType && ['PDF', 'FB2', 'MOBI', 'AZW3', 'CBX'].includes(format.bookType)) {
                           <p-button
@@ -331,7 +331,7 @@
                             severity="primary"
                             [pTooltip]="t('readTooltip')"
                             tooltipPosition="top"
-                            (onClick)="read(currentBook.id, undefined, format.bookType)">
+                            (onClick)="read(currentBook.id, undefined, format.bookType, format.id)">
                           </p-button>
                         } @else if (format.bookType === 'AUDIOBOOK') {
                           <p-button
@@ -341,7 +341,7 @@
                             severity="primary"
                             [pTooltip]="t('playTooltip')"
                             tooltipPosition="top"
-                            (onClick)="read(currentBook.id, undefined, format.bookType)">
+                            (onClick)="read(currentBook.id, undefined, format.bookType, format.id)">
                           </p-button>
                         }
                         <p-button

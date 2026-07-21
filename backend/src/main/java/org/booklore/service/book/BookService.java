@@ -348,13 +348,25 @@ public class BookService {
     }
 
     public ResponseEntity<Resource> getBookContent(long bookId) {
-        return getBookContent(bookId, null);
+        return getBookContent(bookId, null, null);
     }
 
     public ResponseEntity<Resource> getBookContent(long bookId, String bookType) {
+        return getBookContent(bookId, bookType, null);
+    }
+
+    public ResponseEntity<Resource> getBookContent(long bookId, String bookType, Long fileId) {
         BookEntity bookEntity = bookRepository.findByIdWithBookFiles(bookId).orElseThrow(() -> ApiError.BOOK_NOT_FOUND.createException(bookId));
         String filePath;
-        if (bookType != null) {
+        if (fileId != null) {
+            // A specific file id wins over bookType so a book with two files of the same format
+            // (e.g. a magazine's layout + reflowable EPUBs) can serve the exact file requested.
+            BookFileEntity bookFile = bookEntity.getBookFiles().stream()
+                    .filter(bf -> fileId.equals(bf.getId()))
+                    .findFirst()
+                    .orElseThrow(() -> ApiError.FILE_NOT_FOUND.createException("No file " + fileId + " found for book " + bookId));
+            filePath = bookFile.getFullFilePath().toString();
+        } else if (bookType != null) {
             BookFileType requestedType = BookFileType.valueOf(bookType.toUpperCase());
             BookFileEntity bookFile = bookEntity.getBookFiles().stream()
                     .filter(bf -> bf.getBookType() == requestedType)

@@ -107,7 +107,11 @@ public class EpubReaderService {
     }
 
     public EpubBookInfo getBookInfo(Long bookId, String bookType) {
-        Path epubPath = getBookPath(bookId, bookType);
+        return getBookInfo(bookId, bookType, null);
+    }
+
+    public EpubBookInfo getBookInfo(Long bookId, String bookType, Long fileId) {
+        Path epubPath = getBookPath(bookId, bookType, fileId);
         try {
             CachedEpubMetadata metadata = getCachedMetadata(epubPath);
             return metadata.bookInfo;
@@ -118,11 +122,11 @@ public class EpubReaderService {
     }
 
     public void streamFile(Long bookId, String filePath, OutputStream outputStream) throws IOException {
-        streamFile(bookId, null, filePath, outputStream);
+        streamFile(bookId, null, null, filePath, outputStream);
     }
 
-    public void streamFile(Long bookId, String bookType, String filePath, OutputStream outputStream) throws IOException {
-        Path epubPath = getBookPath(bookId, bookType);
+    public void streamFile(Long bookId, String bookType, Long fileId, String filePath, OutputStream outputStream) throws IOException {
+        Path epubPath = getBookPath(bookId, bookType, fileId);
         CachedEpubMetadata metadata = getCachedMetadata(epubPath);
 
         String cleanPath = filePath.startsWith("/") ? filePath.substring(1) : filePath;
@@ -141,11 +145,11 @@ public class EpubReaderService {
     }
 
     public String getContentType(Long bookId, String filePath) {
-        return getContentType(bookId, null, filePath);
+        return getContentType(bookId, null, null, filePath);
     }
 
-    public String getContentType(Long bookId, String bookType, String filePath) {
-        Path epubPath = getBookPath(bookId, bookType);
+    public String getContentType(Long bookId, String bookType, Long fileId, String filePath) {
+        Path epubPath = getBookPath(bookId, bookType, fileId);
         try {
             CachedEpubMetadata metadata = getCachedMetadata(epubPath);
             String normalizedPath = normalizePath(filePath, metadata.bookInfo.getRootPath());
@@ -157,11 +161,11 @@ public class EpubReaderService {
     }
 
     public long getFileSize(Long bookId, String filePath) {
-        return getFileSize(bookId, null, filePath);
+        return getFileSize(bookId, null, null, filePath);
     }
 
-    public long getFileSize(Long bookId, String bookType, String filePath) {
-        Path epubPath = getBookPath(bookId, bookType);
+    public long getFileSize(Long bookId, String bookType, Long fileId, String filePath) {
+        Path epubPath = getBookPath(bookId, bookType, fileId);
         try {
             CachedEpubMetadata metadata = getCachedMetadata(epubPath);
             String normalizedPath = normalizePath(filePath, metadata.bookInfo.getRootPath());
@@ -174,9 +178,20 @@ public class EpubReaderService {
         }
     }
 
-    private Path getBookPath(Long bookId, String bookType) {
+    private Path getBookPath(Long bookId, String bookType, Long fileId) {
         BookEntity bookEntity = bookRepository.findByIdForStreaming(bookId)
                 .orElseThrow(() -> ApiError.BOOK_NOT_FOUND.createException(bookId));
+        // A specific file id wins over bookType: it's the only way to disambiguate a book that has two
+        // files of the same format (e.g. a magazine's fixed-layout + reflowable EPUBs), which bookType
+        // alone cannot — bookType resolution below returns the first match and would ignore the choice.
+        if (fileId != null) {
+            BookFileEntity bookFile = bookEntity.getBookFiles().stream()
+                    .filter(bf -> fileId.equals(bf.getId()))
+                    .findFirst()
+                    .orElseThrow(() -> ApiError.FILE_NOT_FOUND.createException(
+                            "No file " + fileId + " found for book " + bookId));
+            return bookFile.getFullFilePath();
+        }
         if (bookType != null) {
             BookFileType requestedType = BookFileType.valueOf(bookType.toUpperCase());
             BookFileEntity bookFile = bookEntity.getBookFiles().stream()

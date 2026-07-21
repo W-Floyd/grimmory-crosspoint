@@ -258,28 +258,29 @@ export class BookService {
 
   /*------------------ Reading & Viewer Settings ------------------*/
 
-  readBook(bookId: number, reader?: 'epub-streaming', explicitBookType?: BookType): void {
+  readBook(bookId: number, reader?: 'epub-streaming', explicitBookType?: BookType, explicitFileId?: number): void {
     const book = this.findBookById(bookId);
 
     if (book) {
-      this.navigateToReader(book, bookId, reader, explicitBookType);
+      this.navigateToReader(book, bookId, reader, explicitBookType, explicitFileId);
       return;
     }
 
     this.ensureBookDetail(bookId, false).then(detail => {
-      this.navigateToReader(detail, bookId, reader, explicitBookType);
+      this.navigateToReader(detail, bookId, reader, explicitBookType, explicitFileId);
     }).catch(() => {
       console.error('Book not found:', bookId);
     });
   }
 
-  private navigateToReader(book: Book, bookId: number, reader?: 'epub-streaming', explicitBookType?: BookType): void {
+  private navigateToReader(book: Book, bookId: number, reader?: 'epub-streaming', explicitBookType?: BookType,
+                           explicitFileId?: number): void {
 
     const bookType: BookType | undefined = explicitBookType ?? book.primaryFile?.bookType;
     const isAlternativeFormat = explicitBookType && explicitBookType !== book.primaryFile?.bookType;
 
     let baseUrl: string | null = null;
-    const queryParams: Partial<{streaming: true; bookType: BookType}> = {};
+    const queryParams: Partial<{streaming: true; bookType: BookType; fileId: number}> = {};
 
     switch (bookType) {
       case 'PDF':
@@ -315,6 +316,11 @@ export class BookService {
 
     if (isAlternativeFormat) {
       queryParams['bookType'] = bookType;
+    }
+    // An explicit file id is the only way to target a specific file when a book has two of the same
+    // format (e.g. a magazine's layout + reflowable EPUBs); it takes precedence server-side over bookType.
+    if (explicitFileId != null) {
+      queryParams['fileId'] = explicitFileId;
     }
 
     const hasQueryParams = Object.keys(queryParams).length > 0;

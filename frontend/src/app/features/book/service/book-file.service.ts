@@ -27,10 +27,18 @@ export class BookFileService {
   private localSettingsService = inject(LocalSettingsService);
   private readonly t = inject(TranslocoService);
 
-  getFileContent(bookId: number, bookType?: string): Observable<Blob> {
+  getFileContent(bookId: number, bookType?: string, fileId?: number): Observable<Blob> {
     let url = `${this.url}/${bookId}/content`;
-    if (bookType) {
-      url += `?bookType=${bookType}`;
+    const params = new URLSearchParams();
+    // fileId takes precedence server-side; it's the only way to target one of two same-format files.
+    if (fileId != null) {
+      params.set('fileId', String(fileId));
+    } else if (bookType) {
+      params.set('bookType', bookType);
+    }
+    const query = params.toString();
+    if (query) {
+      url += `?${query}`;
     }
     if (this.localSettingsService.get().cacheStorageEnabled)
       return from(this.cacheStorageService.getCache(url).then(response => response.blob()));

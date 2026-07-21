@@ -141,51 +141,48 @@ export class MetadataViewerComponent implements OnInit, AfterViewChecked {
       return [];
     }
 
+    const READABLE = ['PDF', 'EPUB', 'FB2', 'MOBI', 'AZW3', 'CBX', 'AUDIOBOOK'];
+
+    // Every readable file — primary first, then alternatives — each addressed by its own id and
+    // labelled by its filename, so two files of the same format (e.g. a magazine's layout + reflowable
+    // EPUBs) are individually selectable and clearly distinguishable in the menu.
+    const files = [
+      ...(book.primaryFile ? [{f: book.primaryFile, primary: true}] : []),
+      ...(book.alternativeFormats ?? []).map(f => ({f, primary: false})),
+    ].filter(({f}) => f.bookType && READABLE.includes(f.bookType));
+
+    const multiple = files.length > 1;
     const items: MenuItem[] = [];
-    const primaryType = book.primaryFile?.bookType;
-    if (primaryType === 'EPUB') {
-      items.push({
-        label: this.t.translate('metadata.viewer.menuStreamingReader'),
-        icon: 'pi pi-play',
-        command: () => this.read(book.id, 'epub-streaming')
-      });
-    }
 
-    const readableAlternatives = book.alternativeFormats?.filter(f =>
-      f.bookType && ['PDF', 'EPUB', 'FB2', 'MOBI', 'AZW3', 'CBX', 'AUDIOBOOK'].includes(f.bookType)
-    ) ?? [];
-    const uniqueAltTypes = [...new Set(readableAlternatives.map(f => f.bookType))];
-
-    if (uniqueAltTypes.length > 0 && items.length > 0) {
-      items.push({separator: true});
-    }
-
-    uniqueAltTypes.forEach(formatType => {
-      if (formatType === 'EPUB') {
+    files.forEach(({f, primary}) => {
+      const type = f.bookType!;
+      // With one file keep the terse format label; with several, show the filename to tell them apart.
+      const base = multiple && f.fileName ? this.truncateFileName(f.fileName, 32) : type;
+      const label = primary && multiple ? `${base} (${this.t.translate('metadata.viewer.menuPrimary')})` : base;
+      if (type === 'EPUB') {
         items.push({
-          label: formatType,
-          icon: this.getFileIcon(formatType),
+          label,
+          icon: this.getFileIcon(type),
           items: [
             {
               label: this.t.translate('metadata.viewer.menuStandardReader'),
               icon: 'pi pi-book',
-              command: () => this.read(book.id, undefined, formatType)
+              command: () => this.read(book.id, undefined, type, f.id)
             },
             {
               label: this.t.translate('metadata.viewer.menuStreamingReader'),
               icon: 'pi pi-play',
-              command: () => this.read(book.id, 'epub-streaming', formatType)
+              command: () => this.read(book.id, 'epub-streaming', type, f.id)
             }
           ]
         });
-        return;
+      } else {
+        items.push({
+          label,
+          icon: this.getFileIcon(type),
+          command: () => this.read(book.id, undefined, type, f.id)
+        });
       }
-
-      items.push({
-        label: formatType,
-        icon: this.getFileIcon(formatType ?? null),
-        command: () => this.read(book.id, undefined, formatType)
-      });
     });
 
     return items;
@@ -496,8 +493,8 @@ export class MetadataViewerComponent implements OnInit, AfterViewChecked {
     return html ? DOMPurify.sanitize(html) : '';
   }
 
-  read(bookId: number | undefined, reader?: "epub-streaming", bookType?: BookType): void {
-    if (bookId) this.bookService.readBook(bookId, reader, bookType);
+  read(bookId: number | undefined, reader?: "epub-streaming", bookType?: BookType, fileId?: number): void {
+    if (bookId) this.bookService.readBook(bookId, reader, bookType, fileId);
   }
 
   isInProgressStatus(): boolean {
@@ -527,7 +524,7 @@ export class MetadataViewerComponent implements OnInit, AfterViewChecked {
 
   // Event handlers for MetadataTabsComponent
   onReadBook(event: ReadEvent): void {
-    this.read(event.bookId, event.reader, event.bookType);
+    this.read(event.bookId, event.reader, event.bookType, event.fileId);
   }
 
   onDownloadBook(event: DownloadEvent): void {

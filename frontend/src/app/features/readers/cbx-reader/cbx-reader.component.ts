@@ -88,6 +88,7 @@ export class CbxReaderComponent implements OnInit, OnDestroy {
   bookId = signal<number | null>(null);
   bookFileId = signal<number | null>(null);
   altBookType = signal<string | undefined>(undefined);
+  altFileId = signal<number | undefined>(undefined);
   pages = signal<number[]>([]);
   currentPage = signal(0);
   isLoading = signal(true);
@@ -322,6 +323,8 @@ export class CbxReaderComponent implements OnInit, OnDestroy {
         this.isLoading.set(true);
         this.bookId.set(+params.get('bookId')!);
         this.altBookType.set(this.route.snapshot.queryParamMap.get('bookType') ?? undefined);
+        const fileIdParam = this.route.snapshot.queryParamMap.get('fileId');
+        this.altFileId.set(fileIdParam ? Number(fileIdParam) : undefined);
 
         this.showWebtoonSuggestion.set(false);
         this.continuationHintVisible.set(false);
@@ -346,7 +349,10 @@ export class CbxReaderComponent implements OnInit, OnDestroy {
             this.currentBook.set(book);
 
             // Determine which file ID to use for progress tracking
-            if (this.altBookType()) {
+            if (this.altFileId() != null) {
+              // Exact file chosen (disambiguates two files of the same format).
+              this.bookFileId.set(this.altFileId()!);
+            } else if (this.altBookType()) {
               const altFile = book.alternativeFormats?.find(f => f.bookType === this.altBookType());
               this.bookFileId.set(altFile?.id ?? null);
             } else {
@@ -357,8 +363,8 @@ export class CbxReaderComponent implements OnInit, OnDestroy {
             return forkJoin([
               this.bookService.getBookSetting(this.bookId()!, this.bookFileId()!),
               this.userService.getMyself(),
-              this.cbxReaderService.getAvailablePages(this.bookId()!, this.altBookType()),
-              this.pageDimensionService.getPageDimensions(this.bookId()!, this.altBookType())
+              this.cbxReaderService.getAvailablePages(this.bookId()!, this.altBookType(), this.altFileId()),
+              this.pageDimensionService.getPageDimensions(this.bookId()!, this.altBookType(), this.altFileId())
             ]).pipe(
               map(([bookSettings, myself, pages, dimensions]) => ({
                 book,
@@ -381,7 +387,7 @@ export class CbxReaderComponent implements OnInit, OnDestroy {
         this.headerService.initialize(title);
         // Using this.destroyRef.onDestroy logic (handled inside sidebarService.initialize usually, but if it takes a subject, I should check)
         // For now, keeping this.destroy$ as a Subject if it's still needed for sub-initializations, but I'll check sidebarService.
-        this.sidebarService.initialize(this.bookId()!, book, this.altBookType());
+        this.sidebarService.initialize(this.bookId()!, book, this.altBookType(), this.altFileId());
 
         if (book.metadata?.seriesName) {
           this.loadSeriesNavigation(book);
@@ -1252,7 +1258,7 @@ export class CbxReaderComponent implements OnInit, OnDestroy {
   }
 
   getPageImageUrl(pageIndex: number): string {
-    return this.cbxReaderService.getPageImageUrl(this.bookId()!, this.pages()[pageIndex], this.altBookType());
+    return this.cbxReaderService.getPageImageUrl(this.bookId()!, this.pages()[pageIndex], this.altBookType(), this.altFileId());
   }
 
   // ── Long-strip mode (Kavita-inspired) ──
