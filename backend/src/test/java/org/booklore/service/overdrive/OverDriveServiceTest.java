@@ -47,6 +47,7 @@ class OverDriveServiceTest {
     @Mock private AuthenticationService authenticationService;
     @Mock private org.booklore.service.appsettings.AppSettingService appSettingService;
     @Mock private org.booklore.service.NotificationService notificationService;
+    @Mock private org.booklore.service.book.BookFileAttachmentService bookFileAttachmentService;
 
     private OverDriveService service;
 
@@ -57,7 +58,7 @@ class OverDriveServiceTest {
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 importDestinationRepository, userRepository, authenticationService, appSettingService, cipher,
-                notificationService);
+                notificationService, bookFileAttachmentService);
     }
 
     private void authAs(long userId) {
@@ -749,6 +750,22 @@ class OverDriveServiceTest {
         when(tokenRepository.findByUserId(7L)).thenReturn(List.of());
         assertThat(service.shareableUsers()).isEmpty();
         verify(userRepository, never()).findAll();
+    }
+
+    @Test
+    void orderMagazineFormats_putsReflowableArticlesVariantFirst() {
+        var layout = new org.booklore.service.magazine.MagazineHandler.OutputFile(
+                "TIME America at 250.epub", "epub", new byte[]{1});
+        var articles = new org.booklore.service.magazine.MagazineHandler.OutputFile(
+                "TIME America at 250 (Articles).epub", "epub", new byte[]{2});
+
+        // Regardless of input order, the reflowable "(Articles)" version is the primary (first).
+        assertThat(OverDriveService.orderMagazineFormats(List.of(layout, articles)))
+                .extracting(f -> f.fileName())
+                .containsExactly("TIME America at 250 (Articles).epub", "TIME America at 250.epub");
+        assertThat(OverDriveService.orderMagazineFormats(List.of(articles, layout)))
+                .extracting(f -> f.fileName())
+                .containsExactly("TIME America at 250 (Articles).epub", "TIME America at 250.epub");
     }
 
     @Test

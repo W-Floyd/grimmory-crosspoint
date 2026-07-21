@@ -98,6 +98,7 @@ public class OverDriveService {
     private final AppSettingService appSettingService;
     private final OverDriveCredentialCipher credentialCipher;
     private final org.booklore.service.NotificationService notificationService;
+    private final org.booklore.service.book.BookFileAttachmentService bookFileAttachmentService;
 
     /** The authenticated Grimmory user, or throws if there is no authenticated user. */
     private BookLoreUser currentUser() {
@@ -359,6 +360,57 @@ public class OverDriveService {
     /** A magazine issue is delivered as a PDF or an EPUB; pick the type from the produced extension. */
     private static BookFileType magazineFileType(String extension) {
         return "pdf".equalsIgnoreCase(extension) ? BookFileType.PDF : BookFileType.EPUB;
+    }
+
+    /**
+     * Order a magazine's produced files so the primary format is first. A magazine issue is usually two
+     * EPUBs the tool names distinctly: a reflowable text version tagged "(Articles)" (e.g. {@code TIME
+     * America at 250 (Articles).epub}) and the fixed "as-is" layout ({@code TIME America at 250.epub}).
+     * The reflowable "(Articles)" version leads — it reads best on-device — then EPUB over PDF, then
+     * anything else. Ties keep the handler's stable name order.
+     */
+    static List<MagazineHandler.OutputFile> orderMagazineFormats(List<MagazineHandler.OutputFile> files) { // package-private for testing
+        Comparator<MagazineHandler.OutputFile> byArticles =
+                Comparator.comparingInt(f -> isArticlesVariant(f.fileName()) ? 0 : 1);
+        Comparator<MagazineHandler.OutputFile> byExtension = Comparator.comparingInt(f -> {
+            String ext = f.extension() == null ? "" : f.extension().toLowerCase(Locale.ROOT);
+            return switch (ext) {
+                case "epub" -> 0;
+                case "pdf" -> 1;
+                default -> 2;
+            };
+        });
+        return files.stream().sorted(byArticles.thenComparing(byExtension)).toList();
+    }
+
+    /** The reflowable "articles" variant the OverDrive tool tags with an "(Articles)" suffix in its name. */
+    private static boolean isArticlesVariant(String fileName) {
+        return fileName != null && fileName.toLowerCase(Locale.ROOT).contains("(articles)");
+    }
+
+    /** The name without its trailing extension (e.g. "Issue-text.epub" → "Issue-text"). */
+    private static String stripExtension(String fileName) {
+        if (fileName == null) {
+            return "";
+        }
+        int dot = fileName.lastIndexOf('.');
+        return dot > 0 ? fileName.substring(0, dot) : fileName;
+    }
+
+    /** Ensure a target filename is unique within a set, appending " (2)", " (3)", … before the extension. */
+    private static String uniqueImportName(String fileName, Set<String> used) {
+        if (used.add(fileName)) {
+            return fileName;
+        }
+        int dot = fileName.lastIndexOf('.');
+        String base = dot > 0 ? fileName.substring(0, dot) : fileName;
+        String ext = dot > 0 ? fileName.substring(dot) : "";
+        for (int i = 2; ; i++) {
+            String candidate = base + " (" + i + ")" + ext;
+            if (used.add(candidate)) {
+                return candidate;
+            }
+        }
     }
 
     private static BookFileType bookFileType(String formatId) {
@@ -1919,18 +1971,88 @@ public class OverDriveService {
        */
       private Book importOrBookdrop(byte[] content, String fileName, BookFileType fileType, MediaKind kind,
                                     BookMetadata metadata, Long libraryId, Long pathId, String title) {
+        return importOrBookdrop(
+                List.of(new ProducedFile(content, fileName, fileType)),
+                kind, metadata, libraryId, pathId, title);
+      }
+
+      /** One file to import, part of a possibly-multi-file item (e.g. a magazine's two EPUB formats). */
+      private record ProducedFile(byte[] content, String fileName, BookFileType fileType) {}
+
+      /**
+       * Multi-file variant: import all files as a single book when the destination accepts every one of
+       * their formats, otherwise drop them all into Bookdrop (where the watcher groups them by folder).
+       * The files are all formats of the same item (e.g. a magazine's two EPUBs), so they must stay
+       * together — all-or-nothing — rather than importing some and dropping others.
+       *
+       * <p>The first file becomes the book's primary format; each remaining file is imported as its own
+       * book and then merged into the primary as an additional format via the shared
+       * {@link org.booklore.service.book.BookFileAttachmentService}. Each {@code importBook} and the
+       * merge are cross-bean calls so their {@code @Transactional} boundaries apply (the metadata overlay
+       * touches lazy collections, and the merge needs the source books committed and findable).
+       */
+      private Book importOrBookdrop(List<ProducedFile> files, MediaKind kind,
+                                    BookMetadata metadata, Long libraryId, Long pathId, String title) {
         ImportDestination dest = resolveImportDestination(kind, libraryId, pathId);
         Long destLibraryId = dest.libraryId();
         Long destPathId = dest.pathId();
-        if (destLibraryId != null && destPathId != null && overDriveImportService.acceptsFormat(destLibraryId, fileType)) {
-            return overDriveImportService.importBook(content, fileName, destLibraryId, destPathId, metadata, fileType);
+        boolean allAccepted = destLibraryId != null && destPathId != null
+                && files.stream().allMatch(f -> overDriveImportService.acceptsFormat(destLibraryId, f.fileType()));
+        if (allAccepted) {
+            return importAsOneBook(files, destLibraryId, destPathId, metadata);
         }
         if (destLibraryId != null && destPathId != null) {
-            log.warn("Destination library {} does not accept {} files — dropping '{}' into Bookdrop instead "
-                    + "of importing (it would be purged on the next scan).", destLibraryId, fileType, title);
+            log.warn("Destination library {} does not accept every format of '{}' — dropping {} file(s) into "
+                    + "Bookdrop instead of importing (they would be purged on the next scan).",
+                    destLibraryId, title, files.size());
         }
-        overDriveImportService.dropToBookdrop(content, fileName);
+        for (ProducedFile f : files) {
+            overDriveImportService.dropToBookdrop(f.content(), f.fileName());
+        }
         return null;
+      }
+
+      /**
+       * Import every file as one book: the first is the primary format and the rest are attached to it,
+       * so a multi-format item (e.g. a magazine's reflowable + layout EPUBs) appears once with selectable
+       * formats.
+       *
+       * <p>The library naming pattern is title-based, so importing several files under the same metadata
+       * would resolve to the same path and collide. Each extra file is therefore imported under a
+       * distinct transient title (a unique path), then merged into the primary with {@code moveFiles=true}
+       * — which relocates the file next to the primary (auto-renaming e.g. {@code …_1.epub}) and discards
+       * the transient book. Cross-bean calls so {@code importBook}/{@code attachBookFiles} keep their
+       * own transactions.
+       */
+      private Book importAsOneBook(List<ProducedFile> files, Long libraryId, Long pathId, BookMetadata metadata) {
+        ProducedFile first = files.getFirst();
+        Book primary = overDriveImportService.importBook(
+                first.content(), first.fileName(), libraryId, pathId, metadata, first.fileType());
+        if (files.size() == 1 || primary == null || primary.getId() == null) {
+            return primary;
+        }
+        String baseTitle = metadata != null && metadata.getTitle() != null && !metadata.getTitle().isBlank()
+                ? metadata.getTitle() : "overdrive";
+        List<Long> attachIds = new ArrayList<>();
+        int index = 1;
+        for (ProducedFile extra : files.subList(1, files.size())) {
+            // Distinct transient title → distinct import path (the merge below relocates + renames it,
+            // and the transient book/title is thrown away).
+            index++;
+            BookMetadata extraMeta = (metadata != null ? metadata.toBuilder() : BookMetadata.builder())
+                    .title(baseTitle + " (" + index + ")").build();
+            Book extraBook = overDriveImportService.importBook(
+                    extra.content(), extra.fileName(), libraryId, pathId, extraMeta, extra.fileType());
+            if (extraBook != null && extraBook.getId() != null) {
+                attachIds.add(extraBook.getId());
+            }
+        }
+        if (attachIds.isEmpty()) {
+            return primary;
+        }
+        var response = bookFileAttachmentService.attachBookFiles(primary.getId(), attachIds, true);
+        log.info("OverDrive import: attached {} additional format(s) to book id={}", attachIds.size(), primary.getId());
+        return response.updatedBook() != null ? response.updatedBook() : primary;
       }
 
       /**
@@ -1946,19 +2068,36 @@ public class OverDriveService {
             resolveToken(identity); // validate the card is accessible even though the tool re-auths
 
             MagazineHandler.Result magazine = magazineHandler.handle(magazineRequest(identity, titleId), toolLogSink(titleId));
-            byte[] content = magazine.content();
-            if (content == null || content.length == 0) {
+            List<MagazineHandler.OutputFile> produced = magazine != null ? magazine.files() : null;
+            if (produced == null || produced.isEmpty()) {
                 throw new RestClientException("The magazine handler did not produce a file for title " + titleId + ".");
             }
-            String extension = magazine.extension();
-            BookFileType fileType = magazineFileType(extension);
 
             BookMetadata metadata = overDriveParser.fetchTitleMetadata(titleId);
             if (metadata == null) {
                 metadata = buildImportMetadata(title, author, coverUrl, isbn);
             }
-            String fileName = buildFileName(title, titleId, extension);
-            Book book = importOrBookdrop(content, fileName, fileType, MediaKind.MAGAZINE, metadata, libraryId, pathId, title);
+
+            // A magazine issue arrives as several files — typically two EPUBs (a fixed "as-is" layout and
+            // a reflowable text version) the tool names distinctly. Import them as ONE book with the
+            // extra formats attached; the first (stable name order) is the primary. Each file keeps its
+            // own (sanitized) name so the two co-located formats stay distinct, with a uniqueness guard
+            // as a backstop against accidental collisions.
+            List<MagazineHandler.OutputFile> ordered = orderMagazineFormats(produced);
+            Set<String> usedNames = new HashSet<>();
+            List<ProducedFile> files = new ArrayList<>(ordered.size());
+            for (MagazineHandler.OutputFile f : ordered) {
+                String base = stripExtension(f.fileName());
+                if (base.isBlank()) {
+                    base = title;
+                }
+                files.add(new ProducedFile(
+                        f.content(),
+                        uniqueImportName(buildFileName(base, titleId, f.extension()), usedNames),
+                        magazineFileType(f.extension())));
+            }
+            String extension = ordered.getFirst().extension();
+            Book book = importOrBookdrop(files, MediaKind.MAGAZINE, metadata, libraryId, pathId, title);
 
             Long userId = currentUserId();
             OverDriveLoanEntity entity = loanRepository.findByUserIdAndOverdriveLoanId(userId, titleId)

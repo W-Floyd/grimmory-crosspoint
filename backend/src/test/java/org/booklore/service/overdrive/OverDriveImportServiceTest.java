@@ -127,4 +127,5 @@ class OverDriveImportServiceTest {
                 .isInstanceOf(APIException.class);
         verify(monitoringRegistrationService, never()).unregisterLibrary(any());
     }
+
 }

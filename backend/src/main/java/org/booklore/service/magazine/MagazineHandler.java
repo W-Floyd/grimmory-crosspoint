@@ -25,16 +25,19 @@ import java.util.stream.Stream;
  * (typically) the same tool binary, driven by a separate {@code app.magazine} config. Two differences
  * from the audiobook manifest: {@code loan.mediaType} is {@code "magazine"} and no {@code loan.formatId}
  * is sent (the tool picks the format). Grimmory does <b>no</b> borrow of its own — the tool does
- * everything from the card+PIN — and the produced file is a magazine issue as either a PDF or an EPUB,
- * so its type is taken from the produced file's extension.
+ * everything from the card+PIN. A single magazine issue is normally delivered as <b>more than one
+ * file</b> — an "as-is" fixed-layout PDF plus a reflowable "article" EPUB (text+image) — so the tool
+ * may write several files; each is a format of the same issue, and its book file type is taken from
+ * its extension.
  *
  * <h2>External tool contract</h2>
  * The tool receives two placeholders (see {@code app.magazine.tool-args}):
  * <ul>
  *   <li>{@code {input}} — path to a JSON manifest (same shape as the audiobook handler, with
  *     {@code loan.mediaType == "magazine"} and no {@code formatId}).</li>
- *   <li>{@code {output}} — an empty directory into which the tool writes exactly one file (PDF or EPUB);
- *     Grimmory imports whatever single file appears there, taking the book file type from its extension.</li>
+ *   <li>{@code {output}} — an empty directory into which the tool writes one <b>or more</b> files
+ *     (PDF and/or EPUB); Grimmory imports every file that appears there as one book (the extra
+ *     formats attached to it), taking each book file type from its extension.</li>
  * </ul>
  */
 @Slf4j
@@ -54,8 +57,14 @@ public class MagazineHandler {
     public record Request(String sentryBaseUrl, String cardNumber, String pin, String libraryKey,
                           String websiteId, String ilsName, String cardId, String titleId) {}
 
-    /** The tool's produced magazine issue: the file bytes and its extension (pdf/epub). */
-    public record Result(byte[] content, String extension) {}
+    /** One file the tool produced: its name, extension (pdf/epub) and bytes. */
+    public record OutputFile(String fileName, String extension, byte[] content) {}
+
+    /**
+     * The tool's produced magazine issue as one or more files (e.g. a fixed-layout PDF plus a
+     * reflowable EPUB), in a stable order — the first is treated as the primary format.
+     */
+    public record Result(List<OutputFile> files) {}
 
     /** Whether an external magazine handler tool is configured and can be invoked. */
     public boolean isConfigured() {
@@ -128,11 +137,10 @@ public class MagazineHandler {
                         "Magazine handler failed (exit " + exitCode + "): " + tail(output));
             }
 
-            Path produced = singleOutputFile(outputDir, output);
-            byte[] bytes = Files.readAllBytes(produced);
-            String extension = extensionOf(produced.getFileName().toString());
-            log.info("Magazine handler tool produced {} ({} bytes)", produced.getFileName(), bytes.length);
-            return new Result(bytes, extension);
+            List<OutputFile> produced = outputFiles(outputDir, output);
+            log.info("Magazine handler tool produced {} file(s) for title {}: {}", produced.size(),
+                    request.titleId(), produced.stream().map(OutputFile::fileName).toList());
+            return new Result(produced);
 
         } catch (IOException e) {
             log.error("Magazine handler tool IO error: {}", e.getMessage());
@@ -176,19 +184,26 @@ public class MagazineHandler {
         }
     }
 
-    /** The single file the tool wrote to the output directory, or a clear error otherwise. */
-    private static Path singleOutputFile(Path outputDir, String toolOutput) throws IOException {
+    /**
+     * Every file the tool wrote to the output directory (a magazine issue is usually several: an
+     * as-is PDF plus an article EPUB), read into memory in a stable name order so the first is a
+     * deterministic primary. Errors only when nothing was produced.
+     */
+    private static List<OutputFile> outputFiles(Path outputDir, String toolOutput) throws IOException {
         try (Stream<Path> files = Files.list(outputDir)) {
-            List<Path> produced = files.filter(Files::isRegularFile).toList();
+            List<Path> produced = files.filter(Files::isRegularFile)
+                    .sorted(java.util.Comparator.comparing(p -> p.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
+                    .toList();
             if (produced.isEmpty()) {
                 throw ApiError.GENERIC_BAD_REQUEST.createException(
                         "Magazine handler produced no file. Tool output: " + tail(toolOutput));
             }
-            if (produced.size() > 1) {
-                throw ApiError.GENERIC_BAD_REQUEST.createException(
-                        "Magazine handler produced multiple files; expected a single issue.");
+            List<OutputFile> out = new java.util.ArrayList<>(produced.size());
+            for (Path p : produced) {
+                String name = p.getFileName().toString();
+                out.add(new OutputFile(name, extensionOf(name), Files.readAllBytes(p)));
             }
-            return produced.getFirst();
+            return out;
         }
     }
 

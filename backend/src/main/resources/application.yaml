@@ -39,6 +39,9 @@ app:
     tool-args: ${AUDIOBOOK_TOOL_ARGS:download --manifest {input} --out-dir {output}}
     timeout-seconds: ${AUDIOBOOK_TIMEOUT_SECONDS:1800}
   # Magazine handler — mirrors audiobook (same manifest + typically the same tool binary), separate config.
+  # A magazine issue is usually delivered as several files (a fixed "as-is" layout EPUB + a reflowable
+  # text EPUB); the tool may write more than one file into {output} and Grimmory imports them all as a
+  # single book, attaching the extra formats.
   magazine:
     enabled: ${MAGAZINE_ENABLED:false}
     tool-path: ${MAGAZINE_TOOL_PATH:}
