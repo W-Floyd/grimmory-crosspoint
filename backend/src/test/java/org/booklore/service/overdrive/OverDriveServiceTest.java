@@ -567,18 +567,22 @@ class OverDriveServiceTest {
 
     @Test
     void borrowAndImport_failsWithoutImportingWhenBorrowFails() {
-        // Provided token → borrow proceeds to the (mocked) RestClient and fails; nothing is imported.
-        assertThatThrownBy(() -> service.borrowAndImport("card", "tok", "title", 1L, 1L, "t", "a", null, null, null, null))
+        // Stored token for the current user's card → borrow proceeds to the (mocked) RestClient and
+        // fails; nothing is imported.
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card").token("t").build()));
+        assertThatThrownBy(() -> service.borrowAndImport("card", "title", 1L, 1L, "t", "a", null, null, null, null))
                 .isInstanceOf(RuntimeException.class);
         verifyNoInteractions(overDriveImportService);
     }
 
     @Test
     void borrowAndImport_failsWhenNoTokenAvailable() {
-        // Blank token and no stored token for the current user's card → resolveToken throws, nothing imported.
+        // No stored token for the current user's card → resolveToken throws, nothing imported.
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.borrowAndImport("card", "", "title", 1L, 1L, "t", "a", null, null, null, null))
+        assertThatThrownBy(() -> service.borrowAndImport("card", "title", 1L, 1L, "t", "a", null, null, null, null))
                 .isInstanceOf(RuntimeException.class);
         verifyNoInteractions(overDriveImportService);
     }
@@ -698,26 +702,53 @@ class OverDriveServiceTest {
 
     @Test
     void resolveLinkedBookId_matchesByAsinWhenNoIsbn() {
+        authAsAdmin(7L); // admin → global (unscoped) match
         when(bookRepository.findIdsByAsin("B0ABCD1234")).thenReturn(List.of(55L));
         assertThat(service.resolveLinkedBookId(null, "B0ABCD1234")).isEqualTo(55L);
     }
 
     @Test
     void resolveLinkedBookId_prefersIsbnOverAsin() {
+        authAsAdmin(7L); // admin → global (unscoped) match
         when(bookRepository.findIdsByIsbn13("9780441013593")).thenReturn(List.of(7L));
         assertThat(service.resolveLinkedBookId("9780441013593", "B0ABCD1234")).isEqualTo(7L);
         verify(bookRepository, never()).findIdsByAsin(any()); // ASIN not consulted when ISBN matches
     }
 
     @Test
+    void resolveLinkedBookId_scopesToUsersAccessibleLibraries() {
+        // Non-admin: matches are constrained to the user's assigned libraries.
+        BookLoreUser user = BookLoreUser.builder()
+                .id(7L)
+                .assignedLibraries(List.of(org.booklore.model.dto.Library.builder().id(3L).build()))
+                .build();
+        when(authenticationService.getAuthenticatedUser()).thenReturn(user);
+        when(bookRepository.findIdsByAsinAndLibraryIdIn("B0ABCD1234", List.of(3L))).thenReturn(List.of(55L));
+
+        assertThat(service.resolveLinkedBookId(null, "B0ABCD1234")).isEqualTo(55L);
+        verify(bookRepository, never()).findIdsByAsin(any()); // never the unscoped query for a non-admin
+    }
+
+    @Test
     void shareableUsers_excludesSelfAndSortsByName() {
         authAs(7L);
+        // The picker is only available to a user who actually owns a card to share.
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-1").token("t").build()));
         when(userRepository.findAll()).thenReturn(List.of(
                 org.booklore.model.entity.BookLoreUserEntity.builder().id(7L).username("me").name("Me").build(),
                 org.booklore.model.entity.BookLoreUserEntity.builder().id(8L).username("bob").name("Bob").build(),
                 org.booklore.model.entity.BookLoreUserEntity.builder().id(9L).username("ann").name("Ann").build()));
 
         assertThat(service.shareableUsers()).extracting(u -> u.userId()).containsExactly(9L, 8L);
+    }
+
+    @Test
+    void shareableUsers_emptyWhenUserOwnsNoCardAndIsNotAdmin() {
+        authAs(7L);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of());
+        assertThat(service.shareableUsers()).isEmpty();
+        verify(userRepository, never()).findAll();
     }
 
     @Test

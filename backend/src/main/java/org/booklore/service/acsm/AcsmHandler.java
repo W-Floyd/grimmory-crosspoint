@@ -98,14 +98,12 @@ public class AcsmHandler {
             Files.write(acsmFile, acsmBytes);
             log.info("Wrote {} bytes to {}", acsmBytes.length, acsmFile);
 
-            String args = config.getToolArgs()
-                    .replace("{acsm}", acsmFile.toString())
-                    .replace("{output}", outputFile.toString());
-
-            String command = config.getToolPath() + " " + args;
+            java.util.List<String> command = org.booklore.util.ExternalToolCommand.build(
+                    config.getToolPath(), config.getToolArgs(),
+                    java.util.Map.of("acsm", acsmFile.toString(), "output", outputFile.toString()));
             log.info("Running ACSM handler tool: {}", command);
 
-            ProcessBuilder pb = new ProcessBuilder(command.split("\\s+"));
+            ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
             pb.directory(tempDir.toFile());
 

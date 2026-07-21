@@ -70,17 +70,7 @@ public class OpdsBookService {
     }
 
     public Page<Book> getBooksPage(Long userId, String query, Long libraryId, Set<Long> shelfIds, int page, int size) {
-        if (userId == null) {
-            throw ApiError.FORBIDDEN.createException("Authentication required");
-        }
-
-        BookLoreUserEntity entity = userRepository.findByIdWithDetails(userId)
-                .orElseThrow(() -> ApiError.USER_NOT_FOUND.createException(userId));
-
-        if (entity.getPermissions() == null ||
-                (!entity.getPermissions().isPermissionAccessOpds() && !entity.getPermissions().isPermissionAdmin())) {
-            throw ApiError.FORBIDDEN.createException("You are not allowed to access this resource");
-        }
+        BookLoreUserEntity entity = requireOpdsAccess(userId);
 
         BookLoreUser user = bookLoreUserTransformer.toDTO(entity);
         boolean isAdmin = user.getPermissions().isAdmin();
@@ -501,15 +491,31 @@ public class OpdsBookService {
         }
     }
 
-    public void validateBookContentAccess(Long bookId, Long userId) {
+    /**
+     * Enforce that the user exists and currently holds the OPDS-access permission (admins always
+     * pass). The single gate for every OPDS entry point — content downloads/covers
+     * ({@link #validateBookContentAccess}), book listings ({@link #getBooksPage}) and feeds
+     * (via {@code OpdsFeedService.getUserId}) — so a credential whose owner later lost the
+     * permission stops working everywhere, not just on the paged listing. Returns the loaded user
+     * entity so callers that need it (library scope, admin short-circuit) can reuse it.
+     */
+    public BookLoreUserEntity requireOpdsAccess(Long userId) {
         if (userId == null) {
             throw ApiError.FORBIDDEN.createException("Authentication required");
         }
-
-        BookLoreUserEntity entity = userRepository.findById(userId)
+        BookLoreUserEntity entity = userRepository.findByIdWithDetails(userId)
                 .orElseThrow(() -> ApiError.USER_NOT_FOUND.createException(userId));
+        if (entity.getPermissions() == null
+                || (!entity.getPermissions().isPermissionAccessOpds() && !entity.getPermissions().isPermissionAdmin())) {
+            throw ApiError.FORBIDDEN.createException("You are not allowed to access this resource");
+        }
+        return entity;
+    }
 
-        if (entity.getPermissions() != null && entity.getPermissions().isPermissionAdmin()) {
+    public void validateBookContentAccess(Long bookId, Long userId) {
+        BookLoreUserEntity entity = requireOpdsAccess(userId);
+
+        if (entity.getPermissions().isPermissionAdmin()) {
             return;
         }
 

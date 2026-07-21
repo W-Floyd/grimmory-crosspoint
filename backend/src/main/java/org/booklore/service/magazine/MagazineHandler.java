@@ -91,13 +91,13 @@ public class MagazineHandler {
 
             Files.write(manifestFile, JSON.writeValueAsBytes(buildManifest(request)));
 
-            String args = config.getToolArgs()
-                    .replace("{input}", manifestFile.toString())
-                    .replace("{output}", outputDir.toString());
+            java.util.List<String> command = org.booklore.util.ExternalToolCommand.build(
+                    config.getToolPath(), config.getToolArgs(),
+                    java.util.Map.of("input", manifestFile.toString(), "output", outputDir.toString()));
             // Don't log the command verbatim — keep card credentials out of logs.
             log.info("Running magazine handler tool for title {}", request.titleId());
 
-            ProcessBuilder pb = new ProcessBuilder((config.getToolPath() + " " + args).split("\\s+"));
+            ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
             pb.directory(tempDir.toFile());
 

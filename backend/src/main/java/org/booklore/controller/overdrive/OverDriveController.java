@@ -273,11 +273,10 @@ public class OverDriveController {
     @ApiResponse(responseCode = "200", description = "Sync successful")
     @GetMapping("/sync")
     public ResponseEntity<OverDriveSyncResult> sync(
-            @Parameter(description = "Library identity (card ID)") @RequestParam String identity,
-            @Parameter(description = "Auth token (optional; falls back to the stored token)") @RequestParam(required = false) String token
+            @Parameter(description = "Library identity (card ID)") @RequestParam String identity
     ) {
         requireEnabled();
-        OverDriveSyncResponse sync = overDriveService.sync(identity, token);
+        OverDriveSyncResponse sync = overDriveService.sync(identity);
         return ResponseEntity.ok(convertSync(identity, sync));
     }
 
@@ -292,7 +291,6 @@ public class OverDriveController {
     @PostMapping("/{identity}/borrow")
     public ResponseEntity<OverDriveBorrowResult> borrow(
             @Parameter(description = "Library card id") @PathVariable String identity,
-            @Parameter(description = "Auth token (optional; falls back to the stored token)") @RequestParam(required = false) String token,
             @Parameter(description = "OverDrive title id to borrow") @RequestBody Map<String, String> body
     ) {
         requireEnabled();
@@ -302,7 +300,7 @@ public class OverDriveController {
         }
 
         // Media-type hint so audiobooks borrow as "audiobook" (defaults to ebook when omitted).
-        String loanId = overDriveService.borrow(identity, token, titleId, body.get("titleFormat"));
+        String loanId = overDriveService.borrow(identity, titleId, body.get("titleFormat"));
         return ResponseEntity.ok(new OverDriveBorrowResult(loanId));
     }
 
@@ -436,7 +434,6 @@ public class OverDriveController {
     @PostMapping("/{identity}/borrow-and-import")
     public ResponseEntity<Book> borrowAndImport(
             @Parameter(description = "Library card id") @PathVariable String identity,
-            @Parameter(description = "Auth token (optional; falls back to the stored token)") @RequestParam(required = false) String token,
             @RequestBody OverDriveBorrowImportRequest request
     ) {
         requireEnabled();
@@ -448,7 +445,7 @@ public class OverDriveController {
 
         try {
             Book book = overDriveService.borrowAndImport(
-                    identity, token, request.getTitleId(),
+                    identity, request.getTitleId(),
                     request.getLibraryId(), request.getPathId(),
                     request.getTitle(), request.getAuthor(),
                     request.getCoverUrl(), request.getIsbn(),
@@ -474,12 +471,11 @@ public class OverDriveController {
     @PostMapping("/{identity}/fulfill/{loanId}")
     public ResponseEntity<OverDriveFulfillResult> fulfill(
             @Parameter(description = "Library identity") @PathVariable String identity,
-            @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
             @Parameter(description = "Loan ID to fulfill") @PathVariable String loanId
     ) {
         requireEnabled();
         try {
-            String acsmBase64 = overDriveService.fulfill(identity, token, loanId);
+            String acsmBase64 = overDriveService.fulfill(identity, loanId);
             return ResponseEntity.ok(new OverDriveFulfillResult(acsmBase64));
         } catch (APIException e) {
             throw e;
@@ -503,17 +499,17 @@ public class OverDriveController {
              @PostMapping(value = "/{identity}/fulfill/{loanId}/download", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
         public ResponseEntity<byte[]> downloadViaAcsm(
                  @Parameter(description = "Library card id") @PathVariable String identity,
-                 @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
                  @Parameter(description = "Loan ID to fulfill") @PathVariable String loanId,
                  HttpServletResponse response
           ) {
+             requireEnabled();
              if (!acsmHandlerConfig.isEnabled()) {
                  log.warn("ACSM handler not enabled. Configure app.acsm.enabled=true");
                  throw ApiError.GENERIC_BAD_REQUEST.createException("ACSM handler not enabled");
                   }
 
              // Step 1: Fetch the ACSM from OverDrive.
-             byte[] acsmBytes = getAcsmBytes(identity, token, loanId);
+             byte[] acsmBytes = getAcsmBytes(identity, loanId);
              if (acsmBytes == null || acsmBytes.length == 0) {
                  log.warn("Failed to get ACSM for loan {}", loanId);
                  throw ApiError.GENERIC_BAD_REQUEST.createException("Failed to fetch ACSM");
@@ -532,9 +528,9 @@ public class OverDriveController {
              return new ResponseEntity<>(bookBytes, HttpStatus.OK);
           }
 
-             private byte[] getAcsmBytes(String identity, String token, String loanId) {
+             private byte[] getAcsmBytes(String identity, String loanId) {
                  try {
-                     String acsmBase64 = overDriveService.fulfill(identity, token, loanId);
+                     String acsmBase64 = overDriveService.fulfill(identity, loanId);
                      if (acsmBase64 == null) return null;
                      return java.util.Base64.getDecoder().decode(acsmBase64);
                   } catch (Exception e) {
@@ -556,7 +552,6 @@ public class OverDriveController {
     @PostMapping(value = "/{identity}/fulfill/{loanId}/download-audiobook", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<byte[]> downloadAudiobook(
             @Parameter(description = "Library card id") @PathVariable String identity,
-            @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
             @Parameter(description = "Loan ID to fulfill") @PathVariable String loanId,
             @Parameter(description = "Audiobook format id (optional; discovered from the loan when omitted)") @RequestParam(required = false) String formatId
     ) {
@@ -566,7 +561,7 @@ public class OverDriveController {
             throw ApiError.GENERIC_BAD_REQUEST.createException("Audiobook handler not configured");
         }
         try {
-            AudiobookHandler.Result result = overDriveService.downloadAudiobook(identity, token, loanId, formatId);
+            AudiobookHandler.Result result = overDriveService.downloadAudiobook(identity, loanId, formatId);
             String filename = loanId + "." + result.extension();
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
@@ -590,10 +585,10 @@ public class OverDriveController {
     @PostMapping("/{identity}/return/{loanId}")
     public ResponseEntity<Void> returnBook(
             @Parameter(description = "Library identity") @PathVariable String identity,
-            @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
             @Parameter(description = "Loan ID to return") @PathVariable String loanId
     ) {
-        overDriveService.returnBook(identity, token, loanId);
+        requireEnabled();
+        overDriveService.returnBook(identity, loanId);
         return ResponseEntity.ok().build();
     }
 
@@ -608,11 +603,10 @@ public class OverDriveController {
     @PostMapping("/{identity}/hold/{titleId}")
     public ResponseEntity<Void> placeHold(
             @Parameter(description = "Library card id") @PathVariable String identity,
-            @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
             @Parameter(description = "OverDrive title id to hold") @PathVariable String titleId
     ) {
         requireEnabled();
-        overDriveService.placeHold(identity, token, titleId);
+        overDriveService.placeHold(identity, titleId);
         return ResponseEntity.ok().build();
     }
 
@@ -625,11 +619,10 @@ public class OverDriveController {
     @DeleteMapping("/{identity}/hold/{titleId}")
     public ResponseEntity<Void> cancelHold(
             @Parameter(description = "Library card id") @PathVariable String identity,
-            @Parameter(description = "Auth token (optional; server resolves the stored token)") @RequestParam(required = false) String token,
             @Parameter(description = "OverDrive title id") @PathVariable String titleId
     ) {
         requireEnabled();
-        overDriveService.cancelHold(identity, token, titleId);
+        overDriveService.cancelHold(identity, titleId);
         return ResponseEntity.ok().build();
     }
 
@@ -640,12 +633,20 @@ public class OverDriveController {
     @ApiResponse(responseCode = "200", description = "Token stored successfully")
     @PostMapping("/token")
     public ResponseEntity<Void> storeToken(
-            @Parameter(description = "Identity") @RequestParam String identity,
-            @Parameter(description = "Token") @RequestParam String token
+            @RequestBody StoreTokenRequest request
     ) {
-        overDriveService.storeToken(identity, null, null, token);
+        requireEnabled();
+        // Token is carried in the body (never a query param) so it can't leak into access/proxy logs.
+        if (request == null || request.identity() == null || request.identity().isBlank()
+                || request.token() == null || request.token().isBlank()) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("identity and token are required");
+        }
+        overDriveService.storeToken(request.identity(), null, null, request.token());
         return ResponseEntity.ok().build();
     }
+
+    /** Request body for {@link #storeToken}; token stays out of the query string. */
+    record StoreTokenRequest(String identity, String token) {}
 
     @Operation(summary = "Remove a stored token",
                description = "Remove a previously stored token.")
@@ -654,6 +655,7 @@ public class OverDriveController {
     public ResponseEntity<Void> removeToken(
             @Parameter(description = "Identity") @RequestParam String identity
     ) {
+        requireEnabled();
         overDriveService.removeToken(identity);
         return ResponseEntity.ok().build();
     }

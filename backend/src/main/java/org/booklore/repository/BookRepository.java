@@ -58,6 +58,17 @@ public interface BookRepository extends JpaRepository<BookEntity, Long>, JpaSpec
     @Query("SELECT b.id FROM BookEntity b WHERE upper(b.metadata.asin) = upper(:asin) AND (b.deleted IS NULL OR b.deleted = false)")
     java.util.List<Long> findIdsByAsin(@Param("asin") String asin);
 
+    // Library-scoped variants: match only within the caller's accessible libraries, so a cross-reference
+    // (e.g. OverDrive loan → existing book) can't reveal a book id from a library the user cannot access.
+    @Query("SELECT b.id FROM BookEntity b WHERE b.metadata.isbn13 = :isbn AND b.library.id IN :libraryIds AND (b.deleted IS NULL OR b.deleted = false)")
+    java.util.List<Long> findIdsByIsbn13AndLibraryIdIn(@Param("isbn") String isbn, @Param("libraryIds") java.util.Collection<Long> libraryIds);
+
+    @Query("SELECT b.id FROM BookEntity b WHERE b.metadata.isbn10 = :isbn AND b.library.id IN :libraryIds AND (b.deleted IS NULL OR b.deleted = false)")
+    java.util.List<Long> findIdsByIsbn10AndLibraryIdIn(@Param("isbn") String isbn, @Param("libraryIds") java.util.Collection<Long> libraryIds);
+
+    @Query("SELECT b.id FROM BookEntity b WHERE upper(b.metadata.asin) = upper(:asin) AND b.library.id IN :libraryIds AND (b.deleted IS NULL OR b.deleted = false)")
+    java.util.List<Long> findIdsByAsinAndLibraryIdIn(@Param("asin") String asin, @Param("libraryIds") java.util.Collection<Long> libraryIds);
+
     @EntityGraph(attributePaths = { "metadata", "metadata.authors", "metadata.categories", "metadata.moods", "metadata.tags", "metadata.comicMetadata", "bookFiles" })
     @Query("SELECT b FROM BookEntity b WHERE b.id = :id AND (b.deleted IS NULL OR b.deleted = false)")
     Optional<BookEntity> findByIdFull(@Param("id") Long id);

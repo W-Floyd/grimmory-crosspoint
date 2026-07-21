@@ -3,7 +3,6 @@ package org.booklore.service.opds.optimization;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
-import org.apache.commons.compress.archivers.zip.ZipFile;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -11,14 +10,11 @@ import org.jsoup.parser.Parser;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.Enumeration;
-import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -88,18 +84,8 @@ public class EpubCoverReplacer {
     }
 
     private Map<String, byte[]> readEntries(Path sourceEpub) throws IOException {
-        Map<String, byte[]> entries = new LinkedHashMap<>();
-        try (ZipFile zip = ZipFile.builder().setPath(sourceEpub).get()) {
-            Enumeration<ZipArchiveEntry> e = zip.getEntriesInPhysicalOrder();
-            while (e.hasMoreElements()) {
-                ZipArchiveEntry entry = e.nextElement();
-                if (entry.isDirectory()) continue;
-                try (InputStream in = zip.getInputStream(entry)) {
-                    entries.put(entry.getName(), in.readAllBytes());
-                }
-            }
-        }
-        return entries;
+        // Bounded read (name→bytes, physical order) with a zip-bomb guard; see EpubZipReader.
+        return EpubZipReader.readEntries(sourceEpub);
     }
 
     /** Locate the OPF package document via META-INF/container.xml, falling back to any *.opf entry. */

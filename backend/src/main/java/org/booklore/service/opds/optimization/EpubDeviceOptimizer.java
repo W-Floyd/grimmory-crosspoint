@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
-import org.apache.commons.compress.archivers.zip.ZipFile;
 import org.booklore.model.dto.opds.DevicePreset;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -13,14 +12,12 @@ import org.jsoup.parser.Parser;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -55,18 +52,9 @@ public class EpubDeviceOptimizer {
      */
     public void optimize(Path sourceEpub, DevicePreset preset, Path target) throws IOException {
         // Read every entry up-front (physical order) so the rename map is complete before
-        // XHTML/OPF references are rewritten. Source size is bounded by the caller.
-        Map<String, byte[]> entries = new LinkedHashMap<>();
-        try (ZipFile zip = ZipFile.builder().setPath(sourceEpub).get()) {
-            Enumeration<ZipArchiveEntry> e = zip.getEntriesInPhysicalOrder();
-            while (e.hasMoreElements()) {
-                ZipArchiveEntry entry = e.nextElement();
-                if (entry.isDirectory()) continue;
-                try (InputStream in = zip.getInputStream(entry)) {
-                    entries.put(entry.getName(), in.readAllBytes());
-                }
-            }
-        }
+        // XHTML/OPF references are rewritten. EpubZipReader bounds the total uncompressed size
+        // (zip-bomb guard); the caller only bounds the compressed source size.
+        Map<String, byte[]> entries = EpubZipReader.readEntries(sourceEpub);
 
         Map<String, String> renamed = new LinkedHashMap<>();     // old full path -> new full path
         List<String> deferredXhtml = new ArrayList<>();

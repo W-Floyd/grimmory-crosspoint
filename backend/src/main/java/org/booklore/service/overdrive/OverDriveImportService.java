@@ -107,6 +107,14 @@ public class OverDriveImportService {
         BookMetadata namingMetadata = metadata != null ? metadata : BookMetadata.builder().build();
         String pattern = fileMovingHelper.getFileNamingPattern(library);
         Path target = fileMovingHelper.generateNewFilePath(path.getPath(), namingMetadata, pattern, suggestedFileName);
+        // Defense-in-depth: the filename is already separator-stripped and the pattern is operator-set,
+        // but assert the resolved target stays inside the library path before writing — never trust the
+        // sanitizer alone (mirrors the upload path's containment check).
+        try {
+            FileUtils.requirePathWithinBase(target, Path.of(path.getPath()));
+        } catch (IllegalArgumentException e) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Invalid import target path");
+        }
         File targetFile = target.toFile();
 
         if (targetFile.exists()) {
@@ -163,6 +171,12 @@ public class OverDriveImportService {
             Path dropFolder = Path.of(appProperties.getBookdropFolder()).toAbsolutePath().normalize();
             Files.createDirectories(dropFolder);
             Path target = uniqueBookdropTarget(dropFolder, suggestedFileName);
+            // Defense-in-depth: assert the resolved name stays inside the Bookdrop folder before writing.
+            try {
+                FileUtils.requirePathWithinBase(target, dropFolder);
+            } catch (IllegalArgumentException e) {
+                throw ApiError.GENERIC_BAD_REQUEST.createException("Invalid Bookdrop target path");
+            }
             Path temp = Files.createTempFile(dropFolder, "overdrive-", ".part");
             Files.write(temp, bookBytes);
             Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE);

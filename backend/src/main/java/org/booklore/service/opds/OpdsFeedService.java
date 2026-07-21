@@ -986,7 +986,11 @@ public class OpdsFeedService {
         if (details == null || details.getOpdsUserV2() == null) {
             throw ApiError.FORBIDDEN.createException("OPDS authentication required");
         }
-        return details.getOpdsUserV2().getUserId();
+        Long userId = details.getOpdsUserV2().getUserId();
+        // Every feed flows through here, so this is the single gate that re-checks the owning user
+        // still holds the OPDS-access permission (a credential outlives a later permission revocation).
+        opdsBookService.requireOpdsAccess(userId);
+        return userId;
     }
 
     private OpdsSortOrder getSortOrder() {

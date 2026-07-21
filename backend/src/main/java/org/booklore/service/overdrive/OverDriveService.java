@@ -842,8 +842,8 @@ public class OverDriveService {
        * GET /chip/sync — fetches current loans and holds.
        * Persists loan state to the database.
        */
-      public OverDriveSyncResponse sync(String identity, String authToken) {
-        authToken = resolveToken(identity, authToken);
+      public OverDriveSyncResponse sync(String identity) {
+        String authToken = resolveToken(identity);
         String url = sentryBaseUrl + "/chip/sync";
         HttpHeaders headers = libbyHeaders(authToken);
 
@@ -928,11 +928,11 @@ public class OverDriveService {
        * POST /card/{cardId}/loan/{loanId}/fulfill/ebook-epub-adobe
        * Returns the ACSM fulfillment token content as base64.
        */
-      public String fulfill(String identity, String authToken, String loanId) {
+      public String fulfill(String identity, String loanId) {
         // Fulfill with the stored identity as-is. Don't pre-mint: the web client fulfills with its
         // stored identity and re-mints only reactively when the endpoint returns missing_chip, which
         // fetchFulfillment already handles. Minting up front adds needless chip churn.
-        authToken = resolveToken(identity, authToken);
+        String authToken = resolveToken(identity);
         byte[] body;
         try {
             body = fetchFulfillment(identity, authToken, loanId, FORMAT_EPUB_ADOBE);
@@ -964,9 +964,9 @@ public class OverDriveService {
        * POST /card/{cardId}/loan/{titleId} — borrow a title by its OverDrive title id.
        * Returns the created loan id.
        */
-      public String borrow(String identity, String authToken, String titleId, String titleFormat) {
+      public String borrow(String identity, String titleId, String titleFormat) {
         try {
-            Map<String, Object> loan = borrowLoan(identity, resolveToken(identity, authToken), titleId, titleFormat);
+            Map<String, Object> loan = borrowLoan(identity, resolveToken(identity), titleId, titleFormat);
             Object id = loan.get("id");
             String loanId = id != null ? id.toString() : null;
             recordAudit(OverDriveAuditAction.BORROW, identity, titleId, loanId, null,
@@ -1075,12 +1075,12 @@ public class OverDriveService {
        * when there is no matching active loan, or when it advertises no usable formats (the caller then
        * borrows normally). Never throws.
        */
-      private LoanRef findActiveLoan(String cardId, String authToken, String titleId) {
+      private LoanRef findActiveLoan(String cardId, String titleId) {
         if (titleId == null || titleId.isBlank()) {
             return null;
         }
         try {
-            OverDriveSyncResponse synced = sync(cardId, authToken);
+            OverDriveSyncResponse synced = sync(cardId);
             if (synced == null || synced.getLoans() == null) {
                 return null;
             }
@@ -1729,11 +1729,11 @@ public class OverDriveService {
        * @param formatId the loan's audiobook format (e.g. {@code audiobook-mp3}); when null/not an
        *                 audiobook format, it is discovered from the active loan.
        */
-      public AudiobookHandler.Result downloadAudiobook(String identity, String authToken, String loanId, String formatId) {
-        authToken = resolveToken(identity, authToken);
+      public AudiobookHandler.Result downloadAudiobook(String identity, String loanId, String formatId) {
+        resolveToken(identity); // validate the card is accessible even though the tool re-auths itself
         String chosenFormat = isAudiobookFormat(formatId) ? formatId : null;
         if (chosenFormat == null) {
-            LoanRef loan = findActiveLoan(identity, authToken, loanId);
+            LoanRef loan = findActiveLoan(identity, loanId);
             chosenFormat = loan == null ? null : loan.formatIds().stream()
                     .filter(OverDriveService::isAudiobookFormat)
                     .findFirst()
@@ -1785,7 +1785,7 @@ public class OverDriveService {
        * @param titleId the OverDrive title id to borrow
        * @return the persisted {@link Book}
        */
-      public Book borrowAndImport(String identity, String authToken, String titleId, Long libraryId, Long pathId,
+      public Book borrowAndImport(String identity, String titleId, Long libraryId, Long pathId,
                                   String title, String author, String coverUrl, String isbn, String preferredFormat,
                                   String titleFormat) {
         // Track whether this became an import of an existing loan (vs a fresh borrow) so both the
@@ -1794,18 +1794,18 @@ public class OverDriveService {
         boolean alreadyBorrowed = false;
         // Magazines route to their own handler with no Grimmory borrow (the tool borrows + fulfils itself).
         if ("magazine".equals(normalizeTitleFormat(titleFormat)) || isMagazineFormat(preferredFormat)) {
-            return importMagazine(identity, authToken, titleId, libraryId, pathId, title, author, coverUrl, isbn);
+            return importMagazine(identity, titleId, libraryId, pathId, title, author, coverUrl, isbn);
         }
         try {
         // Borrow and fulfill with the stored identity as-is, mirroring the web client: it does not
         // pre-mint, and fetchFulfillment re-mints reactively on missing_chip. Pre-minting here only
         // added chip churn without avoiding the missing_chip round-trip.
-        authToken = resolveToken(identity, authToken);
+        String authToken = resolveToken(identity);
 
         // Resume an already-borrowed title rather than borrowing again: a prior attempt may have
         // borrowed the title but failed at fulfill/import, leaving the loan (and a consumed checkout
         // slot) in place. Borrowing is not automatically retried; we only pick up the existing loan.
-        LoanRef loan = findActiveLoan(identity, authToken, titleId);
+        LoanRef loan = findActiveLoan(identity, titleId);
         // Was it already on loan? Then this is an import of an existing loan, not a fresh borrow — the
         // history should say so.
         alreadyBorrowed = loan != null;
@@ -1940,10 +1940,10 @@ public class OverDriveService {
        * A loan row is tracked keyed by the title id (a magazine loan's id equals its title id) so the
        * Loans tab links the imported book.
        */
-      public Book importMagazine(String identity, String authToken, String titleId, Long libraryId, Long pathId,
+      public Book importMagazine(String identity, String titleId, Long libraryId, Long pathId,
                                  String title, String author, String coverUrl, String isbn) {
         try {
-            resolveToken(identity, authToken); // validate the card is accessible even though the tool re-auths
+            resolveToken(identity); // validate the card is accessible even though the tool re-auths
 
             MagazineHandler.Result magazine = magazineHandler.handle(magazineRequest(identity, titleId), toolLogSink(titleId));
             byte[] content = magazine.content();
@@ -2088,24 +2088,50 @@ public class OverDriveService {
        * links titles that carry no usable ISBN (e.g. audiobooks) to a library book with that ASIN.
        */
       public Long resolveLinkedBookId(String isbn, String asin) {
+        // Scope the match to libraries the current user can access, so linking an OverDrive loan to an
+        // existing book can't leak a book id from a library the user isn't assigned to. Admins match
+        // globally (they can access every library anyway).
+        boolean admin = currentUserIsAdmin();
+        List<Long> libraryIds = admin ? null : accessibleLibraryIds();
+        if (!admin && libraryIds.isEmpty()) {
+            return null; // no accessible libraries → nothing to link
+        }
         if (isbn != null && !isbn.isBlank()) {
             String cleaned = isbn.replaceAll("[^0-9Xx]", "");
             if (cleaned.length() == 13) {
-                Long id = bookRepository.findIdsByIsbn13(cleaned).stream().findFirst().orElse(null);
+                Long id = (admin ? bookRepository.findIdsByIsbn13(cleaned)
+                        : bookRepository.findIdsByIsbn13AndLibraryIdIn(cleaned, libraryIds))
+                        .stream().findFirst().orElse(null);
                 if (id != null) {
                     return id;
                 }
             } else if (cleaned.length() == 10) {
-                Long id = bookRepository.findIdsByIsbn10(cleaned).stream().findFirst().orElse(null);
+                Long id = (admin ? bookRepository.findIdsByIsbn10(cleaned)
+                        : bookRepository.findIdsByIsbn10AndLibraryIdIn(cleaned, libraryIds))
+                        .stream().findFirst().orElse(null);
                 if (id != null) {
                     return id;
                 }
             }
         }
         if (asin != null && !asin.isBlank()) {
-            return bookRepository.findIdsByAsin(asin.trim()).stream().findFirst().orElse(null);
+            return (admin ? bookRepository.findIdsByAsin(asin.trim())
+                    : bookRepository.findIdsByAsinAndLibraryIdIn(asin.trim(), libraryIds))
+                    .stream().findFirst().orElse(null);
         }
         return null;
+      }
+
+      /** The ids of libraries the current user is assigned to (empty when none). */
+      private List<Long> accessibleLibraryIds() {
+        BookLoreUser user = currentUser();
+        if (user.getAssignedLibraries() == null) {
+            return List.of();
+        }
+        return user.getAssignedLibraries().stream()
+                .map(l -> l.getId())
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
       }
 
       /**
@@ -2191,8 +2217,8 @@ public class OverDriveService {
       /**
        * DELETE /card/{cardId}/loan/{loanId} — return a book.
        */
-      public void returnBook(String identity, String authToken, String loanId) {
-        authToken = resolveToken(identity, authToken);
+      public void returnBook(String identity, String loanId) {
+        String authToken = resolveToken(identity);
         String url = sentryBaseUrl + "/card/" + identity + "/loan/" + loanId;
         HttpHeaders headers = libbyHeaders(authToken);
 
@@ -2229,8 +2255,8 @@ public class OverDriveService {
       /**
        * GET /card/{cardId}/hold/{formatId} — place a hold.
        */
-      public void placeHold(String identity, String authToken, String titleId) {
-        authToken = resolveToken(identity, authToken);
+      public void placeHold(String identity, String titleId) {
+        String authToken = resolveToken(identity);
         String url = sentryBaseUrl + "/card/" + identity + "/hold/" + titleId;
         HttpHeaders headers = libbyHeaders(authToken);
 
@@ -2253,8 +2279,8 @@ public class OverDriveService {
       /**
        * Cancel a hold on a title.
        */
-      public void cancelHold(String identity, String authToken, String titleId) {
-        authToken = resolveToken(identity, authToken);
+      public void cancelHold(String identity, String titleId) {
+        String authToken = resolveToken(identity);
         String url = sentryBaseUrl + "/card/" + identity + "/hold/" + titleId;
         HttpHeaders headers = libbyHeaders(authToken);
 
@@ -2315,9 +2341,17 @@ public class OverDriveService {
 
      // ── Card Sharing ─────────────────────────────────────────────────────
 
-      /** Candidate users to share a card with: everyone except the current user (minimal fields). */
+      /**
+       * Candidate users to share a card with: everyone except the current user (minimal fields).
+       * Only users who actually own a linked card (or admins, who can manage any card's shares) may
+       * enumerate the roster — a user with nothing to share has no need for the picker, so this keeps
+       * the full user list from being readable by every authenticated user.
+       */
       public List<OverDriveShareUser> shareableUsers() {
         Long me = currentUserId();
+        if (tokenRepository.findByUserId(me).isEmpty() && !currentUserIsAdmin()) {
+            return List.of();
+        }
         return userRepository.findAll().stream()
                 .filter(u -> u.getId() != null && !u.getId().equals(me))
                 .map(u -> new OverDriveShareUser(u.getId(), u.getUsername(), u.getName()))
@@ -2571,13 +2605,12 @@ public class OverDriveService {
       }
 
       /**
-       * Resolve the token to use for a card: the caller-supplied token when present, otherwise the
-       * current user's stored token for that card. Throws if neither is available.
+       * Resolve the token to use for a card: the current user's stored token for that card (or a card
+       * shared with them, via {@link #accessibleTokenRow}). Throws if the card is not accessible or has
+       * no stored token. Callers cannot supply their own bearer token — doing so would bypass the
+       * per-user ownership check and, when passed as a query param, leak the token into access logs.
        */
-      private String resolveToken(String identity, String providedToken) {
-        if (providedToken != null && !providedToken.isBlank()) {
-            return providedToken;
-        }
+      private String resolveToken(String identity) {
         String stored = getStoredToken(identity);
         if (stored == null || stored.isBlank()) {
             throw new RestClientException(

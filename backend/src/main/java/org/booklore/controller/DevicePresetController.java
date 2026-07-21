@@ -8,6 +8,7 @@ import org.booklore.model.dto.opds.DevicePreset;
 import org.booklore.model.dto.opds.DevicePresetSummary;
 import org.booklore.service.opds.optimization.DevicePresetService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,6 +31,7 @@ public class DevicePresetController {
 
     @Operation(summary = "List configured OPDS device presets")
     @ApiResponse(responseCode = "200", description = "Device presets returned successfully")
+    @PreAuthorize("@securityUtil.isAdmin() or @securityUtil.canAccessOpds()")
     @GetMapping
     public ResponseEntity<List<DevicePresetSummary>> getDevicePresets() {
         List<DevicePresetSummary> presets = devicePresetService.all().entrySet().stream()
