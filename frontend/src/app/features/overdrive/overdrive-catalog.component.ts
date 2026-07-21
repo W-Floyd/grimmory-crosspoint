@@ -1,5 +1,5 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { Component, computed, DestroyRef, effect, inject, signal, untracked } from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
@@ -15,6 +15,8 @@ import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { CheckboxModule } from 'primeng/checkbox';
+import { DialogModule } from 'primeng/dialog';
+import { RxStompService } from '../../shared/websocket/rx-stomp.service';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { TooltipModule } from 'primeng/tooltip';
@@ -39,6 +41,7 @@ import { OverdriveCoverComponent } from './overdrive-cover.component';
     SelectModule,
     MultiSelectModule,
     CheckboxModule,
+    DialogModule,
     ToastModule,
     TooltipModule,
     InputTextModule,
@@ -348,7 +351,29 @@ export class OverdriveCatalogComponent {
   // Whether a magazine handler is configured server-side (enables magazine borrows).
   magazineConfigured = signal(false);
 
+  // Live stdout/stderr streamed from the external ACSM/audiobook/magazine handler during an import.
+  private readonly rxStompService = inject(RxStompService);
+  private readonly destroyRef = inject(DestroyRef);
+  toolLog = signal<string[]>([]);
+  toolConsoleVisible = signal(false);
+
    constructor() {
+     // Stream handler output to a console popup. A new import resets the log; a line auto-opens the popup.
+     this.rxStompService.watch('/user/queue/overdrive-tool-log')
+       .pipe(takeUntilDestroyed(this.destroyRef))
+       .subscribe(msg => {
+         try {
+           const line = (JSON.parse(msg.body) as { line?: string }).line ?? '';
+           this.toolLog.update(lines => [...lines, line]);
+           this.toolConsoleVisible.set(true);
+         } catch { /* ignore malformed frames */ }
+       });
+     effect(() => {
+       // A newly-started operation clears the previous run's output (kept visible after it finishes).
+       if (this.importingTitleId()) {
+         untracked(() => this.toolLog.set([]));
+       }
+     });
      // Remember the folded/expanded state of the Library Cards section across sessions.
      effect(() => {
        const collapsed = this.cardsCollapsed();

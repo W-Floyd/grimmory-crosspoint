@@ -26,6 +26,7 @@ import org.booklore.repository.OverDriveTokenRepository;
 import org.booklore.repository.UserRepository;
 import org.springframework.data.domain.PageRequest;
 import org.booklore.service.acsm.AcsmHandler;
+import org.booklore.model.websocket.Topic;
 import org.booklore.service.audiobook.AudiobookHandler;
 import org.booklore.service.magazine.MagazineHandler;
 import org.booklore.service.appsettings.AppSettingService;
@@ -96,6 +97,7 @@ public class OverDriveService {
     private final AuthenticationService authenticationService;
     private final AppSettingService appSettingService;
     private final OverDriveCredentialCipher credentialCipher;
+    private final org.booklore.service.NotificationService notificationService;
 
     /** The authenticated Grimmory user, or throws if there is no authenticated user. */
     private BookLoreUser currentUser() {
@@ -109,6 +111,23 @@ public class OverDriveService {
     /** The authenticated Grimmory user's id, or throws if there is no authenticated user. */
     private Long currentUserId() {
         return currentUser().getId();
+    }
+
+    /**
+     * A sink that streams each line of an external handler's output to the current user's OverDrive
+     * tool-log websocket topic (labelled with the title id), so the UI can show live progress. Resolves
+     * the username now (on the request thread) since the handler drains on a background thread without a
+     * security context. Returns null when there's no authenticated user.
+     */
+    private java.util.function.Consumer<String> toolLogSink(String titleId) {
+        BookLoreUser user = authenticationService.getAuthenticatedUser();
+        if (user == null || user.getUsername() == null) {
+            return null;
+        }
+        String username = user.getUsername();
+        String label = titleId == null ? "" : titleId;
+        return line -> notificationService.sendMessageToUser(username, Topic.OVERDRIVE_TOOL_LOG,
+                Map.of("titleId", label, "line", line));
     }
 
     /** Whether the current user is an administrator. */
@@ -1679,7 +1698,8 @@ public class OverDriveService {
             throw new RestClientException("No audiobook format found for loan " + loanId);
         }
         try {
-            AudiobookHandler.Result result = audiobookHandler.handle(audiobookRequest(identity, loanId, chosenFormat));
+            AudiobookHandler.Result result = audiobookHandler.handle(
+                    audiobookRequest(identity, loanId, chosenFormat), toolLogSink(loanId));
             if (result == null || result.content() == null || result.content().length == 0) {
                 recordAuditFailure(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, "Audiobook handler produced no file");
                 throw new RestClientException("The audiobook handler did not produce a file for loan " + loanId + ".");
@@ -1775,7 +1795,8 @@ public class OverDriveService {
             // Audiobook: hand the raw card + PIN to the external tool, which authenticates itself
             // (its own chip + app-emulating UA, kept separate from Grimmory's web chip), then fulfils,
             // downloads and assembles the file. The tool picks the output extension (m4b/mp3/…).
-            AudiobookHandler.Result audiobook = audiobookHandler.handle(audiobookRequest(identity, titleId, chosenFormat));
+            AudiobookHandler.Result audiobook = audiobookHandler.handle(
+                    audiobookRequest(identity, titleId, chosenFormat), toolLogSink(titleId));
             content = audiobook.content();
             extension = audiobook.extension();
             if (content == null || content.length == 0) {
@@ -1794,7 +1815,7 @@ public class OverDriveService {
             if (acsm == null || acsm.length == 0) {
                 throw new RestClientException("Could not fetch the ACSM for loan " + loanId);
             }
-            content = acsmHandler.handle(acsm, fileExtension(chosenFormat));
+            content = acsmHandler.handle(acsm, fileExtension(chosenFormat), toolLogSink(titleId));
             if (content == null || content.length == 0) {
                 throw new RestClientException("The external ACSM handler did not produce a book file for loan "
                         + loanId + ".");
@@ -1878,7 +1899,7 @@ public class OverDriveService {
         try {
             resolveToken(identity, authToken); // validate the card is accessible even though the tool re-auths
 
-            MagazineHandler.Result magazine = magazineHandler.handle(magazineRequest(identity, titleId));
+            MagazineHandler.Result magazine = magazineHandler.handle(magazineRequest(identity, titleId), toolLogSink(titleId));
             byte[] content = magazine.content();
             if (content == null || content.length == 0) {
                 throw new RestClientException("The magazine handler did not produce a file for title " + titleId + ".");

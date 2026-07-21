@@ -115,6 +115,11 @@
           (keyup.enter)="onSearch()"
           />
         <p-button label="Search" icon="pi pi-search" [loading]="searching()" (onClick)="onSearch()" />
+        @if (toolLog().length > 0) {
+          <p-button label="Handler output" icon="pi pi-desktop" severity="secondary" [text]="true"
+            pTooltip="Show the external handler's live output" tooltipPosition="top"
+            (onClick)="toolConsoleVisible.set(true)" />
+        }
       </div>
       @if (allAtLoanLimit()) {
         <p-message severity="warn" styleClass="mb-3">Every selected card is at its loan limit. Return a loan, or select another card, to borrow more.</p-message>
@@ -764,4 +769,13 @@
     </p-table>
   </p-card>
 }
+
+<p-dialog [visible]="toolConsoleVisible()" (visibleChange)="toolConsoleVisible.set($event)"
+  header="Handler output" [modal]="false" [dismissableMask]="true" [style]="{ width: '48rem', maxWidth: '92vw' }">
+  @if (toolLog().length === 0) {
+    <p class="tool-console-empty">Waiting for the handler…</p>
+  } @else {
+    <pre class="tool-console">{{ toolLog().join('\n') }}</pre>
+  }
+</p-dialog>
 </div>

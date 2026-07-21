@@ -7,6 +7,7 @@ import {OverdriveCatalogComponent} from './overdrive-catalog.component';
 import {OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
 import {LibraryService} from '../../features/book/service/library.service';
 import {TranslocoService} from '@jsverse/transloco';
+import {RxStompService} from '../../shared/websocket/rx-stomp.service';
 
 function card(cardId: string, libraryKey: string, name = cardId): OverDriveCard {
   return {cardId, libraryKey, name};
@@ -56,6 +57,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
         {provide: LibraryService, useValue: libraryService},
         {provide: MessageService, useValue: {add: vi.fn()}},
         {provide: TranslocoService, useValue: {langChanges$: of('en'), getActiveLang: () => 'en'}},
+        {provide: RxStompService, useValue: {watch: () => of()}},
       ],
     });
     component = TestBed.runInInjectionContext(() => new OverdriveCatalogComponent());

@@ -6,9 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.booklore.exception.ApiError;
 import org.springframework.stereotype.Service;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -91,6 +89,15 @@ public class AudiobookHandler {
      * @throws org.booklore.exception.APIException if no tool is configured or the tool fails
      */
     public Result handle(Request request) {
+        return handle(request, null);
+    }
+
+    /**
+     * As {@link #handle(Request)}, but streams each line of the tool's merged stdout/stderr to
+     * {@code logSink} as it is produced (in addition to buffering it for the failure message), so the UI
+     * can show live progress.
+     */
+    public Result handle(Request request, java.util.function.Consumer<String> logSink) {
         if (!isConfigured()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException(
                     "This title is an audiobook, but no audiobook handler is configured on the server.");
@@ -119,14 +126,8 @@ public class AudiobookHandler {
 
             // Drain the tool's merged stdout/stderr so the pipe buffer never fills (which would deadlock
             // the process) and so the waitFor timeout can fire.
-            ByteArrayOutputStream toolLog = new ByteArrayOutputStream();
-            Thread drainer = new Thread(() -> {
-                try (InputStream is = process.getInputStream()) {
-                    is.transferTo(toolLog);
-                } catch (IOException ignored) {
-                    // process ended / stream closed
-                }
-            }, "audiobook-output-drain");
+            StringBuilder toolLog = new StringBuilder();
+            Thread drainer = new Thread(() -> drainToolOutput(process, toolLog, logSink), "audiobook-output-drain");
             drainer.setDaemon(true);
             drainer.start();
 
@@ -138,8 +139,12 @@ public class AudiobookHandler {
                         "Audiobook handler timed out after " + config.getTimeoutSeconds() + "s.");
             }
 
+            drainer.join(2000); // let the drainer flush the tail before we read the buffer
             int exitCode = process.exitValue();
-            String output = toolLog.toString(StandardCharsets.UTF_8).strip();
+            String output;
+            synchronized (toolLog) {
+                output = toolLog.toString().strip();
+            }
             if (exitCode != 0) {
                 log.error("Audiobook handler tool exited with code {}. Output: {}", exitCode, output);
                 throw ApiError.GENERIC_BAD_REQUEST.createException(
@@ -219,6 +224,32 @@ public class AudiobookHandler {
         }
         String ext = fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
         return ext.matches("[a-z0-9]{1,8}") ? ext : "m4b";
+    }
+
+    /**
+     * Read the process's merged stdout/stderr line by line, appending each to {@code buffer} (for the
+     * failure message) and forwarding it to {@code logSink} (for live UI streaming) when present.
+     */
+    private static void drainToolOutput(Process process, StringBuilder buffer,
+                                        java.util.function.Consumer<String> logSink) {
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                synchronized (buffer) {
+                    buffer.append(line).append('\n');
+                }
+                if (logSink != null) {
+                    try {
+                        logSink.accept(line);
+                    } catch (RuntimeException ignored) {
+                        // never let a streaming failure break the download
+                    }
+                }
+            }
+        } catch (IOException ignored) {
+            // process ended / stream closed
+        }
     }
 
     private static void cleanup(Path tempDir) {
