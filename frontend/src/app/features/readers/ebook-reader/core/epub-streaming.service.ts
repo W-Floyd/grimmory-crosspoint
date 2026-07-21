@@ -43,7 +43,11 @@ export class EpubStreamingService {
   private http = inject(HttpClient);
   private authService = inject(AuthService);
 
-  getBookInfo(bookId: number, bookType?: string): Observable<EpubBookInfo> {
+  getBookInfo(bookId: number, bookType?: string, fileId?: number): Observable<EpubBookInfo> {
+    // fileId takes precedence server-side; it disambiguates two files of the same format.
+    if (fileId != null) {
+      return this.http.get<EpubBookInfo>(`${this.baseUrl}/${bookId}/info`, { params: { fileId: String(fileId) } });
+    }
     if (bookType) {
       return this.http.get<EpubBookInfo>(`${this.baseUrl}/${bookId}/info`, { params: { bookType } });
     }

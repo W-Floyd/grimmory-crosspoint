@@ -85,10 +85,11 @@ public class BookMediaController {
             @Parameter(description = "ID of the book") @PathVariable Long bookId,
             @Parameter(description = "Page number to retrieve") @PathVariable int pageNumber,
             @Parameter(description = "Optional book type for alternative format (e.g., PDF, CBX)") @RequestParam(required = false) String bookType,
+            @Parameter(description = "Optional exact book-file id; disambiguates two files of the same format") @RequestParam(required = false) Long fileId,
             HttpServletResponse response) throws IOException {
         response.setContentType(MediaType.IMAGE_JPEG_VALUE);
         response.setHeader(HttpHeaders.CACHE_CONTROL, IMAGE_CACHE.getHeaderValue());
-        cbxReaderService.streamPageImage(bookId, bookType, pageNumber, response.getOutputStream());
+        cbxReaderService.streamPageImage(bookId, bookType, fileId, pageNumber, response.getOutputStream());
     }
 
     @Operation(summary = "Get author photo", description = "Retrieve the photo for a specific author.")

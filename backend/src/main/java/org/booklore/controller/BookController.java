@@ -193,9 +193,10 @@ public class BookController {
     @CheckBookAccess(bookIdParam = "bookId")
     public ResponseEntity<Resource> getBookContent(
             @Parameter(description = "ID of the book") @PathVariable long bookId,
-            @Parameter(description = "Optional book type for alternative format (e.g., EPUB, PDF, MOBI)") @RequestParam(required = false) String bookType
+            @Parameter(description = "Optional book type for alternative format (e.g., EPUB, PDF, MOBI)") @RequestParam(required = false) String bookType,
+            @Parameter(description = "Optional exact book-file id; disambiguates two files of the same format") @RequestParam(required = false) Long fileId
             ) {
-        return bookService.getBookContent(bookId, bookType);
+        return bookService.getBookContent(bookId, bookType, fileId);
     }
 
     @Operation(summary = "Replace book content", description = "Overwrite the primary PDF file for a book with the uploaded content. Used by the document viewer to persist annotation changes.")

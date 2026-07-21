@@ -7,9 +7,10 @@
  * @param {Object} bookInfo - Pre-fetched EPUB metadata from /info endpoint
  * @param {string} [authToken] - Optional authentication token
  * @param {string} [bookType] - Optional book type for alternative format (e.g., 'EPUB')
+ * @param {number} [fileId] - Optional exact book-file id; disambiguates two files of the same format
  * @returns {Object} Loader interface compatible with Foliate's EPUB class
  */
-export const makeStreamingLoader = (bookId, baseUrl, bookInfo, authToken = null, bookType = null) => {
+export const makeStreamingLoader = (bookId, baseUrl, bookInfo, authToken = null, bookType = null, fileId = null) => {
   // Build a map of file paths to their manifest info for quick lookup
   const manifestMap = new Map(
     bookInfo.manifest.map(item => [item.href, item])
@@ -21,7 +22,10 @@ export const makeStreamingLoader = (bookId, baseUrl, bookInfo, authToken = null,
     // URL encode the path but preserve slashes
     const encodedPath = name.split('/').map(encodeURIComponent).join('/')
     let url = `${baseUrl}/${bookId}/file/${encodedPath}`
-    if (bookType) {
+    // fileId takes precedence server-side; it's the only way to pick one of two same-format files.
+    if (fileId != null) {
+      url += `?fileId=${encodeURIComponent(fileId)}`
+    } else if (bookType) {
       url += `?bookType=${encodeURIComponent(bookType)}`
     }
     return url
@@ -43,7 +47,9 @@ export const makeStreamingLoader = (bookId, baseUrl, bookInfo, authToken = null,
     const encodedPath = name.split('/').map(encodeURIComponent).join('/')
     let url = `${baseUrl}/${bookId}/file/${encodedPath}`
     const params = []
-    if (bookType) {
+    if (fileId != null) {
+      params.push(`fileId=${encodeURIComponent(fileId)}`)
+    } else if (bookType) {
       params.push(`bookType=${encodeURIComponent(bookType)}`)
     }
     if (authToken) {

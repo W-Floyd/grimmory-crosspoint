@@ -22,6 +22,7 @@ export interface ReadEvent {
   bookId: number;
   reader?: 'epub-streaming';
   bookType?: BookType;
+  fileId?: number;
 }
 
 export interface DownloadEvent {
@@ -160,8 +161,8 @@ export class MetadataTabsComponent {
     });
   }
 
-  read(bookId: number, reader?: 'epub-streaming', bookType?: BookType): void {
-    this.readBook.emit({ bookId, reader, bookType });
+  read(bookId: number, reader?: 'epub-streaming', bookType?: BookType, fileId?: number): void {
+    this.readBook.emit({ bookId, reader, bookType, fileId });
   }
 
   download(book: Book): void {

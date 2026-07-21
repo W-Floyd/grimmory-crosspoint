@@ -322,6 +322,7 @@
     "readStatusUnset": "Unset",
     "menuStreamingReader": "Streaming Reader",
     "menuStandardReader": "Standard Reader",
+    "menuPrimary": "Primary",
     "menuShelf": "Shelf",
     "menuUploadFile": "Upload File",
     "menuOrganizeFiles": "Organize Files",

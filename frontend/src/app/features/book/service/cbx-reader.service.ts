@@ -25,27 +25,29 @@ export class CbxReaderService {
     return token ? `${url}${url.includes('?') ? '&' : '?'}token=${token}` : url;
   }
 
-  getAvailablePages(bookId: number, bookType?: string) {
-    let url = `${this.pagesUrl}/${bookId}/pages`;
-    if (bookType) {
-      url += `?bookType=${bookType}`;
+  // fileId takes precedence server-side; it disambiguates two files of the same format.
+  private formatParam(bookType?: string, fileId?: number): string {
+    if (fileId != null) {
+      return `?fileId=${fileId}`;
     }
+    if (bookType) {
+      return `?bookType=${bookType}`;
+    }
+    return '';
+  }
+
+  getAvailablePages(bookId: number, bookType?: string, fileId?: number) {
+    const url = `${this.pagesUrl}/${bookId}/pages${this.formatParam(bookType, fileId)}`;
     return this.http.get<number[]>(this.appendToken(url));
   }
 
-  getPageInfo(bookId: number, bookType?: string) {
-    let url = `${this.pagesUrl}/${bookId}/page-info`;
-    if (bookType) {
-      url += `?bookType=${bookType}`;
-    }
+  getPageInfo(bookId: number, bookType?: string, fileId?: number) {
+    const url = `${this.pagesUrl}/${bookId}/page-info${this.formatParam(bookType, fileId)}`;
     return this.http.get<CbxPageInfo[]>(this.appendToken(url));
   }
 
-  getPageImageUrl(bookId: number, page: number, bookType?: string): string {
-    let url = `${this.imageUrl}/${bookId}/cbx/pages/${page}`;
-    if (bookType) {
-      url += `?bookType=${bookType}`;
-    }
+  getPageImageUrl(bookId: number, page: number, bookType?: string, fileId?: number): string {
+    const url = `${this.imageUrl}/${bookId}/cbx/pages/${page}${this.formatParam(bookType, fileId)}`;
     return this.appendToken(url);
   }
 }

@@ -90,10 +90,10 @@ public class CbxReaderService {
         }
     }
 
-    public void initCache(Long bookId, String bookType) throws IOException {
-        Path cbxPath = getBookPath(bookId, bookType);
+    public void initCache(Long bookId, String bookType, Long fileId) throws IOException {
+        Path cbxPath = getBookPath(bookId, bookType, fileId);
         CachedArchiveMetadata metadata = getCachedMetadata(cbxPath);
-        String cacheKey = getCacheKey(bookId, bookType, metadata.lastModified());
+        String cacheKey = getCacheKey(bookId, bookType, fileId, metadata.lastModified());
         chapterCacheService.prepareCbxCache(cacheKey, cbxPath, metadata.imageEntries());
 
         if (metadata.pageDimensions() == null) {
@@ -109,12 +109,12 @@ public class CbxReaderService {
      * {@link #streamPageImage} calls hit Tier 2 (disk) instead of Tier 3
      * (native extraction per request).
      */
-    private void submitBackgroundCacheInit(Long bookId, String bookType, long lastModified) {
-        String key = bookId + ":" + bookType + ":" + lastModified;
+    private void submitBackgroundCacheInit(Long bookId, String bookType, Long fileId, long lastModified) {
+        String key = bookId + ":" + bookType + ":" + fileId + ":" + lastModified;
         if (cacheInitSubmitted.add(key)) {
             cacheExecutor.submit(() -> {
                 try {
-                    initCache(bookId, bookType);
+                    initCache(bookId, bookType, fileId);
                 } catch (Exception e) {
                     log.warn("Background cache init failed for book {}: {}", bookId, e.getMessage());
                     cacheInitSubmitted.remove(key);
@@ -150,16 +150,16 @@ public class CbxReaderService {
     }
 
     public List<Integer> getAvailablePages(Long bookId) {
-        return getAvailablePages(bookId, null);
+        return getAvailablePages(bookId, null, null);
     }
 
-    public List<Integer> getAvailablePages(Long bookId, String bookType) {
-        Path cbxPath = getBookPath(bookId, bookType);
+    public List<Integer> getAvailablePages(Long bookId, String bookType, Long fileId) {
+        Path cbxPath = getBookPath(bookId, bookType, fileId);
         try {
             CachedArchiveMetadata metadata = getCachedMetadata(cbxPath);
             List<String> imageEntries = metadata.imageEntries();
             // Trigger background disk-cache population for faster subsequent page serving
-            submitBackgroundCacheInit(bookId, bookType, metadata.lastModified());
+            submitBackgroundCacheInit(bookId, bookType, fileId, metadata.lastModified());
             return IntStream.rangeClosed(1, imageEntries.size())
                     .boxed()
                     .toList();
@@ -170,11 +170,11 @@ public class CbxReaderService {
     }
 
     public List<CbxPageInfo> getPageInfo(Long bookId) {
-        return getPageInfo(bookId, null);
+        return getPageInfo(bookId, null, null);
     }
 
-    public List<CbxPageInfo> getPageInfo(Long bookId, String bookType) {
-        Path cbxPath = getBookPath(bookId, bookType);
+    public List<CbxPageInfo> getPageInfo(Long bookId, String bookType, Long fileId) {
+        Path cbxPath = getBookPath(bookId, bookType, fileId);
         try {
             List<String> imageEntries = getImageEntriesFromArchiveCached(cbxPath);
             List<CbxPageInfo> pageInfoList = new ArrayList<>();
@@ -193,8 +193,8 @@ public class CbxReaderService {
         }
     }
 
-    public List<CbxPageDimension> getPageDimensions(Long bookId, String bookType) {
-        Path cbxPath = getBookPath(bookId, bookType);
+    public List<CbxPageDimension> getPageDimensions(Long bookId, String bookType, Long fileId) {
+        Path cbxPath = getBookPath(bookId, bookType, fileId);
         try {
             CachedArchiveMetadata metadata = getCachedMetadata(cbxPath);
             if (metadata.pageDimensions() != null) {
@@ -202,7 +202,7 @@ public class CbxReaderService {
             }
 
             // Try disk cache first (fast, memory-safe)
-            String cacheKey = getCacheKey(bookId, bookType, metadata.lastModified());
+            String cacheKey = getCacheKey(bookId, bookType, fileId, metadata.lastModified());
             if (chapterCacheService.hasPage(cacheKey, 1) && chapterCacheService.hasPage(cacheKey, metadata.imageEntries().size())) {
                 List<CbxPageDimension> dimensions = computeDimensionsFromDiskCache(cacheKey, metadata.imageEntries().size());
                 CachedArchiveMetadata updated = new CachedArchiveMetadata(metadata.imageEntries(), dimensions, metadata.lastModified());
@@ -343,11 +343,11 @@ public class CbxReaderService {
     }
 
     public void streamPageImage(Long bookId, int page, OutputStream outputStream) throws IOException {
-        streamPageImage(bookId, null, page, outputStream);
+        streamPageImage(bookId, null, null, page, outputStream);
     }
 
-    public void streamPageImage(Long bookId, String bookType, int page, OutputStream outputStream) throws IOException {
-        Path cbxPath = getBookPath(bookId, bookType);
+    public void streamPageImage(Long bookId, String bookType, Long fileId, int page, OutputStream outputStream) throws IOException {
+        Path cbxPath = getBookPath(bookId, bookType, fileId);
         CachedArchiveMetadata metadata = getCachedMetadata(cbxPath);
         validatePageRequest(bookId, page, metadata.imageEntries());
 
@@ -370,7 +370,7 @@ public class CbxReaderService {
         }
 
         // Tier 2: Check L3 Disk Cache (extracted files)
-        String cacheKey = getCacheKey(bookId, bookType, metadata.lastModified());
+        String cacheKey = getCacheKey(bookId, bookType, fileId, metadata.lastModified());
         if (chapterCacheService.hasPage(cacheKey, page)) {
             Path cached = chapterCacheService.getCachedPage(cacheKey, page);
             Files.copy(cached, outputStream);
@@ -396,7 +396,12 @@ public class CbxReaderService {
         });
     }
 
-    private String getCacheKey(Long bookId, String bookType, long lastModified) {
+    private String getCacheKey(Long bookId, String bookType, Long fileId, long lastModified) {
+        // A specific file id is the safest, most precise cache discriminator; it also keeps two files
+        // of the same format from sharing a disk-cache slot.
+        if (fileId != null) {
+            return bookId + "_f" + fileId + "_" + lastModified;
+        }
         if (bookType != null) {
             // Ensure we use the safe enum name to prevent path traversal
             BookFileType type = BookFileType.fromName(bookType)
@@ -406,8 +411,17 @@ public class CbxReaderService {
         return bookId + "_" + lastModified;
     }
 
-    private Path getBookPath(Long bookId, String bookType) {
+    private Path getBookPath(Long bookId, String bookType, Long fileId) {
         BookEntity bookEntity = bookRepository.findByIdForStreaming(bookId).orElseThrow(() -> ApiError.BOOK_NOT_FOUND.createException(bookId));
+        // A specific file id wins over bookType so a book with two files of the same format resolves
+        // to the exact file requested (bookType alone would return the first match).
+        if (fileId != null) {
+            BookFileEntity bookFile = bookEntity.getBookFiles().stream()
+                    .filter(bf -> fileId.equals(bf.getId()))
+                    .findFirst()
+                    .orElseThrow(() -> ApiError.FILE_NOT_FOUND.createException("No file " + fileId + " found for book " + bookId));
+            return bookFile.getFullFilePath();
+        }
         if (bookType != null) {
             BookFileType requestedType = BookFileType.fromName(bookType)
                     .orElseThrow(() -> ApiError.INVALID_INPUT.createException("Invalid book type: " + bookType));

@@ -166,6 +166,7 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
   private dbAnnotationIds = new Set<string>();
 
   private altBookType?: string;
+  private altFileId?: number;
   private annotationSaveSubject = new Subject<void>();
   private annotationCacheSubject = new Subject<void>();
   private annotationsLoaded = false;
@@ -359,10 +360,15 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
         this.isLoading.set(true);
         this.bookId = +params.get('bookId')!;
         this.altBookType = this.route.snapshot.queryParamMap.get('bookType') ?? undefined;
+        const fileIdParam = this.route.snapshot.queryParamMap.get('fileId');
+        this.altFileId = fileIdParam ? Number(fileIdParam) : undefined;
 
         return from(this.bookService.fetchFreshBookDetail(this.bookId, false)).pipe(
           switchMap((book) => {
-            if (this.altBookType) {
+            if (this.altFileId != null) {
+              // Exact file chosen (disambiguates two files of the same format).
+              this.bookFileId = this.altFileId;
+            } else if (this.altBookType) {
               const altFile = book.alternativeFormats?.find(f => f.bookType === this.altBookType);
               this.bookFileId = altFile?.id;
             } else {
@@ -377,7 +383,7 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
         );
       }),
       switchMap(({book, bookSetting, myself}) => {
-        return this.getBookData(this.bookId.toString(), this.altBookType).pipe(
+        return this.getBookData(this.bookId.toString(), this.altBookType, this.altFileId).pipe(
           map(bookData => ({book, bookSetting, myself, bookData}))
         );
       })
@@ -1559,10 +1565,14 @@ export class PdfReaderComponent implements OnInit, OnDestroy {
   private getBookData(
     bookId: string,
     fileType: string | undefined,
+    fileId?: number,
   ): Observable<string> {
-    const uri = fileType
-      ? `${API_CONFIG.BASE_URL}/api/v1/books/${bookId}/content?bookType=${fileType}`
-      : `${API_CONFIG.BASE_URL}/api/v1/books/${bookId}/content`;
+    // fileId takes precedence server-side; it disambiguates two files of the same format.
+    const uri = fileId != null
+      ? `${API_CONFIG.BASE_URL}/api/v1/books/${bookId}/content?fileId=${fileId}`
+      : fileType
+        ? `${API_CONFIG.BASE_URL}/api/v1/books/${bookId}/content?bookType=${fileType}`
+        : `${API_CONFIG.BASE_URL}/api/v1/books/${bookId}/content`;
     if (!this.localSettingsService.get().cacheStorageEnabled) return of(uri);
     return from(this.cacheStorageService.getCache(uri)).pipe(
       switchMap(res => res.blob()),

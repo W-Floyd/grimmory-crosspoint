@@ -104,6 +104,7 @@ export class EbookReaderComponent implements OnInit {
 
   protected bookId!: number;
   protected altBookType?: string;
+  protected altFileId?: number;
 
   private hasLoadedOnce = false;
   private _fileUrl: string | null = null;
@@ -206,6 +207,8 @@ export class EbookReaderComponent implements OnInit {
 
     this.bookId = +this.route.snapshot.paramMap.get('bookId')!;
     this.altBookType = this.route.snapshot.queryParamMap.get('bookType') ?? undefined;
+    const fileIdParam = this.route.snapshot.queryParamMap.get('fileId');
+    this.altFileId = fileIdParam ? Number(fileIdParam) : undefined;
 
     // Parallelize Foliate script loading and initial book detail fetch
     forkJoin([
@@ -220,7 +223,10 @@ export class EbookReaderComponent implements OnInit {
         }
 
         let bookFileId: number | undefined;
-        if (this.altBookType) {
+        if (this.altFileId != null) {
+          // Exact file chosen (the only way to pick between two files of the same format).
+          bookFileId = this.altFileId;
+        } else if (this.altBookType) {
           const altFile = book.alternativeFormats?.find((f: AdditionalFile) => f.bookType === this.altBookType);
           bookFileId = altFile?.id;
         } else {
@@ -247,7 +253,7 @@ export class EbookReaderComponent implements OnInit {
 
         const useStreaming = this.route.snapshot.queryParamMap.get('streaming') === 'true';
         const loadBook$ = bookType === 'EPUB' && useStreaming
-          ? this.viewManager.loadEpubStreaming(this.bookId, this.altBookType)
+          ? this.viewManager.loadEpubStreaming(this.bookId, this.altBookType, this.altFileId)
           : this.loadBookBlob();
 
         return loadBook$.pipe(
@@ -294,7 +300,7 @@ export class EbookReaderComponent implements OnInit {
     return of(undefined);
   }
   private loadBookBlob(): Observable<void> {
-    return this.bookFileService.getFileContent(this.bookId, this.altBookType).pipe(
+    return this.bookFileService.getFileContent(this.bookId, this.altBookType, this.altFileId).pipe(
       switchMap(fileBlob => {
         const fileUrl = URL.createObjectURL(fileBlob);
         this._fileUrl = fileUrl;

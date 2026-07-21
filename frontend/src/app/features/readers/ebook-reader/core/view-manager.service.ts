@@ -97,7 +97,8 @@ interface StreamingBookFactoryWindow extends Window {
     baseUrl: string,
     bookInfo: EpubBookInfo,
     authToken: string | null,
-    bookType?: string
+    bookType?: string,
+    fileId?: number
   ) => Promise<object>;
 }
 
@@ -154,26 +155,26 @@ export class ReaderViewManagerService {
     );
   }
 
-  loadEpubStreaming(bookId: number, bookType?: string): Observable<void> {
+  loadEpubStreaming(bookId: number, bookType?: string, fileId?: number): Observable<void> {
     if (!this.view) {
       return throwError(() => new Error('View not created'));
     }
 
-    return this.epubStreamingService.getBookInfo(bookId, bookType).pipe(
-      switchMap(bookInfo => from(this.openStreamingBook(bookId, bookInfo, bookType))),
+    return this.epubStreamingService.getBookInfo(bookId, bookType, fileId).pipe(
+      switchMap(bookInfo => from(this.openStreamingBook(bookId, bookInfo, bookType, fileId))),
       map(() => undefined),
       catchError(err => throwError(() => err))
     );
   }
 
-  private async openStreamingBook(bookId: number, bookInfo: EpubBookInfo, bookType?: string): Promise<void> {
+  private async openStreamingBook(bookId: number, bookInfo: EpubBookInfo, bookType?: string, fileId?: number): Promise<void> {
     const makeStreamingBook = (window as StreamingBookFactoryWindow).makeStreamingBook;
     if (!makeStreamingBook) {
       throw new Error('makeStreamingBook not available - Foliate script may not be loaded');
     }
     const baseUrl = this.epubStreamingService.getBaseUrl();
     const authToken = this.epubStreamingService.getAuthToken();
-    const book = await makeStreamingBook(bookId, baseUrl, bookInfo, authToken, bookType);
+    const book = await makeStreamingBook(bookId, baseUrl, bookInfo, authToken, bookType, fileId);
     const view = this.view;
     if (!view) {
       throw new Error('View not created');

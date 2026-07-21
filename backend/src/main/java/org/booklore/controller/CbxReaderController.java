@@ -27,8 +27,9 @@ public class CbxReaderController {
     @CheckBookAccess(bookIdParam = "bookId")
     public List<Integer> listPages(
             @Parameter(description = "ID of the book") @PathVariable Long bookId,
-            @Parameter(description = "Optional book type for alternative format (e.g., PDF, CBX)") @RequestParam(required = false) String bookType) {
-        return cbxReaderService.getAvailablePages(bookId, bookType);
+            @Parameter(description = "Optional book type for alternative format (e.g., PDF, CBX)") @RequestParam(required = false) String bookType,
+            @Parameter(description = "Optional exact book-file id; disambiguates two files of the same format") @RequestParam(required = false) Long fileId) {
+        return cbxReaderService.getAvailablePages(bookId, bookType, fileId);
     }
 
     @Operation(summary = "Get page info for a CBX book", description = "Retrieve page information including display names for a CBX book.")
@@ -37,8 +38,9 @@ public class CbxReaderController {
     @CheckBookAccess(bookIdParam = "bookId")
     public List<CbxPageInfo> getPageInfo(
             @Parameter(description = "ID of the book") @PathVariable Long bookId,
-            @Parameter(description = "Optional book type for alternative format (e.g., PDF, CBX)") @RequestParam(required = false) String bookType) {
-        return cbxReaderService.getPageInfo(bookId, bookType);
+            @Parameter(description = "Optional book type for alternative format (e.g., PDF, CBX)") @RequestParam(required = false) String bookType,
+            @Parameter(description = "Optional exact book-file id; disambiguates two files of the same format") @RequestParam(required = false) Long fileId) {
+        return cbxReaderService.getPageInfo(bookId, bookType, fileId);
     }
 
     @Operation(summary = "Get page dimensions for a CBX book", description = "Retrieve width, height, and wide flag for each page in a CBX book.")
@@ -47,7 +49,8 @@ public class CbxReaderController {
     @CheckBookAccess(bookIdParam = "bookId")
     public List<CbxPageDimension> getPageDimensions(
             @Parameter(description = "ID of the book") @PathVariable Long bookId,
-            @Parameter(description = "Optional book type for alternative format (e.g., PDF, CBX)") @RequestParam(required = false) String bookType) {
-        return cbxReaderService.getPageDimensions(bookId, bookType);
+            @Parameter(description = "Optional book type for alternative format (e.g., PDF, CBX)") @RequestParam(required = false) String bookType,
+            @Parameter(description = "Optional exact book-file id; disambiguates two files of the same format") @RequestParam(required = false) Long fileId) {
+        return cbxReaderService.getPageDimensions(bookId, bookType, fileId);
     }
 }
