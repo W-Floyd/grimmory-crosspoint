@@ -511,7 +511,7 @@
               [severity]="loan.bookId ? 'warn' : null"
               [pTooltip]="loan.bookId ? 'Already in your library — import another copy' : 'Import server-side into the selected library (Search &amp; Borrow), or into Bookdrop if none is selected'"
               tooltipPosition="top"
-              [disabled]="importingTitleId() !== null"
+              [disabled]="anyOperationInFlight() && importingTitleId() !== loan.id"
               [loading]="importingTitleId() === loan.id"
               (onClick)="onImportLoan(loan)"
               class="mr-2" />
@@ -521,8 +521,8 @@
                   severity="secondary"
                   pTooltip="Fulfill and download the assembled audiobook file to your browser (via the external audiobook handler)"
                   tooltipPosition="top"
-                  [disabled]="importingTitleId() !== null"
-                  [loading]="importingTitleId() === loan.id"
+                  [disabled]="anyOperationInFlight() && downloadingLoanId() !== loan.id"
+                  [loading]="downloadingLoanId() === loan.id"
                   (onClick)="onDownloadAudiobook(loan)"
                   class="mr-2" />
               }
@@ -531,6 +531,7 @@
                 severity="secondary"
                 pTooltip="Download the raw ACSM file to your browser"
                 tooltipPosition="top"
+                [disabled]="anyOperationInFlight()"
                 (onClick)="onFulfill(loan)"
                 class="mr-2" />
             }
@@ -772,10 +773,35 @@
 
 <p-dialog [visible]="toolConsoleVisible()" (visibleChange)="toolConsoleVisible.set($event)"
   header="Handler output" [modal]="false" [dismissableMask]="true" [style]="{ width: '48rem', maxWidth: '92vw' }">
+  @if (toolProgress(); as p) {
+    <!-- Tool emits the progress protocol: show its phase/message and a real bar. -->
+    <div class="tool-progress">
+      @if (p.phase || p.message) {
+        <span class="tool-progress-label">
+          @if (p.phase) { <strong>{{ p.phase }}</strong> }
+          @if (p.phase && p.message) { — } {{ p.message }}
+        </span>
+      }
+      <p-progressbar [value]="p.pct ?? 0" [showValue]="p.pct !== null"
+        [mode]="p.pct === null ? 'indeterminate' : 'determinate'" />
+    </div>
+  } @else if (anyOperationInFlight() && toolLog().length > 0) {
+    <!-- Non-protocol tool (plain text output): no structured progress, so show a
+         generic indeterminate "working" bar while the operation runs. -->
+    <div class="tool-progress">
+      <p-progressbar [showValue]="false" mode="indeterminate" />
+    </div>
+  }
   @if (toolLog().length === 0) {
     <p class="tool-console-empty">Waiting for the handler…</p>
   } @else {
-    <pre class="tool-console">{{ toolLog().join('\n') }}</pre>
+    <div class="tool-console-wrap">
+      <pre #toolConsole class="tool-console" (scroll)="onToolConsoleScroll()">{{ toolLog().join('\n') }}</pre>
+      @if (!followTail()) {
+        <p-button label="Jump to latest" icon="pi pi-arrow-down" size="small"
+          styleClass="tool-console-follow" (onClick)="resumeFollow()" />
+      }
+    </div>
   }
 </p-dialog>
 </div>

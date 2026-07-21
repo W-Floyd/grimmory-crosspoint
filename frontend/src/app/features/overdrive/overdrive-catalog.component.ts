@@ -1,4 +1,4 @@
-import { Component, computed, DestroyRef, effect, inject, signal, untracked } from '@angular/core';
+import { Component, computed, DestroyRef, effect, ElementRef, inject, signal, untracked, viewChild } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -6,7 +6,7 @@ import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult } from '../../core/services/overdrive.service';
+import { OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
 
 import { ButtonModule } from 'primeng/button';
 import { MessageModule } from 'primeng/message';
@@ -23,6 +23,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { InputTextModule } from 'primeng/inputtext';
 import { TabsModule } from 'primeng/tabs';
 import { LibraryService } from '../../features/book/service/library.service';
+import { ProgressBar } from 'primeng/progressbar';
 import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
 import { OverdriveCoverComponent } from './overdrive-cover.component';
 
@@ -45,7 +46,8 @@ import { OverdriveCoverComponent } from './overdrive-cover.component';
     ToastModule,
     TooltipModule,
     InputTextModule,
-    TabsModule
+    TabsModule,
+    ProgressBar
 ],
   templateUrl: './overdrive-catalog.component.html',
   styleUrl: './overdrive-catalog.component.scss',
@@ -106,6 +108,11 @@ export class OverdriveCatalogComponent {
   searching = signal(false);
   results = signal<OverDriveCatalogItem[]>([]);
   importingTitleId = signal<string | null>(null);
+  // The loan currently being downloaded to the browser (distinct from importingTitleId so its own
+  // button — not the row's Import button — shows the spinner).
+  downloadingLoanId = signal<string | null>(null);
+  /** True while any borrow/import/download is in flight (used to disable the other row actions). */
+  readonly anyOperationInFlight = computed(() => this.importingTitleId() !== null || this.downloadingLoanId() !== null);
   // Result window: fetch this many merged results at first, growing by the same step on "load more".
   readonly SEARCH_PAGE_SIZE = 60;
   searchLimit = signal(this.SEARCH_PAGE_SIZE);
@@ -356,6 +363,16 @@ export class OverdriveCatalogComponent {
   private readonly destroyRef = inject(DestroyRef);
   toolLog = signal<string[]>([]);
   toolConsoleVisible = signal(false);
+  // The scrollable <pre> that shows streamed handler output.
+  private readonly toolConsoleRef = viewChild<ElementRef<HTMLElement>>('toolConsole');
+  // Whether the console auto-scrolls to follow new output. Detaches when the user
+  // scrolls up; reattaches when they scroll back down to the bottom.
+  followTail = signal(true);
+  // Latest structured progress from the handler (drives the progress bar). null while
+  // the tool emits only plain text (bar shown indeterminate once any output arrives).
+  toolProgress = signal<{ phase?: string; message?: string; pct: number | null } | null>(null);
+  // Pending auto-dismiss of the console after a successful run.
+  private dismissTimer: ReturnType<typeof setTimeout> | null = null;
 
    constructor() {
      // Stream handler output to a console popup. A new import resets the log; a line auto-opens the popup.
@@ -363,15 +380,61 @@ export class OverdriveCatalogComponent {
        .pipe(takeUntilDestroyed(this.destroyRef))
        .subscribe(msg => {
          try {
-           const line = (JSON.parse(msg.body) as { line?: string }).line ?? '';
-           this.toolLog.update(lines => [...lines, line]);
+           const frame = JSON.parse(msg.body) as OverDriveToolLogFrame;
            this.toolConsoleVisible.set(true);
+           if (frame.event) {
+             this.handleToolEvent(frame.event);
+           } else {
+             this.toolLog.update(lines => [...lines, frame.line ?? '']);
+           }
          } catch { /* ignore malformed frames */ }
        });
      effect(() => {
        // A newly-started operation clears the previous run's output (kept visible after it finishes).
-       if (this.importingTitleId()) {
-         untracked(() => this.toolLog.set([]));
+       if (this.importingTitleId() || this.downloadingLoanId()) {
+         untracked(() => {
+           this.toolLog.set([]);
+           this.toolProgress.set(null);
+           this.followTail.set(true);
+           if (this.dismissTimer) {
+             clearTimeout(this.dismissTimer);
+             this.dismissTimer = null;
+           }
+         });
+       }
+     });
+     effect(() => {
+       // Auto-dismiss the console a moment after a successful run finishes. A new op
+       // cancels any pending dismiss (above); a failed run is left open for inspection.
+       const inFlight = this.anyOperationInFlight();
+       untracked(() => {
+         if (inFlight) {
+           return;
+         }
+         if (this.dismissTimer) {
+           clearTimeout(this.dismissTimer);
+           this.dismissTimer = null;
+         }
+         if (this.toolConsoleVisible() && this.toolLog().length > 0 && !this.error()) {
+           this.dismissTimer = setTimeout(() => {
+             this.toolConsoleVisible.set(false);
+             this.dismissTimer = null;
+           }, 2000);
+         }
+       });
+     });
+     effect(() => {
+       // Follow the tail: when output arrives (or the console opens) and we're still
+       // attached, pin the view to the bottom. Deferred to the next frame so the new
+       // line is in the DOM before we measure scrollHeight.
+       this.toolLog();
+       this.toolConsoleVisible();
+       if (!this.followTail()) {
+         return;
+       }
+       const el = this.toolConsoleRef()?.nativeElement;
+       if (el) {
+         requestAnimationFrame(() => (el.scrollTop = el.scrollHeight));
        }
      });
      // Remember the folded/expanded state of the Library Cards section across sessions.
@@ -1675,14 +1738,14 @@ export class OverdriveCatalogComponent {
      const cardId = loan.cardId;
      if (!cardId) return;
 
-     this.importingTitleId.set(loan.id);
+     this.downloadingLoanId.set(loan.id);
      this.error.set(null);
      this.overdriveService.downloadAudiobook(cardId, loan.id, loan.formatId).subscribe({
        next: (response) => {
          const blob = response.body;
          if (!blob) {
            this.error.set('Audiobook download returned no data');
-           this.importingTitleId.set(null);
+           this.downloadingLoanId.set(null);
            return;
          }
          const url = URL.createObjectURL(blob);
@@ -1692,11 +1755,11 @@ export class OverdriveCatalogComponent {
          a.click();
          URL.revokeObjectURL(url);
          this.messageService.add({ severity: 'success', summary: 'Downloaded', detail: 'Audiobook downloaded' });
-         this.importingTitleId.set(null);
+         this.downloadingLoanId.set(null);
        },
        error: (err: unknown) => {
          this.error.set(this.errorMessage(err, 'Audiobook download failed'));
-         this.importingTitleId.set(null);
+         this.downloadingLoanId.set(null);
        },
      });
    }
@@ -1800,6 +1863,52 @@ export class OverdriveCatalogComponent {
          return 'neutral';
        default:
          return 'neutral';
+     }
+   }
+
+   // Route a structured handler event to the progress bar and append a readable line to the tail.
+   private handleToolEvent(e: OverDriveToolEvent): void {
+     switch (e.type) {
+       case 'progress': {
+         const pct = e.pct != null
+           ? e.pct
+           : (e.total ? Math.round(((e.current ?? 0) / e.total) * 100) : null);
+         this.toolProgress.set({ phase: e.phase, message: e.message, pct });
+         const label = [e.phase, e.message].filter(Boolean).join(' — ');
+         if (label) {
+           this.toolLog.update(lines => [...lines, `▸ ${label}`]);
+         }
+         break;
+       }
+       case 'log':
+         this.toolLog.update(lines => [...lines, `${(e.level ?? 'info').toUpperCase()}: ${e.message ?? ''}`]);
+         break;
+       case 'result': {
+         const summary = e.message ?? (e.ok ? 'Done' : 'Failed');
+         this.toolProgress.set({ message: summary, pct: e.ok ? 100 : null });
+         this.toolLog.update(lines => [
+           ...lines,
+           e.ok ? `✓ ${summary}${e.file ? ` (${e.file})` : ''}` : `✗ ${summary}`,
+         ]);
+         break;
+       }
+     }
+   }
+
+   // Detach follow-mode when the user scrolls up; reattach once they return to the bottom.
+   onToolConsoleScroll(): void {
+     const el = this.toolConsoleRef()?.nativeElement;
+     if (!el) return;
+     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
+     this.followTail.set(atBottom);
+   }
+
+   // "Jump to latest": re-attach follow-mode and snap to the bottom.
+   resumeFollow(): void {
+     this.followTail.set(true);
+     const el = this.toolConsoleRef()?.nativeElement;
+     if (el) {
+       requestAnimationFrame(() => (el.scrollTop = el.scrollHeight));
      }
    }
 }

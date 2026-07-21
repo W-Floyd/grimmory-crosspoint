@@ -328,7 +328,36 @@
     }
   }
 
+  // Structured progress row above the raw output tail in the console dialog.
+  .tool-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-bottom: 0.75rem;
+
+    .tool-progress-label {
+      font-size: 0.85rem;
+      color: var(--text-color);
+
+      strong {
+        text-transform: capitalize;
+      }
+    }
+  }
+
   // Streamed external-handler output (audiobook/acsm/magazine tool) in the console dialog.
+  .tool-console-wrap {
+    position: relative;
+  }
+
+  // Shown only while the user has scrolled away from the tail; snaps back to following.
+  :host ::ng-deep .tool-console-follow {
+    position: absolute;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+
   .tool-console {
     margin: 0;
     max-height: 60vh;

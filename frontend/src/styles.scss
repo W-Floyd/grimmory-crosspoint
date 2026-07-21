@@ -17,6 +17,24 @@
 @include meta.load-css("assets/styles/connected-group");
 @include meta.load-css("assets/styles/compat");
 
+// PrimeNG renders every button [loading] spinner as a SpinnerIcon SVG carrying the
+// `.p-icon-spin` class, and injects that rule + its @keyframes into the `primeng`
+// cssLayer (see providePrimeNG in main.ts). Under our layer ordering those layered
+// rules don't animate, so the spinner sits frozen (Search, Import, Download, ...).
+// Redefine both unlayered here — unlayered rules win over any @layer — so every
+// loading spinner actually spins.
+@keyframes p-icon-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.p-icon-spin {
+  animation: p-icon-spin 2s infinite linear;
+}
+
 // Multi-line OverDrive availability tooltip: preserve the per-library line breaks and give it room so
 // each "Library: status" entry stays on its own line instead of wrapping in the default narrow tooltip.
 .availability-tooltip .p-tooltip-text {

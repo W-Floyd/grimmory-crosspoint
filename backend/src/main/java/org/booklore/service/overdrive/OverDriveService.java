@@ -127,7 +127,53 @@ public class OverDriveService {
         String username = user.getUsername();
         String label = titleId == null ? "" : titleId;
         return line -> notificationService.sendMessageToUser(username, Topic.OVERDRIVE_TOOL_LOG,
-                Map.of("titleId", label, "line", line));
+                toolLogPayload(label, line));
+    }
+
+    /** Lenient reader for handler progress events; unknown fields are tolerated (forward-compat). */
+    private static final com.fasterxml.jackson.databind.ObjectMapper TOOL_EVENT_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper()
+                    .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+    /**
+     * Build the websocket payload for one handler stdout line. If the line is a structured
+     * progress event (go-od progress protocol, docs/progress-protocol.md) it is forwarded as
+     * {@code {titleId, event}}; otherwise it is forwarded verbatim as {@code {titleId, line}}.
+     */
+    private static Map<String, Object> toolLogPayload(String label, String line) {
+        Map<String, Object> event = parseToolEvent(line);
+        if (event != null) {
+            return Map.of("titleId", label, "event", event);
+        }
+        return Map.of("titleId", label, "line", line == null ? "" : line);
+    }
+
+    /**
+     * Parse a single handler stdout line as a structured progress event: a one-line JSON object
+     * with a recognised {@code type} ({@code progress}, {@code log} or {@code result}). Returns
+     * null for anything else — plain text, merged stderr, or JSON with an unknown/absent type —
+     * so the caller falls back to a verbatim log line. Never throws.
+     */
+    static Map<String, Object> parseToolEvent(String line) { // package-private for testing
+        if (line == null) {
+            return null;
+        }
+        String trimmed = line.trim();
+        // Cheap guard: only object-shaped lines can be events; skip Jackson otherwise.
+        if (trimmed.length() < 2 || trimmed.charAt(0) != '{' || trimmed.charAt(trimmed.length() - 1) != '}') {
+            return null;
+        }
+        try {
+            Map<String, Object> map = TOOL_EVENT_MAPPER.readValue(trimmed,
+                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+            Object type = map.get("type");
+            if (type instanceof String t && (t.equals("progress") || t.equals("log") || t.equals("result"))) {
+                return map;
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** Whether the current user is an administrator. */

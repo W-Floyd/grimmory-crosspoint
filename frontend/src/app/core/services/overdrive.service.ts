@@ -147,6 +147,29 @@ export interface OverDriveFulfillResult {
   acsmBase64: string | null;
 }
 
+/**
+ * A structured progress event streamed from an external handler (go-od progress protocol).
+ * See docs/progress-protocol.md in the handler repo.
+ */
+export interface OverDriveToolEvent {
+  type: 'progress' | 'log' | 'result';
+  phase?: string;
+  message?: string;
+  level?: 'debug' | 'info' | 'warn' | 'error';
+  current?: number;
+  total?: number;
+  pct?: number;
+  ok?: boolean;
+  file?: string;
+}
+
+/** One frame on the tool-log websocket: either a raw text line or a structured event. */
+export interface OverDriveToolLogFrame {
+  titleId?: string;
+  line?: string;
+  event?: OverDriveToolEvent;
+}
+
 export interface OverDriveCapabilities {
   acsmHandlerConfigured: boolean;
   /** Whether a credential key is configured, enabling encrypted card storage + auto-relink. */

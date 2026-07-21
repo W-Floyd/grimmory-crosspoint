@@ -719,4 +719,38 @@ class OverDriveServiceTest {
 
         assertThat(service.shareableUsers()).extracting(u -> u.userId()).containsExactly(9L, 8L);
     }
+
+    @Test
+    void parseToolEvent_recognisesStructuredEvents() {
+        assertThat(OverDriveService.parseToolEvent(
+                "{\"type\":\"progress\",\"phase\":\"download\",\"current\":3,\"total\":12,\"pct\":25.0}"))
+                .containsEntry("type", "progress")
+                .containsEntry("phase", "download")
+                .containsEntry("total", 12);
+        assertThat(OverDriveService.parseToolEvent("{\"type\":\"log\",\"level\":\"warn\",\"message\":\"slow\"}"))
+                .containsEntry("type", "log");
+        assertThat(OverDriveService.parseToolEvent("{\"type\":\"result\",\"ok\":true,\"file\":\"a.pdf\"}"))
+                .containsEntry("type", "result")
+                .containsEntry("ok", true);
+    }
+
+    @Test
+    void parseToolEvent_toleratesUnknownFields() {
+        assertThat(OverDriveService.parseToolEvent(
+                "{\"type\":\"progress\",\"phase\":\"auth\",\"futureField\":123}"))
+                .containsEntry("phase", "auth");
+    }
+
+    @Test
+    void parseToolEvent_returnsNullForNonEvents() {
+        // plain text, merged stderr diagnostics
+        assertThat(OverDriveService.parseToolEvent("Downloading part 3 of 12")).isNull();
+        // JSON but no/unknown type -> treated as a plain line by the caller
+        assertThat(OverDriveService.parseToolEvent("{\"foo\":\"bar\"}")).isNull();
+        assertThat(OverDriveService.parseToolEvent("{\"type\":\"mystery\"}")).isNull();
+        // malformed / partial JSON must never throw
+        assertThat(OverDriveService.parseToolEvent("{\"type\":\"progress\"")).isNull();
+        assertThat(OverDriveService.parseToolEvent("")).isNull();
+        assertThat(OverDriveService.parseToolEvent(null)).isNull();
+    }
 }
