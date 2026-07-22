@@ -588,6 +588,7 @@
           <th pSortableColumn="title">Title <p-sortIcon field="title" /></th>
           <th pSortableColumn="author">Author <p-sortIcon field="author" /></th>
           <th pSortableColumn="card">Card <p-sortIcon field="card" /></th>
+          <th pSortableColumn="format">Format <p-sortIcon field="format" /></th>
           <th pSortableColumn="placed">Placed <p-sortIcon field="placed" /></th>
           <th pSortableColumn="wait">Est. Wait <p-sortIcon field="wait" /></th>
           <th>
@@ -638,6 +639,7 @@
           </td>
           <td>{{ creatorName(hold) }}</td>
           <td>{{ shortCardLabel(hold.cardId) }}</td>
+          <td>{{ holdFormat(hold) }}</td>
           <td>{{ formatDate(hold.placedDate) }}</td>
           <td>
             @if (hold.ready) {

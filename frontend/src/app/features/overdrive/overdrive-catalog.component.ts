@@ -292,13 +292,15 @@ export class OverdriveCatalogComponent {
   }
 
   /**
-   * Fetch current availability (copies + hold queue) for every loan's title at the selected cards'
-   * libraries, keyed by loan id. One batched request covers all titles per library. Best-effort: on
-   * failure the filter simply shows nothing rather than erroring the whole tab.
+   * Fetch availability (copies + hold queue) for any loan title that isn't already cached, at the
+   * selected cards' libraries, merging results in by loan id. Only the uncached titles are requested,
+   * so returning one loan (which re-syncs) doesn't re-check the loans that are still on the shelf. One
+   * batched request covers all missing titles per library. Best-effort: a failure just leaves those
+   * titles unfiltered rather than erroring the whole tab.
    */
   fetchLoanAvailability(): void {
-    const loans = this.loans();
-    const titleIds = [...new Set(loans.map(l => l.id))];
+    const cached = this.loanAvailability();
+    const titleIds = [...new Set(this.loans().map(l => l.id))].filter(id => !(id in cached));
     const cardIds = this.selectedCards().map(c => c.cardId);
     if (titleIds.length === 0 || cardIds.length === 0) {
       return;
@@ -306,7 +308,7 @@ export class OverdriveCatalogComponent {
     this.loadingLoanAvailability.set(true);
     this.overdriveService.titleAvailabilityBatch(titleIds, cardIds).subscribe({
       next: (byTitle) => {
-        this.loanAvailability.set(byTitle ?? {});
+        this.loanAvailability.update(m => ({ ...m, ...(byTitle ?? {}) }));
         this.loadingLoanAvailability.set(false);
       },
       error: (err: unknown) => {
@@ -338,6 +340,17 @@ export class OverdriveCatalogComponent {
     return id.startsWith('audiobook-');
   }
 
+  /**
+   * A hold's media kind for the Holds "Format" column. Holds carry no concrete formatId until borrowed
+   * (the exact ebook format is chosen at borrow time), so this is the media type only — matching the
+   * "Ebook / Audiobook / Magazine" wording used elsewhere.
+   */
+  holdFormat(hold: OverDriveHold): string {
+    if (hold.magazine) return 'Magazine';
+    if (hold.audiobook) return 'Audiobook';
+    return 'Ebook';
+  }
+
   private loanSortKey(field: string, loan: OverDriveLoan): string | number {
     switch (field) {
       case 'title': return (loan.title ?? '').toLowerCase();
@@ -355,6 +368,7 @@ export class OverdriveCatalogComponent {
       case 'title': return (hold.title ?? '').toLowerCase();
       case 'author': return this.creatorName(hold).toLowerCase();
       case 'card': return this.shortCardLabel(hold.cardId).toLowerCase();
+      case 'format': return this.holdFormat(hold).toLowerCase();
       case 'placed': return this.dateEpoch(hold.placedDate);
       case 'wait': return hold.ready ? -1 : Number(hold.estimatedWaitDays ?? 1e6);
       default: return '';
@@ -769,9 +783,19 @@ export class OverdriveCatalogComponent {
        }
        return next;
      });
-     // Loan availability can go stale on re-sync (copies returned/borrowed elsewhere). Drop it; if the
-     // "holding up the queue" filter is active, re-fetch so the filter reflects the fresh loan set.
-     this.loanAvailability.set({});
+     // Keep cached loan availability for loans that are still checked out (returning one loan re-syncs,
+     // and a different loan's copy count is unaffected by that) — only drop entries for loans that are
+     // gone. If the "holding up the queue" filter is active, fetch just the loans still missing data.
+     const loanIds = new Set(loans.map(l => l.id));
+     this.loanAvailability.update(m => {
+       const next: Record<string, OverDriveLibraryAvailability[]> = {};
+       for (const [id, avail] of Object.entries(m)) {
+         if (loanIds.has(id)) {
+           next[id] = avail;
+         }
+       }
+       return next;
+     });
      if (this.loanFilterHoldingQueue()) {
        this.fetchLoanAvailability();
      }

@@ -351,6 +351,12 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.filteredLoans().map(l => l.id)).toEqual(['title-1', 'title-3']);
     expect(component.loadingLoanAvailability()).toBe(false);
 
+    // With every loan's availability already cached, a re-fetch makes no new request — so returning one
+    // loan (which re-syncs) doesn't re-check the loans still on the shelf.
+    overdriveService.titleAvailabilityBatch.mockClear();
+    component.fetchLoanAvailability();
+    expect(overdriveService.titleAvailabilityBatch).not.toHaveBeenCalled();
+
     // Clearing the filter restores the full list.
     component.clearLoanFilters();
     expect(component.loanFilterHoldingQueue()).toBe(false);
