@@ -329,6 +329,34 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.checkingAll()).toBe(false);
   });
 
+  it('filters loans to those with no copies available at their library (would hold up the queue)', () => {
+    const {c1, c2} = setup();
+    component.loans.set([
+      {id: 'title-1', title: 'Dune', expireDate: '2026-08-08', cardId: 'c1'},        // 0 copies (queued)
+      {id: 'title-2', title: 'Foundation', expireDate: '2026-08-08', cardId: 'c1'},  // copies free
+      {id: 'title-3', title: 'Hyperion', expireDate: '2026-08-08', cardId: 'c1'},    // 0 copies (no queue yet)
+    ]);
+    overdriveService.titleAvailabilityBatch.mockReturnValue(of({
+      'title-1': [{libraryKey: 'lapl', available: false, holdable: true, availableCopies: 0, holdsCount: 3}],
+      'title-2': [{libraryKey: 'lapl', available: true, holdable: false, availableCopies: 2, holdsCount: 0}],
+      'title-3': [{libraryKey: 'lapl', available: false, holdable: true, availableCopies: 0, holdsCount: 0}],
+    }));
+
+    component.onToggleHoldingQueueFilter(true);
+
+    // One batched call across all selected cards for every loan title.
+    expect(overdriveService.titleAvailabilityBatch).toHaveBeenCalledWith(['title-1', 'title-2', 'title-3'], [c1.cardId, c2.cardId]);
+    // Any loan with zero available copies at its own library qualifies, queue or not; only the one with
+    // free copies is excluded.
+    expect(component.filteredLoans().map(l => l.id)).toEqual(['title-1', 'title-3']);
+    expect(component.loadingLoanAvailability()).toBe(false);
+
+    // Clearing the filter restores the full list.
+    component.clearLoanFilters();
+    expect(component.loanFilterHoldingQueue()).toBe(false);
+    expect(component.filteredLoans().map(l => l.id)).toEqual(['title-1', 'title-2', 'title-3']);
+  });
+
   it('lazy-loads history only when the History tab is opened', () => {
     setup();
     overdriveService.history.mockReturnValue(of([

@@ -447,6 +447,13 @@
           [ngModelOptions]="{ standalone: true }" optionLabel="label" optionValue="value" styleClass="format-filter" />
         <p-select [options]="importFilterOptions" [ngModel]="loanFilterImported()" (ngModelChange)="loanFilterImported.set($event)"
           [ngModelOptions]="{ standalone: true }" optionLabel="label" optionValue="value" styleClass="format-filter" />
+        <p-checkbox [ngModel]="loanFilterHoldingQueue()" (ngModelChange)="onToggleHoldingQueueFilter($event)"
+          [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="loan-filter-queue" />
+        <label for="loan-filter-queue"
+          pTooltip="Loans with no copies available at your library — returning one frees a copy for the next borrower">Holding up the queue</label>
+        @if (loadingLoanAvailability()) {
+          <i class="pi pi-spin pi-spinner" pTooltip="Checking availability…"></i>
+        }
         @if (loanFiltersActive()) {
           <span class="filter-count">{{ filteredLoans().length }} of {{ loans().length }}</span>
           <p-button label="Clear" icon="pi pi-times" [text]="true" size="small" (onClick)="clearLoanFilters()" />

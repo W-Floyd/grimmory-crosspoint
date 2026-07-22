@@ -199,6 +199,12 @@ export class OverdriveCatalogComponent {
   loanFilterCard = signal<string>('all');
   loanFilterFormat = signal<'all' | 'ebook' | 'audiobook'>('all');
   loanFilterImported = signal<'all' | 'imported' | 'unimported'>('all');
+  // "Holding up the queue": show only loans whose title has no copies available at its own library —
+  // i.e. holding it would hold up the queue, so returning it frees a copy for the next borrower.
+  // Availability isn't in the sync feed, so it's fetched on demand (one call per library) when enabled.
+  loanFilterHoldingQueue = signal(false);
+  loanAvailability = signal<Record<string, OverDriveLibraryAvailability[]>>({});
+  loadingLoanAvailability = signal(false);
   loanSortField = signal<string | null>(null);
   loanSortOrder = signal<1 | -1>(1);
   readonly importFilterOptions = [
@@ -222,16 +228,32 @@ export class OverdriveCatalogComponent {
     const cardId = this.loanFilterCard();
     const format = this.loanFilterFormat();
     const imported = this.loanFilterImported();
+    const holdingQueue = this.loanFilterHoldingQueue();
     const rows = this.loans().filter(l => {
       if (cardId !== 'all' && l.cardId !== cardId) return false;
       if (format === 'audiobook' && !this.isAudiobookLoan(l)) return false;
       if (format === 'ebook' && this.isAudiobookLoan(l)) return false;
       if (imported === 'imported' && l.bookId == null) return false;
       if (imported === 'unimported' && l.bookId != null) return false;
+      if (holdingQueue && !this.loanHoldingUpQueue(l)) return false;
       return true;
     });
     return this.applySort(rows, this.loanSortField(), this.loanSortOrder(), (f, x) => this.loanSortKey(f, x));
   });
+
+  /**
+   * True when this loan's title has zero copies available at its own library — i.e. holding this loan
+   * would hold up the queue: returning it frees a copy for the next borrower. Requires availability to
+   * have been fetched (see {@link fetchLoanAvailability}); returns false until then.
+   */
+  loanHoldingUpQueue(loan: OverDriveLoan): boolean {
+    const ownKey = this.cardLibraryKey(loan.cardId);
+    const entry = (this.loanAvailability()[loan.id] ?? []).find(a => a.libraryKey === ownKey);
+    if (!entry) return false;
+    // "0 copies available" — prefer the explicit copy count; fall back to the borrowable-now flag when
+    // the count isn't reported.
+    return entry.availableCopies === 0 || (entry.availableCopies == null && !entry.available);
+  }
 
   /** Holds with the holds-tab card/ready filters and column sort applied. */
   readonly filteredHolds = computed(() => {
@@ -255,7 +277,43 @@ export class OverdriveCatalogComponent {
 
   loanFiltersActive(): boolean {
     return this.loanFilterCard() !== 'all' || this.loanFilterFormat() !== 'all'
-      || this.loanFilterImported() !== 'all';
+      || this.loanFilterImported() !== 'all' || this.loanFilterHoldingQueue();
+  }
+
+  /**
+   * Toggle the "holding up the queue" filter. Enabling it lazily fetches per-loan availability at each
+   * library (one batched call per library) so the filter has the copies/holds data it needs.
+   */
+  onToggleHoldingQueueFilter(enabled: boolean): void {
+    this.loanFilterHoldingQueue.set(enabled);
+    if (enabled) {
+      this.fetchLoanAvailability();
+    }
+  }
+
+  /**
+   * Fetch current availability (copies + hold queue) for every loan's title at the selected cards'
+   * libraries, keyed by loan id. One batched request covers all titles per library. Best-effort: on
+   * failure the filter simply shows nothing rather than erroring the whole tab.
+   */
+  fetchLoanAvailability(): void {
+    const loans = this.loans();
+    const titleIds = [...new Set(loans.map(l => l.id))];
+    const cardIds = this.selectedCards().map(c => c.cardId);
+    if (titleIds.length === 0 || cardIds.length === 0) {
+      return;
+    }
+    this.loadingLoanAvailability.set(true);
+    this.overdriveService.titleAvailabilityBatch(titleIds, cardIds).subscribe({
+      next: (byTitle) => {
+        this.loanAvailability.set(byTitle ?? {});
+        this.loadingLoanAvailability.set(false);
+      },
+      error: (err: unknown) => {
+        this.error.set(this.errorMessage(err, 'Availability check failed'));
+        this.loadingLoanAvailability.set(false);
+      }
+    });
   }
 
   holdFiltersActive(): boolean {
@@ -266,6 +324,7 @@ export class OverdriveCatalogComponent {
     this.loanFilterCard.set('all');
     this.loanFilterFormat.set('all');
     this.loanFilterImported.set('all');
+    this.loanFilterHoldingQueue.set(false);
   }
 
   clearHoldFilters(): void {
@@ -710,6 +769,12 @@ export class OverdriveCatalogComponent {
        }
        return next;
      });
+     // Loan availability can go stale on re-sync (copies returned/borrowed elsewhere). Drop it; if the
+     // "holding up the queue" filter is active, re-fetch so the filter reflects the fresh loan set.
+     this.loanAvailability.set({});
+     if (this.loanFilterHoldingQueue()) {
+       this.fetchLoanAvailability();
+     }
    }
 
    /** Forget one hold's cached "available elsewhere" result so its row re-checks on demand. */
