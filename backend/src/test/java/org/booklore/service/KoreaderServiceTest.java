@@ -133,6 +133,70 @@ class KoreaderServiceTest {
     }
 
     @Test
+    void getProgress_includesDefaultDeviceId() {
+        when(details.isSyncEnabled()).thenReturn(true);
+        var book = new BookEntity();
+        book.setId(99L);
+        when(bookRepo.findByCurrentHash("h")).thenReturn(Optional.of(book));
+        var prog = new UserBookProgressEntity();
+        prog.setKoreaderProgress("p");
+        prog.setKoreaderProgressPercent(0.5F);
+        when(progressRepo.findByUserIdAndBookId(42L, 99L))
+                .thenReturn(Optional.of(prog));
+
+        KoreaderProgress out = service.getProgress("h");
+        assertEquals("Grimmory", out.getDevice());
+        assertEquals("Grimmory", out.getDevice_id());
+    }
+
+    @Test
+    void getProgress_includesSpecifiedDeviceId() {
+        when(details.isSyncEnabled()).thenReturn(true);
+        var book = new BookEntity();
+        book.setId(99L);
+        when(bookRepo.findByCurrentHash("h")).thenReturn(Optional.of(book));
+        var prog = new UserBookProgressEntity();
+        prog.setKoreaderProgress("p");
+        prog.setKoreaderProgressPercent(0.5F);
+        prog.setKoreaderDevice("Example Device");
+        prog.setKoreaderDeviceId("Example Device ID");
+        when(progressRepo.findByUserIdAndBookId(42L, 99L))
+                .thenReturn(Optional.of(prog));
+
+        KoreaderProgress out = service.getProgress("h");
+        assertEquals("Example Device", out.getDevice());
+        assertEquals("Example Device ID", out.getDevice_id());
+    }
+
+    @Test
+    void getProgress_includesOnlyPartialDeviceInfo() {
+        when(details.isSyncEnabled()).thenReturn(true);
+        var book = new BookEntity();
+        book.setId(99L);
+        when(bookRepo.findByCurrentHash("h")).thenReturn(Optional.of(book));
+        var prog = new UserBookProgressEntity();
+        prog.setKoreaderProgress("p");
+        prog.setKoreaderProgressPercent(0.5F);
+        prog.setKoreaderDevice("Example Device");
+        prog.setKoreaderDeviceId(null);
+        when(progressRepo.findByUserIdAndBookId(42L, 99L))
+                .thenReturn(Optional.of(prog));
+
+        KoreaderProgress out_a = service.getProgress("h");
+        assertEquals("Example Device", out_a.getDevice());
+        assertEquals("Grimmory", out_a.getDevice_id());
+
+        prog.setKoreaderDevice(null);
+        prog.setKoreaderDeviceId("Example Device ID");
+        when(progressRepo.findByUserIdAndBookId(42L, 99L))
+                .thenReturn(Optional.of(prog));
+
+        KoreaderProgress out_b = service.getProgress("h");
+        assertEquals("Grimmory", out_b.getDevice());
+        assertEquals("Example Device ID", out_b.getDevice_id());
+    }
+
+    @Test
     void getProgress_bookNotFound() {
         when(details.isSyncEnabled()).thenReturn(true);
         when(bookRepo.findByCurrentHash("h")).thenReturn(Optional.empty());

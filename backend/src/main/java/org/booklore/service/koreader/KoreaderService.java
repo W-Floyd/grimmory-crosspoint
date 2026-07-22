@@ -60,13 +60,21 @@ public class KoreaderService {
                 ? progress.getKoreaderLastSyncTime().getEpochSecond()
                 : null;
 
+        String device = progress.getKoreaderDevice() != null ?
+                progress.getKoreaderDevice() :
+                DEFAULT_DEVICE_NAME;
+
+        String deviceId = progress.getKoreaderDeviceId() != null ?
+                progress.getKoreaderDeviceId() :
+                DEFAULT_DEVICE_ID;
+
         return KoreaderProgress.builder()
                 .timestamp(timestamp)
                 .document(bookHash)
                 .progress(progress.getKoreaderProgress())
                 .percentage(progress.getKoreaderProgressPercent())
-                .device(DEFAULT_DEVICE_NAME)
-                .device_id(DEFAULT_DEVICE_ID)
+                .device(device)
+                .device_id(deviceId)
                 .build();
     }
 
