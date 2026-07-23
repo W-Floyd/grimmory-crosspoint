@@ -316,17 +316,23 @@ describe('MetadataViewerComponent', () => {
     expect(component.filteredRecommendedBooks().map(book => book.book.id)).toEqual([17]);
 
     const readItems = component.readMenuItems();
-    expect(readItems.map(item => item.separator ? 'separator' : item.label)).toEqual([
-      'metadata.viewer.menuStreamingReader',
-      'separator',
-      'EPUB',
-      'PDF',
+    // One entry per readable file, primary first, each labelled by its filename when several exist.
+    expect(readItems.map(item => item.label)).toEqual([
+      'main.epub (metadata.viewer.menuPrimary)',
+      'alt.epub',
+      'art.pdf',
     ]);
-    expect(readItems[0].command).toBeDefined();
-    runMenuCommand(readItems[0].command);
-    expect(readBook).toHaveBeenCalledWith(21, 'epub-streaming', undefined);
-    runMenuCommand(readItems[2].items?.[0].command);
-    expect(readBook).toHaveBeenLastCalledWith(21, undefined, 'EPUB');
+    // EPUB files expose a standard/streaming reader submenu, each command addressing its own file id.
+    const primaryReaders = readItems[0].items ?? [];
+    expect(primaryReaders.map(item => item.label)).toEqual([
+      'metadata.viewer.menuStandardReader',
+      'metadata.viewer.menuStreamingReader',
+    ]);
+    runMenuCommand(primaryReaders[1].command);
+    expect(readBook).toHaveBeenCalledWith(21, 'epub-streaming', 'EPUB', 1);
+    // The PDF alternative is a direct command addressed by its own file id.
+    runMenuCommand(readItems[2].command);
+    expect(readBook).toHaveBeenLastCalledWith(21, undefined, 'PDF', 3);
 
     const downloadItems = component.downloadMenuItems();
     expect(downloadItems.some(item => item.separator)).toBe(true);
