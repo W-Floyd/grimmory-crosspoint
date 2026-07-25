@@ -1,7 +1,7 @@
 import { Component, input } from '@angular/core';
 
 import { RouterLink } from '@angular/router';
-import { TooltipModule } from 'primeng/tooltip';
+import { TooltipModule } from '@openng/optimus-ui/tooltip';
 
 /**
  * Shared title cell for the OverDrive catalog tables (search results, loans, holds): the title with

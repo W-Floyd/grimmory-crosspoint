@@ -4,7 +4,7 @@ import {Router, RouterLink} from '@angular/router';
 import {TranslocoPipe} from '@jsverse/transloco';
 import {LucideArrowLeft, LucideEllipsisVertical} from '@lucide/angular';
 import {AppMenuComponent} from '../../ui/menu/app-menu.component';
-import {AppMenuItem} from '../../ui/menu/app-menu.items';
+import {AppMenuItemComponent} from '../../ui/menu/app-menu-item.component';
 import {AppButtonComponent} from '../../ui/button/app-button.component';
 import {PageHeaderBreadcrumb} from './page-header.service';
 
@@ -16,6 +16,7 @@ const COLLAPSE_AFTER_ITEMS = 4;
   imports: [
     AppButtonComponent,
     AppMenuComponent,
+    AppMenuItemComponent,
     LucideArrowLeft,
     LucideEllipsisVertical,
     NgClass,
@@ -58,6 +59,7 @@ const COLLAPSE_AFTER_ITEMS = 4;
               styleClass="h-7 w-7 pointer-coarse:h-7 pointer-coarse:w-7"
               [ariaLabel]="'layout.pageHeader.moreBreadcrumbs' | transloco"
               ariaHasPopup="menu"
+              [ariaExpanded]="hiddenBreadcrumbMenu()?.isOpen() ? 'true' : 'false'"
               (clicked)="toggleHiddenBreadcrumbs($event)">
               <svg lucideEllipsisVertical></svg>
             </app-button>
@@ -75,7 +77,13 @@ const COLLAPSE_AFTER_ITEMS = 4;
       </ol>
     </nav>
     @if (hiddenBreadcrumbs().length) {
-      <app-menu #hiddenBreadcrumbMenu [model]="hiddenBreadcrumbMenuItems()" />
+      <app-menu #hiddenBreadcrumbMenu [ariaLabel]="'layout.pageHeader.moreBreadcrumbs' | transloco">
+        @for (breadcrumb of hiddenBreadcrumbs(); track breadcrumbKey(breadcrumb)) {
+          <app-menu-item [disabled]="!breadcrumb.commands?.length" (selected)="navigate(breadcrumb)">
+            {{ breadcrumb.label }}
+          </app-menu-item>
+        }
+      </app-menu>
     }
     }
 
@@ -123,13 +131,6 @@ export class AppPageHeaderBreadcrumbsComponent {
   readonly leadingBreadcrumb = computed(() => (this.shouldCollapse() ? this.trail()[0] : null));
   readonly hiddenBreadcrumbs = computed(() => (this.shouldCollapse() ? this.trail().slice(1, -2) : []));
   readonly trailingBreadcrumbs = computed(() => (this.shouldCollapse() ? this.trail().slice(-2) : this.trail()));
-  readonly hiddenBreadcrumbMenuItems = computed<AppMenuItem[]>(() =>
-    this.hiddenBreadcrumbs().map(breadcrumb => ({
-      label: breadcrumb.label,
-      disabled: !breadcrumb.commands?.length,
-      command: () => this.navigate(breadcrumb),
-    })),
-  );
 
   navigate(breadcrumb: PageHeaderBreadcrumb): void {
     if (breadcrumb.commands?.length) {
@@ -142,7 +143,14 @@ export class AppPageHeaderBreadcrumbsComponent {
   }
 
   toggleHiddenBreadcrumbs(event: MouseEvent): void {
-    this.hiddenBreadcrumbMenu()?.toggle(event);
+    const menu = this.hiddenBreadcrumbMenu();
+    if (!menu) return;
+    const origin = event.currentTarget as HTMLElement;
+    if (menu.openerElement() === origin) {
+      menu.close();
+    } else {
+      menu.open(origin);
+    }
   }
 
   breadcrumbKey(breadcrumb: PageHeaderBreadcrumb): string {

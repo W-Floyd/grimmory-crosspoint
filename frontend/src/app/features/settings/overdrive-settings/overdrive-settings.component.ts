@@ -2,18 +2,18 @@ import { Component, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AppSettingsService } from '../../../shared/service/app-settings.service';
 import { AppSettingKey } from '../../../shared/model/app-settings.model';
-import { InputTextModule } from 'primeng/inputtext';
-import { MessageModule } from 'primeng/message';
-import { CardModule } from 'primeng/card';
-import { MessageService } from 'primeng/api';
+import { InputTextModule } from '@openng/optimus-ui/inputtext';
+import { MessageModule } from '@openng/optimus-ui/message';
+import { CardModule } from '@openng/optimus-ui/card';
+import { MessageService } from '@openng/optimus-ui/api';
 
 import { OverDriveService, OverDriveCard, OverDriveImportDestinations, OverDriveLibraryResolution, OverDriveShareUser } from '../../../core/services/overdrive.service';
-import { ButtonModule } from 'primeng/button';
-import { TooltipModule } from 'primeng/tooltip';
-import { OrderListModule } from 'primeng/orderlist';
-import { DialogModule } from 'primeng/dialog';
-import { MultiSelectModule } from 'primeng/multiselect';
-import { SelectModule } from 'primeng/select';
+import { ButtonModule } from '@openng/optimus-ui/button';
+import { TooltipModule } from '@openng/optimus-ui/tooltip';
+import { OrderListModule } from '@openng/optimus-ui/orderlist';
+import { DialogModule } from '@openng/optimus-ui/dialog';
+import { MultiSelectModule } from '@openng/optimus-ui/multiselect';
+import { SelectModule } from '@openng/optimus-ui/select';
 import { LibraryService } from '../../../features/book/service/library.service';
 import { Library, LibraryPath } from '../../../features/book/model/library.model';
 

@@ -1,5 +1,5 @@
 import { Component, input } from '@angular/core';
-import { Image } from 'primeng/image';
+import { Image } from '@openng/optimus-ui/image';
 
 /**
  * Cover thumbnail for the OverDrive tables. Clicking opens the full-size image in a preview overlay

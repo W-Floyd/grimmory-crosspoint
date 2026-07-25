@@ -2,7 +2,7 @@ import {TestBed} from '@angular/core/testing';
 import {beforeEach, afterEach, describe, expect, it, vi} from 'vitest';
 import {of} from 'rxjs';
 
-import {MessageService} from 'primeng/api';
+import {MessageService} from '@openng/optimus-ui/api';
 import {OverdriveCatalogComponent} from './overdrive-catalog.component';
 import {OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
 import {LibraryService} from '../../features/book/service/library.service';
