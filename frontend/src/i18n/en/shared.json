@@ -187,6 +187,10 @@
       "search": "Search",
       "selectedCount": "{{ count }} selected"
     },
+    "shelfMenu": {
+      "addToShelf": "Add to shelf",
+      "newShelf": "New shelf…"
+    },
     "spinner": {
       "loading": "Loading"
     },
