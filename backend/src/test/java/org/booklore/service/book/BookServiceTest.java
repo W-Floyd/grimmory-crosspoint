@@ -465,6 +465,84 @@ class BookServiceTest {
         assertEquals(Set.of(13L), response.getDeleted());
     }
 
+    /** A book whose single file sits in {@code <root>/<subDir>/<name>}. */
+    private BookEntity bookInSubfolder(long id, Path root, String subDir, String name) {
+        BookEntity entity = new BookEntity();
+        entity.setId(id);
+        LibraryEntity library = new LibraryEntity();
+        library.setId(42L);
+        LibraryPathEntity libPath = new LibraryPathEntity();
+        libPath.setPath(root.toString());
+        library.setLibraryPaths(List.of(libPath));
+        entity.setLibrary(library);
+        entity.setLibraryPath(libPath);
+        BookFileEntity primaryFile = new BookFileEntity();
+        primaryFile.setBook(entity);
+        primaryFile.setFileSubPath(subDir);
+        primaryFile.setFileName(name);
+        entity.setBookFiles(List.of(primaryFile));
+        return entity;
+    }
+
+    @Test
+    void deleteBooks_doesNotReRegisterAFolderTheDeleteRemoved() throws Exception {
+        // The file is the only thing in its folder, so deleting it cascades the folder away too.
+        // Re-registering that folder afterwards would only log "Cannot register path that does not exist".
+        Path root = Files.createTempDirectory("libroot");
+        Path bookDir = Files.createDirectories(root.resolve("Some Author"));
+        Path filePath = Files.writeString(bookDir.resolve("bookfile.txt"), "abc");
+        BookEntity entity = bookInSubfolder(14L, root, "Some Author", "bookfile.txt");
+
+        when(bookQueryService.findAllWithMetadataByIds(Set.of(14L))).thenReturn(List.of(entity));
+        when(authenticationService.getAuthenticatedUser()).thenReturn(testUser);
+        doNothing().when(bookRepository).deleteAllInBatch(anyList());
+
+        bookService.deleteBooks(Set.of(14L)).getBody();
+
+        assertFalse(Files.exists(filePath));
+        assertFalse(Files.exists(bookDir));
+        verify(monitoringRegistrationService).unregisterSpecificPath(bookDir);
+        verify(monitoringRegistrationService, never()).registerSpecificPath(eq(bookDir), any());
+    }
+
+    @Test
+    void deleteBooks_reRegistersAFolderThatSurvives() throws Exception {
+        // A sibling file keeps the folder alive, so the watch we suspended must be restored.
+        Path root = Files.createTempDirectory("libroot");
+        Path bookDir = Files.createDirectories(root.resolve("Some Author"));
+        Files.writeString(bookDir.resolve("other.txt"), "keep me");
+        Files.writeString(bookDir.resolve("bookfile.txt"), "abc");
+        BookEntity entity = bookInSubfolder(15L, root, "Some Author", "bookfile.txt");
+
+        when(bookQueryService.findAllWithMetadataByIds(Set.of(15L))).thenReturn(List.of(entity));
+        when(authenticationService.getAuthenticatedUser()).thenReturn(testUser);
+        doNothing().when(bookRepository).deleteAllInBatch(anyList());
+
+        bookService.deleteBooks(Set.of(15L)).getBody();
+
+        assertTrue(Files.exists(bookDir));
+        verify(monitoringRegistrationService).unregisterSpecificPath(bookDir);
+        verify(monitoringRegistrationService).registerSpecificPath(bookDir, 42L);
+    }
+
+    @Test
+    void deleteBooks_missingFileTouchesNoWatches() throws Exception {
+        // Duplicate rows in the bookFiles bag re-enter this loop with the file already gone; those
+        // iterations must not churn the watcher (they were the source of the log flood).
+        Path root = Files.createTempDirectory("libroot");
+        Path bookDir = Files.createDirectories(root.resolve("Some Author"));
+        BookEntity entity = bookInSubfolder(16L, root, "Some Author", "gone.txt");
+
+        when(bookQueryService.findAllWithMetadataByIds(Set.of(16L))).thenReturn(List.of(entity));
+        when(authenticationService.getAuthenticatedUser()).thenReturn(testUser);
+        doNothing().when(bookRepository).deleteAllInBatch(anyList());
+
+        bookService.deleteBooks(Set.of(16L)).getBody();
+
+        verify(monitoringRegistrationService, never()).unregisterSpecificPath(bookDir);
+        verify(monitoringRegistrationService, never()).registerSpecificPath(any(), any());
+    }
+
     @Test
     void deleteEmptyParentDirsUpToLibraryFolders_deletesEmptyDirs() throws Exception {
         Path root = Files.createTempDirectory("libroot");

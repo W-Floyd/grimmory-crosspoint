@@ -427,42 +427,56 @@ public class BookService {
         for (BookEntity book : books) {
             for (BookFileEntity bookFile : book.getBookFiles()) {
                 Path fullFilePath = bookFile.getFullFilePath();
+                Path parentDir = fullFilePath.getParent();
+                // Only restore a watch we actually suspended — see the finally below.
+                boolean unregistered = false;
                 try {
-                    if (Files.exists(fullFilePath)) {
+                    if (!Files.exists(fullFilePath)) {
+                        continue;
+                    }
+                    if (parentDir != null) {
                         try {
-                            monitoringRegistrationService.unregisterSpecificPath(fullFilePath.getParent());
+                            monitoringRegistrationService.unregisterSpecificPath(parentDir);
+                            unregistered = true;
                         } catch (Exception ex) {
-                            log.warn("Failed to unregister monitoring for path: {}", fullFilePath.getParent(), ex);
+                            log.warn("Failed to unregister monitoring for path: {}", parentDir, ex);
                         }
+                    }
 
-                        // Handle folder-based audiobooks (delete directory recursively)
-                        if (bookFile.isFolderBased() && Files.isDirectory(fullFilePath)) {
-                            deleteDirectoryRecursively(fullFilePath);
-                            log.info("Deleted folder-based audiobook: {}", fullFilePath);
-                        } else {
-                            Files.delete(fullFilePath);
-                            log.info("Deleted book file: {}", fullFilePath);
-                        }
+                    // Handle folder-based audiobooks (delete directory recursively)
+                    if (bookFile.isFolderBased() && Files.isDirectory(fullFilePath)) {
+                        deleteDirectoryRecursively(fullFilePath);
+                        log.info("Deleted folder-based audiobook: {}", fullFilePath);
+                    } else {
+                        Files.delete(fullFilePath);
+                        log.info("Deleted book file: {}", fullFilePath);
+                    }
 
-                        Set<Path> libraryRoots = book.getLibrary().getLibraryPaths().stream()
-                                .map(LibraryPathEntity::getPath)
-                                .map(Paths::get)
-                                .map(Path::normalize)
-                                .collect(Collectors.toSet());
+                    Set<Path> libraryRoots = book.getLibrary().getLibraryPaths().stream()
+                            .map(LibraryPathEntity::getPath)
+                            .map(Paths::get)
+                            .map(Path::normalize)
+                            .collect(Collectors.toSet());
 
-                        deleteEmptyParentDirsUpToLibraryFolders(fullFilePath.getParent(), libraryRoots);
+                    deleteEmptyParentDirsUpToLibraryFolders(parentDir, libraryRoots);
 
-                        try {
-                            sidecarMetadataWriter.deleteSidecarFiles(fullFilePath);
-                        } catch (Exception e) {
-                            log.warn("Failed to delete sidecar files for: {}", fullFilePath, e);
-                        }
+                    try {
+                        sidecarMetadataWriter.deleteSidecarFiles(fullFilePath);
+                    } catch (Exception e) {
+                        log.warn("Failed to delete sidecar files for: {}", fullFilePath, e);
                     }
                 } catch (IOException e) {
                     log.warn("Failed to delete book file: {}", fullFilePath, e);
                     failedFileDeletions.add(book.getId());
                 } finally {
-                    monitoringRegistrationService.registerSpecificPath(fullFilePath.getParent(), book.getLibrary().getId());
+                    // Re-register only what we suspended, and only if it survived: when the deleted file
+                    // was the last one in its folder, deleteEmptyParentDirsUpToLibraryFolders has already
+                    // removed that folder, and registering a path that no longer exists just logs a
+                    // warning. A failed delete still lands here with the directory intact, so the watch
+                    // it suspended is correctly restored.
+                    if (unregistered && Files.isDirectory(parentDir)) {
+                        monitoringRegistrationService.registerSpecificPath(parentDir, book.getLibrary().getId());
+                    }
                 }
             }
         }
