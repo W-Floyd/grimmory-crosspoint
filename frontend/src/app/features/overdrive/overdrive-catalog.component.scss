@@ -345,6 +345,15 @@
     }
   }
 
+  // The handler streams progress updates far faster than a long width transition can settle, and
+  // each one restarts the transition from wherever the fill currently is — so the bar trails the
+  // real figure, and because the numeric label is plain text (never animated) it can read 100% while
+  // the fill is still travelling. Pin a short linear transition in place of the theme's: fast enough
+  // to track the stream, still smooth, and it lands on 100% essentially at once.
+  :host ::ng-deep .tool-progress .p-progressbar-value {
+    transition: width 120ms linear;
+  }
+
   // Streamed external-handler output (audiobook/acsm/magazine tool) in the console dialog.
   .tool-console-wrap {
     position: relative;

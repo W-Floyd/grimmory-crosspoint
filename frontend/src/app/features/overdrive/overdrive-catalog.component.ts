@@ -27,6 +27,23 @@ import { ProgressBar } from '@openng/optimus-ui/progressbar';
 import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
 import { OverdriveCoverComponent } from './overdrive-cover.component';
 
+/**
+ * Percentage for the handler progress bar, or null when the event carries no usable figure.
+ *
+ * Clamped to 0–100: a tool sizes its download against an *estimated* total (the audiobook handler
+ * reports "228.2 MB / ~228.2 MB" against a real 217.6 MB), so `current` can overshoot `total` and
+ * drive the bar past full — which reads as 100% while the fill is still visibly short of the end.
+ */
+export function toolProgressPct(e: { pct?: number; current?: number; total?: number }): number | null {
+  const raw = e.pct != null
+    ? e.pct
+    : (e.total ? ((e.current ?? 0) / e.total) * 100 : null);
+  if (raw == null || !Number.isFinite(raw)) {
+    return null;
+  }
+  return Math.min(100, Math.max(0, Math.round(raw)));
+}
+
 @Component({
   selector: 'app-overdrive-catalog',
   standalone: true,
@@ -1967,10 +1984,7 @@ export class OverdriveCatalogComponent {
    private handleToolEvent(e: OverDriveToolEvent): void {
      switch (e.type) {
        case 'progress': {
-         const pct = e.pct != null
-           ? e.pct
-           : (e.total ? Math.round(((e.current ?? 0) / e.total) * 100) : null);
-         this.toolProgress.set({ phase: e.phase, message: e.message, pct });
+         this.toolProgress.set({ phase: e.phase, message: e.message, pct: toolProgressPct(e) });
          const label = [e.phase, e.message].filter(Boolean).join(' — ');
          if (label) {
            this.toolLog.update(lines => [...lines, `▸ ${label}`]);

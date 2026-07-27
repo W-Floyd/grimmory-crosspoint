@@ -3,7 +3,7 @@ import {beforeEach, afterEach, describe, expect, it, vi} from 'vitest';
 import {of} from 'rxjs';
 
 import {MessageService} from '@openng/optimus-ui/api';
-import {OverdriveCatalogComponent} from './overdrive-catalog.component';
+import {OverdriveCatalogComponent, toolProgressPct} from './overdrive-catalog.component';
 import {OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
 import {LibraryService} from '../../features/book/service/library.service';
 import {TranslocoService} from '@jsverse/transloco';
@@ -671,4 +671,33 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       expect(component.filteredHolds().map(h => h.id)).toEqual(['h2', 'h3', 'h1']);
     });
   });
+
+  describe('toolProgressPct', () => {
+    it('uses an explicit pct when the tool sends one', () => {
+      expect(toolProgressPct({pct: 42})).toBe(42);
+    });
+
+    it('derives a pct from current/total', () => {
+      expect(toolProgressPct({current: 50, total: 200})).toBe(25);
+    });
+
+    it('clamps overshoot to 100', () => {
+      // Handlers size the download against an *estimated* total (the audiobook tool reports
+      // "228.2 MB / ~228.2 MB" against a real 217.6 MB), so current can exceed total.
+      expect(toolProgressPct({current: 228, total: 217})).toBe(100);
+      expect(toolProgressPct({pct: 137})).toBe(100);
+    });
+
+    it('clamps negatives to 0', () => {
+      expect(toolProgressPct({pct: -5})).toBe(0);
+    });
+
+    it('returns null when there is no usable figure', () => {
+      expect(toolProgressPct({})).toBeNull();
+      expect(toolProgressPct({current: 5})).toBeNull();
+      // total 0 would divide to Infinity rather than a percentage.
+      expect(toolProgressPct({current: 5, total: 0})).toBeNull();
+    });
+  });
+
 });
