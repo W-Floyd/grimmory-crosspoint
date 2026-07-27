@@ -39,6 +39,7 @@ class OverDriveServiceTest {
     @Mock private AcsmHandler acsmHandler;
     @Mock private org.booklore.service.audiobook.AudiobookHandler audiobookHandler;
     @Mock private org.booklore.service.magazine.MagazineHandler magazineHandler;
+    @Mock private org.booklore.service.ebook.EbookHandler ebookHandler;
     @Mock private RestClient restClient;
     @Mock private OverDriveImportService overDriveImportService;
     @Mock private OverDriveParser overDriveParser;
@@ -59,6 +60,7 @@ class OverDriveServiceTest {
         // Credential cipher with no key configured -> disabled (token-only), matching default deploys.
         OverDriveCredentialCipher cipher = new OverDriveCredentialCipher("");
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
+                ebookHandler,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 importDestinationRepository, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
@@ -772,18 +774,65 @@ class OverDriveServiceTest {
     }
 
     @Test
-    void noImportableFormatMessage_doesNotMentionAcsmWhenNoAdobeFormatIsOffered() {
-        // Libby's read-in-browser + Kobo hand-off formats. There is no Adobe format here, so an ACSM
-        // handler could not help and must not be suggested.
+    void selectFormat_picksReadInBrowserEbookOnlyWhenHandlerReady() {
+        // The Libby-Read-only case: no open format, no Adobe format, so nothing to fulfill without
+        // the ebook handler.
+        List<String> formats = List.of("ebook-overdrive", "ebook-kobo");
+
+        assertThat(OverDriveService.selectFormat(
+                formats, OverDriveService.defaultFormatPreference(), false, false, true))
+                .isEqualTo("ebook-overdrive");
+        assertThat(OverDriveService.selectFormat(
+                formats, OverDriveService.defaultFormatPreference(), false, false, false))
+                .isNull();
+        // An ACSM handler cannot help here — there is no Adobe format and no ACSM to hand it.
+        assertThat(OverDriveService.selectFormat(
+                formats, OverDriveService.defaultFormatPreference(), true, true, false))
+                .isNull();
+    }
+
+    @Test
+    void selectFormat_prefersRealDownloadFormatsOverReadInBrowser() {
+        // ebook-overdrive is a rebuild from web-reader assets, so it is the last resort even when the
+        // handler is ready and the alternative needs an ACSM.
+        assertThat(OverDriveService.selectFormat(
+                List.of("ebook-overdrive", "ebook-epub-open"),
+                OverDriveService.defaultFormatPreference(), false, false, true))
+                .isEqualTo("ebook-epub-open");
+        assertThat(OverDriveService.selectFormat(
+                List.of("ebook-overdrive", "ebook-epub-adobe"),
+                OverDriveService.defaultFormatPreference(), true, false, true))
+                .isEqualTo("ebook-epub-adobe");
+        // ...but with no ACSM handler the Adobe format is unusable, so the rebuild wins.
+        assertThat(OverDriveService.selectFormat(
+                List.of("ebook-overdrive", "ebook-epub-adobe"),
+                OverDriveService.defaultFormatPreference(), false, false, true))
+                .isEqualTo("ebook-overdrive");
+    }
+
+    @Test
+    void noImportableFormatMessage_pointsAtTheEbookHandlerForReadInBrowserTitles() {
         String message = OverDriveService.noImportableFormatMessage(
                 "1084737", List.of("ebook-overdrive", "ebook-kobo"));
 
         assertThat(message)
+                .contains("Libby's read-in-browser format requires a configured ebook handler.")
+                .doesNotContain("ACSM");
+    }
+
+    @Test
+    void noImportableFormatMessage_doesNotMentionAcsmWhenNoAdobeFormatIsOffered() {
+        // The Kobo hand-off format alone: no handler Grimmory has could ever fulfill it, so the message
+        // must not send the operator chasing an ACSM (or any other) setting.
+        String message = OverDriveService.noImportableFormatMessage("1084737", List.of("ebook-kobo"));
+
+        assertThat(message)
                 .contains("loan 1084737")
-                .contains("ebook-overdrive", "ebook-kobo")
+                .contains("ebook-kobo")
                 .contains("None of these can be downloaded")
                 .doesNotContain("ACSM")
-                .doesNotContain("audiobook handler");
+                .doesNotContain("audiobook handler")
+                .doesNotContain("ebook handler");
     }
 
     @Test

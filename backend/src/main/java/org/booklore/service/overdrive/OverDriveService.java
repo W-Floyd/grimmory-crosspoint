@@ -28,6 +28,7 @@ import org.springframework.data.domain.PageRequest;
 import org.booklore.service.acsm.AcsmHandler;
 import org.booklore.model.websocket.Topic;
 import org.booklore.service.audiobook.AudiobookHandler;
+import org.booklore.service.ebook.EbookHandler;
 import org.booklore.service.magazine.MagazineHandler;
 import org.booklore.service.appsettings.AppSettingService;
 import org.booklore.service.metadata.parser.OverDriveItemExtractor;
@@ -83,6 +84,7 @@ public class OverDriveService {
     private final AcsmHandler acsmHandler;
     private final AudiobookHandler audiobookHandler;
     private final MagazineHandler magazineHandler;
+    private final EbookHandler ebookHandler;
 
      @Value("${app.overdrive.sentry-base-url:https://sentry.libbyapp.com}")
     private String sentryBaseUrl;
@@ -340,8 +342,20 @@ public class OverDriveService {
     /** OverDrive audiobook format id preferred by the handoff (Libby's MP3 audiobook). */
     private static final String FORMAT_AUDIOBOOK_MP3 = "audiobook-mp3";
 
+    /**
+     * Libby's "read in browser" ebook format. Not a downloadable file — the book is served as
+     * web-reader assets and yields no ACSM — so it is fulfilled by the external ebook handler, which
+     * reconstructs a book file from them. A last resort: any real download format is preferred.
+     */
+    private static final String FORMAT_EBOOK_OVERDRIVE = "ebook-overdrive";
+
     private static boolean isOpenFormat(String formatId) {
         return formatId != null && formatId.endsWith("-open");
+    }
+
+    /** The read-in-browser ebook format, fulfilled by the external ebook handler. */
+    private static boolean isEbookHandlerFormat(String formatId) {
+        return FORMAT_EBOOK_OVERDRIVE.equals(formatId);
     }
 
     /** Any OverDrive audiobook format (e.g. audiobook-mp3, audiobook-overdrive) — fulfilled by the tool. */
@@ -368,8 +382,11 @@ public class OverDriveService {
                 .anyMatch(OverDriveService::isMagazineFormat);
     }
 
-    /** A magazine issue is delivered as a PDF or an EPUB; pick the type from the produced extension. */
-    private static BookFileType magazineFileType(String extension) {
+    /**
+     * A handler-produced book file is a PDF or an EPUB; pick the type from the extension the tool
+     * chose. Used for magazines and for read-in-browser ebooks, where the format id doesn't say which.
+     */
+    private static BookFileType fileTypeFromExtension(String extension) {
         return "pdf".equalsIgnoreCase(extension) ? BookFileType.PDF : BookFileType.EPUB;
     }
 
@@ -1354,7 +1371,7 @@ public class OverDriveService {
        */
       private String chooseFormat(List<String> loanFormats) {
         return selectFormat(loanFormats, formatPreference(), acsmHandler.isConfigured(),
-                audiobookHandler.isConfigured());
+                audiobookHandler.isConfigured(), ebookHandler.isConfigured());
       }
 
       /**
@@ -1367,11 +1384,15 @@ public class OverDriveService {
 
       /**
        * A format we can actually import: open ebook formats always, Adobe ebook formats only with an
-       * ACSM handler, and audiobook formats only with an audiobook handler.
+       * ACSM handler, audiobook formats only with an audiobook handler, and Libby's read-in-browser
+       * {@code ebook-overdrive} only with an ebook handler.
        */
       private boolean isImportableFormat(String formatId) {
         if (isAudiobookFormat(formatId)) {
             return audiobookHandler.isConfigured();
+        }
+        if (isEbookHandlerFormat(formatId)) {
+            return ebookHandler.isConfigured();
         }
         return SUPPORTED_FORMATS.contains(formatId) && (isOpenFormat(formatId) || acsmHandler.isConfigured());
       }
@@ -1394,6 +1415,9 @@ public class OverDriveService {
         if (formats.stream().anyMatch(OverDriveService::isMagazineFormat)) {
             fixes.add("Magazine formats require a configured magazine handler.");
         }
+        if (formats.stream().anyMatch(OverDriveService::isEbookHandlerFormat)) {
+            fixes.add("Libby's read-in-browser format requires a configured ebook handler.");
+        }
         String detail = fixes.isEmpty()
                 ? "None of these can be downloaded — Grimmory imports "
                         + String.join(", ", SUPPORTED_FORMATS) + " and audiobook formats."
@@ -1401,18 +1425,28 @@ public class OverDriveService {
         return "No importable format for this title (loan " + loanId + "). Offered: " + formats + ". " + detail;
       }
 
-      /** Backwards-compatible overload (ebook-only) — no audiobook handler. */
+      /** Backwards-compatible overload (ebook-only) — no audiobook or read-in-browser ebook handler. */
       static String selectFormat(List<String> loanFormats, List<String> preference, boolean acsmHandlerReady) {
-        return selectFormat(loanFormats, preference, acsmHandlerReady, false);
+        return selectFormat(loanFormats, preference, acsmHandlerReady, false, false);
+      }
+
+      /** Backwards-compatible overload — no read-in-browser ebook handler. */
+      static String selectFormat(List<String> loanFormats, List<String> preference, boolean acsmHandlerReady,
+                                 boolean audiobookHandlerReady) {
+        return selectFormat(loanFormats, preference, acsmHandlerReady, audiobookHandlerReady, false);
       }
 
       /**
        * Pure selection: the first preferred ebook format the loan offers that is fulfillable; failing
        * that, an offered audiobook format when an audiobook handler is ready. A loan is one medium
        * (ebook OR audiobook), so the two never compete — audiobook titles carry no ebook formats.
+       *
+       * <p>{@code ebook-overdrive} is tried only after every real download format: it is Libby's
+       * read-in-browser format, which the ebook handler must rebuild into a file from the web-reader
+       * assets, so an open or Adobe format is always preferred when the loan offers one.
        */
       static String selectFormat(List<String> loanFormats, List<String> preference, boolean acsmHandlerReady,
-                                 boolean audiobookHandlerReady) {
+                                 boolean audiobookHandlerReady, boolean ebookHandlerReady) {
         for (String preferred : preference) {
             if (!loanFormats.contains(preferred)) {
                 continue;
@@ -1421,6 +1455,9 @@ public class OverDriveService {
                 continue; // Adobe format but no ACSM handler to procure it.
             }
             return preferred;
+        }
+        if (ebookHandlerReady && loanFormats.contains(FORMAT_EBOOK_OVERDRIVE)) {
+            return FORMAT_EBOOK_OVERDRIVE;
         }
         if (audiobookHandlerReady) {
             if (loanFormats.contains(FORMAT_AUDIOBOOK_MP3)) {
@@ -1633,6 +1670,7 @@ public class OverDriveService {
         r.put("formatPreference", formatPreference());
         r.put("acsmHandlerConfigured", acsmHandler.isConfigured());
         r.put("audiobookHandlerConfigured", audiobookHandler.isConfigured());
+        r.put("ebookHandlerConfigured", ebookHandler.isConfigured());
         r.put("credentialStorageEnabled", credentialCipher.isEnabled());
 
         Long userId = currentUserId();
@@ -1725,6 +1763,11 @@ public class OverDriveService {
 
       public boolean magazineHandlerConfigured() {
         return magazineHandler.isConfigured();
+      }
+
+      /** Whether an external ebook handler is configured (enables read-in-browser-only titles). */
+      public boolean ebookHandlerConfigured() {
+        return ebookHandler.isConfigured();
       }
 
       // ── Per-document-type import destinations (per user) ─────────────────
@@ -1964,6 +2007,17 @@ public class OverDriveService {
             if (isEmptyFile(content)) {
                 throw new RestClientException("The audiobook handler did not produce a file for loan " + loanId + ".");
             }
+        } else if (isEbookHandlerFormat(chosenFormat)) {
+            // Read-in-browser only: there is no downloadable file and no ACSM, so the external ebook
+            // tool authenticates itself and rebuilds a book file from the web-reader assets. It picks
+            // the output extension (epub/pdf), same as the audiobook and magazine handlers.
+            EbookHandler.Result ebook = ebookHandler.handle(
+                    ebookRequest(identity, titleId, chosenFormat), workDir, toolLogSink(titleId));
+            content = ebook.file();
+            extension = ebook.extension();
+            if (isEmptyFile(content)) {
+                throw new RestClientException("The ebook handler did not produce a file for loan " + loanId + ".");
+            }
         } else if (isOpenFormat(chosenFormat)) {
             // DRM-free: fulfill directly — no external tool required.
             byte[] bytes = fulfillOpen(identity, authToken, loanId, chosenFormat);
@@ -1987,7 +2041,11 @@ public class OverDriveService {
             content = stageBytes(workDir, bytes, extension);
         }
 
-        BookFileType fileType = bookFileType(chosenFormat);
+        // The read-in-browser handler picks its own container, so take the type from what it wrote
+        // rather than from the format id (which says only "ebook-overdrive").
+        BookFileType fileType = isEbookHandlerFormat(chosenFormat)
+                ? fileTypeFromExtension(extension)
+                : bookFileType(chosenFormat);
         // Pull the full OverDrive catalog metadata for this title so the import can overlay every field
         // (description, publisher, series, subjects, language, …), not just the handful the borrow request
         // carried. Fall back to the request-supplied fields if the lookup fails.
@@ -2207,7 +2265,7 @@ public class OverDriveService {
                 files.add(new ProducedFile(
                         f.file(),
                         uniqueImportName(buildFileName(base, titleId, f.extension()), usedNames),
-                        magazineFileType(f.extension())));
+                        fileTypeFromExtension(f.extension())));
             }
             String extension = ordered.getFirst().extension();
             Book book = importOrBookdrop(files, MediaKind.MAGAZINE, metadata, libraryId, pathId, title);
@@ -2242,6 +2300,52 @@ public class OverDriveService {
         } finally {
             FileUtils.deleteDirectoryQuietly(workDir);
         }
+      }
+
+      /**
+       * Build the read-in-browser ebook handoff request — the ebook analogue of
+       * {@link #audiobookRequest}, carrying the offered format id so the tool knows which format to
+       * rebuild from.
+       */
+      private EbookHandler.Request ebookRequest(String identity, String titleId, String formatId) {
+        HandlerCard card = handlerCard(identity, "ebooks");
+        return new EbookHandler.Request(sentryBaseUrl, card.cardNumber(), card.pin(), card.libraryKey(),
+                card.websiteId(), card.ilsName(), identity, titleId, formatId);
+      }
+
+      /** A card's decrypted credentials + library identifiers, as the manifest handlers need them. */
+      private record HandlerCard(String cardNumber, String pin, String libraryKey, String websiteId,
+                                 String ilsName) {}
+
+      /**
+       * Resolve and decrypt a card's stored number + PIN for a manifest-based handler. The tools
+       * authenticate themselves from card credentials (their own chip + UA), so we deliberately never
+       * hand out Grimmory's web chip token — which means the card must have been linked by number + PIN
+       * with a credential key configured.
+       *
+       * @param plural what the handler downloads ("audiobooks"/"magazines"/"ebooks"), for the error text
+       */
+      private HandlerCard handlerCard(String identity, String plural) {
+        OverDriveTokenEntity card = accessibleTokenRow(currentUserId(), identity)
+                .orElseThrow(() -> new RestClientException("No such card for fulfillment: " + identity));
+        String label = (card.getCardName() != null && !card.getCardName().isBlank()
+                ? "\"" + card.getCardName() + "\" " : "") + "(" + identity + ")";
+        if (!credentialCipher.isEnabled()) {
+            throw new RestClientException("Downloading " + plural + " needs stored card credentials, but "
+                    + "credential storage is off: set OVERDRIVE_CREDENTIAL_KEY (base64 16/24/32 bytes) and "
+                    + "re-link the card by number + PIN. (Settings → OverDrive → diagnostics shows "
+                    + "credentialStorageEnabled.)");
+        }
+        if (card.getCredCard() == null) {
+            throw new RestClientException("Card " + label + " has no stored card + PIN, so it can't download "
+                    + plural + ". Only cards linked by number + PIN store credentials — setup-code and "
+                    + "pasted-token links don't. Re-link THIS card by number + PIN, then retry. (Settings → "
+                    + "OverDrive → diagnostics shows each card's credentialsStored.)");
+        }
+        return new HandlerCard(
+                credentialCipher.decrypt(card.getCredCard()),
+                card.getCredPin() != null ? credentialCipher.decrypt(card.getCredPin()) : null,
+                card.getLibraryKey(), card.getWebsiteId(), card.getIlsName());
       }
 
       /** Build the magazine handoff request (card+PIN, no formatId) — mirrors {@link #audiobookRequest}. */
@@ -2443,6 +2547,12 @@ public class OverDriveService {
                     ordered.add(f);
                 }
             }
+        }
+        // Read-in-browser ebooks, when the ebook handler is configured. Last of the ebook options:
+        // any real download format above is preferred.
+        if (ebookHandler.isConfigured() && offered.contains(FORMAT_EBOOK_OVERDRIVE)
+                && !ordered.contains(FORMAT_EBOOK_OVERDRIVE)) {
+            ordered.add(FORMAT_EBOOK_OVERDRIVE);
         }
         // Magazine formats, when the magazine handler is configured (a title is one medium).
         if (magazineHandler.isConfigured()) {

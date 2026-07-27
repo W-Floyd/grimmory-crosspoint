@@ -128,11 +128,20 @@ curl -sSL "https://sentry.libbyapp.com/card/$CARD_ID/loan/$LOAN_ID/fulfill/$FORM
 | `ebook-pdf-open`  | none | fulfill → 302 → CDN → **PDF bytes**, imported directly |
 | `ebook-epub-adobe`| Adobe ACSM | returns a `.acsm` fulfillment token → external ACSM handler |
 | `ebook-pdf-adobe` | Adobe ACSM | returns a `.acsm` fulfillment token → external ACSM handler |
+| `ebook-overdrive` | none (web) | **not a download** — read-in-browser assets → external ebook handler |
 
 Open formats redirect `API → fulfill.contentreserve.com → openepub/openpdf CDN`. The CDN hop is known
 to 403 some HTTP clients (the reference uses a bare urllib opener). Adobe formats return only the ACSM
 (a pointer, not the book); an operator-supplied ACSM handler must fulfill+decrypt it. Default format
 preference: open EPUB → Adobe EPUB → open PDF → Adobe PDF.
+
+`ebook-overdrive` is Libby's "read in browser" format: the book is served as web-reader assets (an
+*openbook* manifest plus spine content), so there is no file to download and no ACSM to fulfill.
+A growing number of titles are licensed in this format only — often alongside `ebook-kobo` (the Kobo
+hand-off, which Grimmory cannot use at all) and nothing else. Grimmory hands these to the external
+**ebook handler** (`app.ebook`, `EBOOK_*`), which rebuilds an EPUB or PDF from those assets; see
+`investigation/libby-calibre-plugin` (`client.process_ebook`) for the reference technique. It is
+chosen only as a last resort — any open or Adobe format the loan offers wins.
 
 ---
 

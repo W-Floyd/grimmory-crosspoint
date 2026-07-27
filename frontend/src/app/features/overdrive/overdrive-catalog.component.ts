@@ -430,6 +430,7 @@ export class OverdriveCatalogComponent {
   audiobookConfigured = signal(false);
   // Whether a magazine handler is configured server-side (enables magazine borrows).
   magazineConfigured = signal(false);
+  ebookConfigured = signal(false);
 
   // Live stdout/stderr streamed from the external ACSM/audiobook/magazine handler during an import.
   private readonly rxStompService = inject(RxStompService);
@@ -541,6 +542,7 @@ export class OverdriveCatalogComponent {
          this.acsmConfigured.set(!!c?.acsmHandlerConfigured);
          this.audiobookConfigured.set(!!c?.audiobookHandlerConfigured);
          this.magazineConfigured.set(!!c?.magazineHandlerConfigured);
+         this.ebookConfigured.set(!!c?.ebookHandlerConfigured);
        },
        error: () => { /* leave default (assume not configured) */ }
      });
@@ -1284,8 +1286,11 @@ export class OverdriveCatalogComponent {
    }
 
    /**
-    * Why a title has no importable format. Points at the audiobook handler for audiobook titles, and
-    * at the ACSM handler for Adobe-DRM ebooks — but only when that handler isn't already configured.
+    * Why a title has no importable format. Points at the audiobook handler for audiobook titles, the
+    * magazine handler for magazines, and — for ebooks — at whichever of the ACSM and ebook handlers
+    * isn't configured yet. The catalog only carries the *importable* formats, so for an ebook we can't
+    * tell an Adobe-only title from a read-in-browser-only one; name every handler that would widen
+    * what Grimmory can take rather than guess.
     */
    unsupportedFormatTooltip(item: OverDriveCatalogItem): string {
      if (item.magazine) {
@@ -1294,9 +1299,12 @@ export class OverdriveCatalogComponent {
      if (this.isAudiobookTitle(item)) {
        return 'This is an audiobook. Configure an audiobook handler on the server to borrow and import audiobooks.';
      }
-     return this.acsmConfigured()
-       ? 'This title isn\'t offered in a format Grimmory can import.'
-       : 'This title isn\'t offered in a DRM-free format. Configure an ACSM handler to also import Adobe-DRM formats.';
+     const missing: string[] = [];
+     if (!this.acsmConfigured()) missing.push('an ACSM handler (Adobe-DRM formats)');
+     if (!this.ebookConfigured()) missing.push('an ebook handler (Libby read-in-browser titles)');
+     return missing.length
+       ? `This title isn't offered in a format Grimmory can import. Configure ${missing.join(' or ')} to widen what it accepts.`
+       : 'This title isn\'t offered in a format Grimmory can import.';
      }
 
    /** Warning shown on the borrow button for a title with no importable format. */

@@ -178,6 +178,11 @@ export interface OverDriveCapabilities {
   audiobookHandlerConfigured: boolean;
   /** Whether an external magazine handler is configured, enabling magazine borrows. */
   magazineHandlerConfigured: boolean;
+  /**
+   * Whether an external ebook handler is configured, enabling titles offered only in Libby's
+   * read-in-browser ("ebook-overdrive") format, which has no downloadable file and no ACSM.
+   */
+  ebookHandlerConfigured: boolean;
 }
 
 /** Result of validating/resolving an OverDrive library key against the Thunder directory. */

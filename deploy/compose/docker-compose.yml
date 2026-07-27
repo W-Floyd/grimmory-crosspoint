@@ -74,6 +74,16 @@ services:
       # - MAGAZINE_TOOL_PATH=/opt/audiobook/go-od-audiobook       # usually the same binary as AUDIOBOOK_TOOL_PATH
       # - MAGAZINE_TOOL_ARGS=download --manifest {input} --out-dir {output} --account-dir /opt/audiobook/account --no-store-pin
       # - MAGAZINE_TIMEOUT_SECONDS=600                            # magazines are smaller than audiobooks
+      #
+      # Ebooks: for titles offered ONLY as "ebook-overdrive" — Libby's read-in-browser format. That
+      # format has no downloadable file and yields no ACSM, so neither the open-format path nor the
+      # ACSM handler can procure it; the tool rebuilds a book file (EPUB or PDF) from the web-reader
+      # assets. Same manifest as audiobooks (mediaType "ebook") and usually the same binary. Grimmory
+      # only falls back to this when the loan offers no real download format — open/Adobe always win.
+      # - EBOOK_ENABLED=true
+      # - EBOOK_TOOL_PATH=/opt/audiobook/go-od-audiobook           # usually the same binary as AUDIOBOOK_TOOL_PATH
+      # - EBOOK_TOOL_ARGS=download --manifest {input} --out-dir {output} --account-dir /opt/audiobook/account --no-store-pin
+      # - EBOOK_TIMEOUT_SECONDS=600                                # ebooks are small next to audiobooks
       # Override JVM memory defaults (the image ships sensible defaults for ~512 MB heap).
       # Uncomment and adjust if you want a tighter or looser cap:
       # - JDK_JAVA_OPTIONS=-Xmx256m

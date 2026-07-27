@@ -47,6 +47,17 @@ app:
     tool-path: ${MAGAZINE_TOOL_PATH:}
     tool-args: ${MAGAZINE_TOOL_ARGS:download --manifest {input} --out-dir {output}}
     timeout-seconds: ${MAGAZINE_TIMEOUT_SECONDS:600}
+  # Ebook handler — for titles offered only as "ebook-overdrive", Libby's read-in-browser format.
+  # That format is not a downloadable file (the book is served as web-reader assets) and yields no
+  # ACSM, so neither direct open-format fulfillment nor the ACSM handler can procure it; the tool
+  # rebuilds a book file from those assets. Mirrors audiobook/magazine: same manifest (mediaType
+  # "ebook") and typically the same tool binary, writing one file into {output}. Grimmory only uses
+  # this when the loan offers no real download format — open/Adobe always win.
+  ebook:
+    enabled: ${EBOOK_ENABLED:false}
+    tool-path: ${EBOOK_TOOL_PATH:}
+    tool-args: ${EBOOK_TOOL_ARGS:download --manifest {input} --out-dir {output}}
+    timeout-seconds: ${EBOOK_TIMEOUT_SECONDS:600}
 
   cors:
     # Comma-separated list of allowed CORS origins.
