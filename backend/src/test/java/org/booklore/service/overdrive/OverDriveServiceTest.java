@@ -17,6 +17,9 @@ import org.springframework.web.client.RestClient;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -755,9 +758,9 @@ class OverDriveServiceTest {
     @Test
     void orderMagazineFormats_putsReflowableArticlesVariantFirst() {
         var layout = new org.booklore.service.magazine.MagazineHandler.OutputFile(
-                "TIME America at 250.epub", "epub", new byte[]{1});
+                "TIME America at 250.epub", "epub", java.nio.file.Path.of("/tmp/layout.epub"));
         var articles = new org.booklore.service.magazine.MagazineHandler.OutputFile(
-                "TIME America at 250 (Articles).epub", "epub", new byte[]{2});
+                "TIME America at 250 (Articles).epub", "epub", java.nio.file.Path.of("/tmp/articles.epub"));
 
         // Regardless of input order, the reflowable "(Articles)" version is the primary (first).
         assertThat(OverDriveService.orderMagazineFormats(List.of(layout, articles)))
@@ -800,5 +803,99 @@ class OverDriveServiceTest {
         assertThat(OverDriveService.parseToolEvent("{\"type\":\"progress\"")).isNull();
         assertThat(OverDriveService.parseToolEvent("")).isNull();
         assertThat(OverDriveService.parseToolEvent(null)).isNull();
+    }
+
+    // ── Concurrent borrow-and-import guard ───────────────────────────────
+    //
+    // Two concurrent imports of the same title used to both run the external handler and then race on
+    // the same computed library path; the loser re-wrote the whole file and died on "File does not
+    // exist or is not a regular file" after the winner's file move vacated that path.
+
+    /**
+     * Hold {@code findByUserIdAndIdentity} — the first thing borrow-and-import does, via resolveToken —
+     * on its first call, so a second import can be attempted while the first is genuinely in flight.
+     */
+    private void blockFirstTokenLookupOn(CountDownLatch entered, CountDownLatch release) {
+        AtomicBoolean first = new AtomicBoolean(true);
+        when(tokenRepository.findByUserIdAndIdentity(any(), any())).thenAnswer(inv -> {
+            if (first.compareAndSet(true, false)) {
+                entered.countDown();
+                release.await(5, TimeUnit.SECONDS);
+            }
+            return Optional.empty();
+        });
+    }
+
+    @Test
+    void borrowAndImport_rejectsSecondConcurrentImportOfSameTitle() throws Exception {
+        authAs(1L);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        blockFirstTokenLookupOn(entered, release);
+
+        Thread inFlight = new Thread(() -> {
+            try {
+                service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null);
+            } catch (RuntimeException ignored) {
+                // the held lookup returns no token, so this import fails — we only need it in flight
+            }
+        });
+        inFlight.start();
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        try {
+            assertThatThrownBy(() ->
+                    service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null))
+                    .hasMessageContaining("already being imported");
+        } finally {
+            release.countDown();
+            inFlight.join(5000);
+        }
+
+        // The external handler must never run for the rejected duplicate.
+        verifyNoInteractions(audiobookHandler);
+        verifyNoInteractions(magazineHandler);
+    }
+
+    @Test
+    void borrowAndImport_allowsConcurrentImportOfDifferentTitle() throws Exception {
+        authAs(1L);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        blockFirstTokenLookupOn(entered, release);
+
+        Thread inFlight = new Thread(() -> {
+            try {
+                service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null);
+            } catch (RuntimeException ignored) {
+                // see above
+            }
+        });
+        inFlight.start();
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        try {
+            // A different title is not blocked: it gets past the guard and fails on the missing token.
+            assertThatThrownBy(() ->
+                    service.borrowAndImport("card-1", "title-OTHER", null, null, "T", "A", null, null, null, null))
+                    .hasMessageContaining("No OverDrive token available");
+        } finally {
+            release.countDown();
+            inFlight.join(5000);
+        }
+    }
+
+    @Test
+    void borrowAndImport_releasesGuardAfterImportFinishes() {
+        authAs(1L);
+        when(tokenRepository.findByUserIdAndIdentity(any(), any())).thenReturn(Optional.empty());
+
+        // Two sequential imports of the same title both reach the token check — the guard is per
+        // in-flight import, not a permanent "already imported" block (the UI offers "Import again").
+        for (int i = 0; i < 2; i++) {
+            assertThatThrownBy(() ->
+                    service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null))
+                    .hasMessageContaining("No OverDrive token available");
+        }
     }
 }

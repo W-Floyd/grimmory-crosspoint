@@ -55,6 +55,15 @@ class OverDriveImportServiceTest {
     @TempDir
     Path libraryRoot;
 
+    /** Stands in for the caller-owned work directory a fulfilled file is staged in. */
+    @TempDir
+    Path scratch;
+
+    /** A fulfilled file in scratch space, as the audiobook/magazine/ACSM paths would produce. */
+    private Path fulfilled(String content) throws Exception {
+        return Files.writeString(scratch.resolve("fulfilled.epub"), content);
+    }
+
     @BeforeEach
     void setUp() {
         service = new OverDriveImportService(libraryRepository, bookRepository, fileMovingHelper,
@@ -68,9 +77,10 @@ class OverDriveImportServiceTest {
     }
 
     @Test
-    void importEpub_writesFileProcessesAndPublishesEvent() {
+    void importEpub_movesFileProcessesAndPublishesEvent() throws Exception {
         LibraryEntity library = libraryWithPath();
         Path target = libraryRoot.resolve("Dune.epub");
+        Path source = fulfilled("data");
         when(libraryRepository.findByIdWithPaths(1L)).thenReturn(Optional.of(library));
         when(fileMovingHelper.getFileNamingPattern(library)).thenReturn("{title}");
         when(fileMovingHelper.generateNewFilePath(eq(libraryRoot.toString()), any(), any(), any())).thenReturn(target);
@@ -78,10 +88,12 @@ class OverDriveImportServiceTest {
         when(processor.processFile(any())).thenReturn(FileProcessResult.builder()
                 .book(Book.builder().id(42L).build()).build());
 
-        Book book = service.importBook("data".getBytes(), "Dune.epub", 1L, 1L, null, BookFileType.EPUB);
+        Book book = service.importBook(source, "Dune.epub", 1L, 1L, null, BookFileType.EPUB);
 
         assertThat(book.getId()).isEqualTo(42L);
-        assertThat(Files.exists(target)).isTrue();
+        assertThat(Files.readString(target)).isEqualTo("data");
+        // Moved, not copied — the whole point is that a 200+ MB audiobook is never duplicated or buffered.
+        assertThat(Files.exists(source)).isFalse();
         verify(monitoringRegistrationService).unregisterLibrary(1L);
         verify(eventPublisher).publishEvent(any(BookAddedEvent.class));
         // No metadata supplied → no enrichment call.
@@ -89,7 +101,7 @@ class OverDriveImportServiceTest {
     }
 
     @Test
-    void importEpub_appliesOverDriveMetadataWhenProvided() {
+    void importEpub_appliesOverDriveMetadataWhenProvided() throws Exception {
         LibraryEntity library = libraryWithPath();
         Path target = libraryRoot.resolve("Dune.epub");
         when(libraryRepository.findByIdWithPaths(1L)).thenReturn(Optional.of(library));
@@ -102,7 +114,7 @@ class OverDriveImportServiceTest {
                 .thenReturn(Optional.of(new org.booklore.model.entity.BookEntity()));
 
         BookMetadata metadata = BookMetadata.builder().title("Dune").thumbnailUrl("http://c/cover.jpg").build();
-        service.importBook("data".getBytes(), "Dune.epub", 1L, 1L, metadata, BookFileType.EPUB);
+        service.importBook(fulfilled("data"), "Dune.epub", 1L, 1L, metadata, BookFileType.EPUB);
 
         verify(metadataRefreshService).updateBookMetadata(any());
     }
@@ -116,16 +128,42 @@ class OverDriveImportServiceTest {
         when(fileMovingHelper.getFileNamingPattern(library)).thenReturn("{title}");
         when(fileMovingHelper.generateNewFilePath(any(), any(), any(), any())).thenReturn(target);
 
-        assertThatThrownBy(() -> service.importBook("data".getBytes(), "Dune.epub", 1L, 1L, null, BookFileType.EPUB))
+        Path source = fulfilled("data");
+        assertThatThrownBy(() -> service.importBook(source, "Dune.epub", 1L, 1L, null, BookFileType.EPUB))
                 .isInstanceOf(APIException.class);
         verify(processorRegistry, never()).getProcessorOrThrow(any());
+        // The collision was detected before the move, so the fulfilled file is still in scratch space.
+        assertThat(Files.exists(source)).isTrue();
     }
 
     @Test
-    void importEpub_rejectsEmptyContent() {
-        assertThatThrownBy(() -> service.importBook(new byte[0], "x.epub", 1L, 1L, null, BookFileType.EPUB))
+    void importEpub_rejectsEmptyFile() throws Exception {
+        assertThatThrownBy(() -> service.importBook(fulfilled(""), "x.epub", 1L, 1L, null, BookFileType.EPUB))
                 .isInstanceOf(APIException.class);
         verify(monitoringRegistrationService, never()).unregisterLibrary(any());
+    }
+
+    @Test
+    void importEpub_rejectsMissingFile() {
+        assertThatThrownBy(() -> service.importBook(scratch.resolve("gone.epub"), "x.epub", 1L, 1L, null,
+                BookFileType.EPUB)).isInstanceOf(APIException.class);
+        verify(monitoringRegistrationService, never()).unregisterLibrary(any());
+    }
+
+    @Test
+    void dropToBookdrop_movesFulfilledFileIntoDropFolder() throws Exception {
+        Path dropFolder = libraryRoot.resolve("bookdrop");
+        when(appProperties.getBookdropFolder()).thenReturn(dropFolder.toString());
+        Path source = fulfilled("data");
+
+        service.dropToBookdrop(source, "Dune.epub");
+
+        assertThat(Files.readString(dropFolder.resolve("Dune.epub"))).isEqualTo("data");
+        assertThat(Files.exists(source)).isFalse();
+        // No .part leftovers from the two-step atomic landing.
+        try (var entries = Files.list(dropFolder)) {
+            assertThat(entries.map(p -> p.getFileName().toString())).containsExactly("Dune.epub");
+        }
     }
 
 }

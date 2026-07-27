@@ -370,6 +370,21 @@ public class FileUtils {
         }
     }
 
+    /**
+     * Best-effort recursive delete for a scratch directory — never throws, so it is safe in a
+     * {@code finally} that must not mask the exception it is unwinding.
+     */
+    public void deleteDirectoryQuietly(Path path) {
+        if (path == null) {
+            return;
+        }
+        try {
+            deleteDirectoryRecursively(path);
+        } catch (IOException e) {
+            log.warn("Failed to clean up temporary directory {}: {}", path, e.getMessage());
+        }
+    }
+
     public String getExtension(String fileName) {
         if (fileName == null) {
             return "";

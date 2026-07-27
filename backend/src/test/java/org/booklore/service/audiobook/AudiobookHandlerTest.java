@@ -2,11 +2,17 @@ package org.booklore.service.audiobook;
 
 import org.booklore.exception.APIException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AudiobookHandlerTest {
+
+    @TempDir
+    Path workDir;
 
     @Test
     void notConfigured_isNotConfiguredAndHandleThrows() {
@@ -16,7 +22,7 @@ class AudiobookHandlerTest {
         assertThat(handler.isConfigured()).isFalse();
         assertThatThrownBy(() -> handler.handle(new AudiobookHandler.Request(
                 "https://sentry.libbyapp.com", "1234567890", "9999", "mcpl", "websiteId-1", "ilsName-1",
-                "card-1", "title-1", "audiobook-mp3")))
+                "card-1", "title-1", "audiobook-mp3"), workDir))
                 .isInstanceOf(APIException.class);
     }
 

@@ -32,6 +32,7 @@ import org.booklore.service.magazine.MagazineHandler;
 import org.booklore.service.appsettings.AppSettingService;
 import org.booklore.service.metadata.parser.OverDriveItemExtractor;
 import org.booklore.service.metadata.parser.OverDriveParser;
+import org.booklore.util.FileUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -47,11 +48,14 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.Duration;
 import java.time.format.DateTimeParseException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -99,6 +103,13 @@ public class OverDriveService {
     private final OverDriveCredentialCipher credentialCipher;
     private final org.booklore.service.NotificationService notificationService;
     private final org.booklore.service.book.BookFileAttachmentService bookFileAttachmentService;
+
+    /**
+     * Titles currently being borrow-and-imported, keyed {@code userId:titleId} — see
+     * {@link #borrowAndImport}. Node-local: Grimmory is a single instance, so a plain in-memory set is
+     * the right scope (a DB lock would only matter behind a multi-instance deployment).
+     */
+    private final Set<String> importsInFlight = ConcurrentHashMap.newKeySet();
 
     /** The authenticated Grimmory user, or throws if there is no authenticated user. */
     private BookLoreUser currentUser() {
@@ -1781,7 +1792,7 @@ public class OverDriveService {
        * @param formatId the loan's audiobook format (e.g. {@code audiobook-mp3}); when null/not an
        *                 audiobook format, it is discovered from the active loan.
        */
-      public AudiobookHandler.Result downloadAudiobook(String identity, String loanId, String formatId) {
+      public AudiobookHandler.Result downloadAudiobook(String identity, String loanId, String formatId, Path workDir) {
         resolveToken(identity); // validate the card is accessible even though the tool re-auths itself
         String chosenFormat = isAudiobookFormat(formatId) ? formatId : null;
         if (chosenFormat == null) {
@@ -1797,13 +1808,13 @@ public class OverDriveService {
         }
         try {
             AudiobookHandler.Result result = audiobookHandler.handle(
-                    audiobookRequest(identity, loanId, chosenFormat), toolLogSink(loanId));
-            if (result == null || result.content() == null || result.content().length == 0) {
+                    audiobookRequest(identity, loanId, chosenFormat), workDir, toolLogSink(loanId));
+            if (result == null || isEmptyFile(result.file())) {
                 recordAuditFailure(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, "Audiobook handler produced no file");
                 throw new RestClientException("The audiobook handler did not produce a file for loan " + loanId + ".");
             }
             recordAudit(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, null, null, null);
-            log.info("OverDrive audiobook downloaded: {} bytes (.{}) for loan {}", result.content().length,
+            log.info("OverDrive audiobook downloaded: {} bytes (.{}) for loan {}", fileSize(result.file()),
                     result.extension(), loanId);
             return result;
         } catch (RuntimeException e) {
@@ -1834,12 +1845,37 @@ public class OverDriveService {
        * among the formats the title offers; DRM-free "open" formats import directly, while Adobe
        * formats are procured via the external ACSM handler (and are skipped if none is configured).
        *
+       * <p>Only one import of a given title may run at a time per user. Two concurrent imports of the
+       * same title each run the external handler (minutes, and hundreds of MB for an audiobook) and then
+       * race on the same computed library path: the winner's post-import file move vacates that path, so
+       * the loser's {@code targetFile.exists()} collision check passes, it re-writes the whole file, and
+       * it then fails obscurely ("File does not exist or is not a regular file") when the fingerprinter
+       * looks for a file the winner has already moved. Reject the duplicate up front instead — the
+       * winner still imports normally.
+       *
        * @param titleId the OverDrive title id to borrow
        * @return the persisted {@link Book}
        */
       public Book borrowAndImport(String identity, String titleId, Long libraryId, Long pathId,
                                   String title, String author, String coverUrl, String isbn, String preferredFormat,
                                   String titleFormat) {
+        String importKey = currentUserId() + ":" + titleId;
+        if (!importsInFlight.add(importKey)) {
+            log.info("OverDrive: rejecting duplicate concurrent import of title {} (one is already running)", titleId);
+            throw new RestClientException("This title is already being imported — wait for that import to "
+                    + "finish before starting another.");
+        }
+        try {
+            return doBorrowAndImport(identity, titleId, libraryId, pathId, title, author, coverUrl, isbn,
+                    preferredFormat, titleFormat);
+        } finally {
+            importsInFlight.remove(importKey);
+        }
+      }
+
+      private Book doBorrowAndImport(String identity, String titleId, Long libraryId, Long pathId,
+                                     String title, String author, String coverUrl, String isbn, String preferredFormat,
+                                     String titleFormat) {
         // Track whether this became an import of an existing loan (vs a fresh borrow) so both the
         // success and the failure history entries can report the right action. Hoisted out of the try
         // so the catch can see it.
@@ -1848,6 +1884,10 @@ public class OverDriveService {
         if ("magazine".equals(normalizeTitleFormat(titleFormat)) || isMagazineFormat(preferredFormat)) {
             return importMagazine(identity, titleId, libraryId, pathId, title, author, coverUrl, isbn);
         }
+        // Everything fulfilled for this import is staged on disk here and moved into the library from
+        // it; nothing is buffered in heap. Deleted in the finally, by which point a successful import
+        // has already moved its file out.
+        Path workDir = createWorkDir("overdrive-import-");
         try {
         // Borrow and fulfill with the stored identity as-is, mirroring the web client: it does not
         // pre-mint, and fetchFulfillment re-mints reactively on missing_chip. Pre-minting here only
@@ -1887,38 +1927,41 @@ public class OverDriveService {
                     + "configured external ACSM handler.");
         }
 
-        byte[] content;
+        Path content;
         String extension;
         if (isAudiobookFormat(chosenFormat)) {
             // Audiobook: hand the raw card + PIN to the external tool, which authenticates itself
             // (its own chip + app-emulating UA, kept separate from Grimmory's web chip), then fulfils,
             // downloads and assembles the file. The tool picks the output extension (m4b/mp3/…).
+            // The result stays on disk in workDir — an assembled audiobook is far too large to buffer.
             AudiobookHandler.Result audiobook = audiobookHandler.handle(
-                    audiobookRequest(identity, titleId, chosenFormat), toolLogSink(titleId));
-            content = audiobook.content();
+                    audiobookRequest(identity, titleId, chosenFormat), workDir, toolLogSink(titleId));
+            content = audiobook.file();
             extension = audiobook.extension();
-            if (content == null || content.length == 0) {
+            if (isEmptyFile(content)) {
                 throw new RestClientException("The audiobook handler did not produce a file for loan " + loanId + ".");
             }
         } else if (isOpenFormat(chosenFormat)) {
             // DRM-free: fulfill directly — no external tool required.
-            content = fulfillOpen(identity, authToken, loanId, chosenFormat);
-            if (content == null || content.length == 0) {
+            byte[] bytes = fulfillOpen(identity, authToken, loanId, chosenFormat);
+            if (bytes == null || bytes.length == 0) {
                 throw new RestClientException("Open fulfillment returned no data for loan " + loanId);
             }
             extension = fileExtension(chosenFormat);
+            content = stageBytes(workDir, bytes, extension);
         } else {
             // Adobe format: hand the ACSM to the configured external tool to procure the book.
             byte[] acsm = getAcsm(identity, authToken, loanId, chosenFormat);
             if (acsm == null || acsm.length == 0) {
                 throw new RestClientException("Could not fetch the ACSM for loan " + loanId);
             }
-            content = acsmHandler.handle(acsm, fileExtension(chosenFormat), toolLogSink(titleId));
-            if (content == null || content.length == 0) {
+            byte[] bytes = acsmHandler.handle(acsm, fileExtension(chosenFormat), toolLogSink(titleId));
+            if (bytes == null || bytes.length == 0) {
                 throw new RestClientException("The external ACSM handler did not produce a book file for loan "
                         + loanId + ".");
             }
             extension = fileExtension(chosenFormat);
+            content = stageBytes(workDir, bytes, extension);
         }
 
         BookFileType fileType = bookFileType(chosenFormat);
@@ -1961,23 +2004,66 @@ public class OverDriveService {
             recordAuditFailure(alreadyBorrowed ? OverDriveAuditAction.IMPORT : OverDriveAuditAction.BORROW_AND_IMPORT,
                     identity, titleId, null, e.getMessage());
             throw e;
+        } finally {
+            FileUtils.deleteDirectoryQuietly(workDir);
+        }
+      }
+
+      /** A scratch directory for one import's fulfilled files; the caller must delete it when done. */
+      private static Path createWorkDir(String prefix) {
+        try {
+            return Files.createTempDirectory(prefix);
+        } catch (IOException e) {
+            throw new RestClientException("Could not create a temporary directory for the import: " + e.getMessage(), e);
         }
       }
 
       /**
-       * Import the fulfilled bytes into the resolved destination library, or drop them into Bookdrop when
+       * Stage already-in-memory fulfilled bytes as a file in the work dir, so every import path feeds
+       * the same file-based pipeline. Only used for ebooks (open + ACSM), which are small; audiobooks
+       * and magazines are written straight to disk by their handlers and never buffered.
+       */
+      private static Path stageBytes(Path workDir, byte[] bytes, String extension) {
+        try {
+            Path staged = workDir.resolve("fulfilled." + extension);
+            Files.write(staged, bytes);
+            return staged;
+        } catch (IOException e) {
+            throw new RestClientException("Could not stage the fulfilled file: " + e.getMessage(), e);
+        }
+      }
+
+      /** Whether a produced file is missing or zero-length (i.e. the handler effectively produced nothing). */
+      private static boolean isEmptyFile(Path file) {
+        return fileSize(file) <= 0;
+      }
+
+      /** Size of a produced file in bytes, or -1 when it is missing or unreadable. */
+      private static long fileSize(Path file) {
+        try {
+            return file != null && Files.isRegularFile(file) ? Files.size(file) : -1;
+        } catch (IOException e) {
+            return -1;
+        }
+      }
+
+      /**
+       * Import the fulfilled file into the resolved destination library, or drop it into Bookdrop when
        * there's no destination or the destination wouldn't keep this file type (it purges disallowed
        * formats on scan). Shared by the borrow-and-import and magazine paths.
        */
-      private Book importOrBookdrop(byte[] content, String fileName, BookFileType fileType, MediaKind kind,
+      private Book importOrBookdrop(Path content, String fileName, BookFileType fileType, MediaKind kind,
                                     BookMetadata metadata, Long libraryId, Long pathId, String title) {
         return importOrBookdrop(
                 List.of(new ProducedFile(content, fileName, fileType)),
                 kind, metadata, libraryId, pathId, title);
       }
 
-      /** One file to import, part of a possibly-multi-file item (e.g. a magazine's two EPUB formats). */
-      private record ProducedFile(byte[] content, String fileName, BookFileType fileType) {}
+      /**
+       * One file to import, part of a possibly-multi-file item (e.g. a magazine's two EPUB formats).
+       * {@code file} points into the import's work directory and is moved into place by the import.
+       */
+      private record ProducedFile(Path file, String fileName, BookFileType fileType) {}
 
       /**
        * Multi-file variant: import all files as a single book when the destination accepts every one of
@@ -2007,7 +2093,7 @@ public class OverDriveService {
                     destLibraryId, title, files.size());
         }
         for (ProducedFile f : files) {
-            overDriveImportService.dropToBookdrop(f.content(), f.fileName());
+            overDriveImportService.dropToBookdrop(f.file(), f.fileName());
         }
         return null;
       }
@@ -2027,7 +2113,7 @@ public class OverDriveService {
       private Book importAsOneBook(List<ProducedFile> files, Long libraryId, Long pathId, BookMetadata metadata) {
         ProducedFile first = files.getFirst();
         Book primary = overDriveImportService.importBook(
-                first.content(), first.fileName(), libraryId, pathId, metadata, first.fileType());
+                first.file(), first.fileName(), libraryId, pathId, metadata, first.fileType());
         if (files.size() == 1 || primary == null || primary.getId() == null) {
             return primary;
         }
@@ -2042,7 +2128,7 @@ public class OverDriveService {
             BookMetadata extraMeta = (metadata != null ? metadata.toBuilder() : BookMetadata.builder())
                     .title(baseTitle + " (" + index + ")").build();
             Book extraBook = overDriveImportService.importBook(
-                    extra.content(), extra.fileName(), libraryId, pathId, extraMeta, extra.fileType());
+                    extra.file(), extra.fileName(), libraryId, pathId, extraMeta, extra.fileType());
             if (extraBook != null && extraBook.getId() != null) {
                 attachIds.add(extraBook.getId());
             }
@@ -2064,10 +2150,14 @@ public class OverDriveService {
        */
       public Book importMagazine(String identity, String titleId, Long libraryId, Long pathId,
                                  String title, String author, String coverUrl, String isbn) {
+        // As with borrow-and-import: the tool's output is staged here and moved into the library, never
+        // buffered in heap. Deleted in the finally, after any successful import has moved its files out.
+        Path workDir = createWorkDir("overdrive-magazine-import-");
         try {
             resolveToken(identity); // validate the card is accessible even though the tool re-auths
 
-            MagazineHandler.Result magazine = magazineHandler.handle(magazineRequest(identity, titleId), toolLogSink(titleId));
+            MagazineHandler.Result magazine = magazineHandler.handle(
+                    magazineRequest(identity, titleId), workDir, toolLogSink(titleId));
             List<MagazineHandler.OutputFile> produced = magazine != null ? magazine.files() : null;
             if (produced == null || produced.isEmpty()) {
                 throw new RestClientException("The magazine handler did not produce a file for title " + titleId + ".");
@@ -2092,7 +2182,7 @@ public class OverDriveService {
                     base = title;
                 }
                 files.add(new ProducedFile(
-                        f.content(),
+                        f.file(),
                         uniqueImportName(buildFileName(base, titleId, f.extension()), usedNames),
                         magazineFileType(f.extension())));
             }
@@ -2126,6 +2216,8 @@ public class OverDriveService {
         } catch (RuntimeException e) {
             recordAuditFailure(OverDriveAuditAction.BORROW_AND_IMPORT, identity, titleId, null, e.getMessage());
             throw e;
+        } finally {
+            FileUtils.deleteDirectoryQuietly(workDir);
         }
       }
 

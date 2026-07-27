@@ -45,6 +45,12 @@ import java.util.stream.Stream;
  *     extension (m4b/m4a/mp3/opus).</li>
  * </ul>
  *
+ * <h2>The produced file is never read into heap</h2>
+ * An assembled audiobook routinely runs to hundreds of megabytes, so {@link #handle} returns the
+ * {@link Path} the tool wrote rather than its bytes, and the import moves that file into the library.
+ * The caller supplies (and owns) the {@code workDir} everything is staged under, and must delete it
+ * when the import is done — see {@code OverDriveService#borrowAndImport}.
+ *
  * <h2>Example configuration</h2>
  * <pre>{@code
  * app:
@@ -74,8 +80,12 @@ public class AudiobookHandler {
     public record Request(String sentryBaseUrl, String cardNumber, String pin, String libraryKey,
                           String websiteId, String ilsName, String cardId, String titleId, String formatId) {}
 
-    /** The tool's produced audiobook: the file bytes and its extension (m4b/mp3/…). */
-    public record Result(byte[] content, String extension) {}
+    /**
+     * The tool's produced audiobook: the file it wrote (inside the caller's {@code workDir}) and its
+     * extension (m4b/mp3/…). The file is <b>not</b> read into memory — the caller moves it into place
+     * and deletes the work directory.
+     */
+    public record Result(Path file, String extension) {}
 
     /** Whether an external audiobook handler tool is configured and can be invoked. */
     public boolean isConfigured() {
@@ -85,28 +95,33 @@ public class AudiobookHandler {
     /**
      * Hand the loan/auth details to the configured tool and return the produced audiobook file.
      *
-     * @return the audiobook bytes + extension
+     * @param workDir a caller-owned scratch directory the tool's manifest and output are staged under;
+     *                the returned {@link Result#file()} lives inside it, so the caller must not delete
+     *                it until the file has been imported
+     * @return the produced file's path + extension
      * @throws org.booklore.exception.APIException if no tool is configured or the tool fails
      */
-    public Result handle(Request request) {
-        return handle(request, null);
+    public Result handle(Request request, Path workDir) {
+        return handle(request, workDir, null);
     }
 
     /**
-     * As {@link #handle(Request)}, but streams each line of the tool's merged stdout/stderr to
+     * As {@link #handle(Request, Path)}, but streams each line of the tool's merged stdout/stderr to
      * {@code logSink} as it is produced (in addition to buffering it for the failure message), so the UI
      * can show live progress.
      */
-    public Result handle(Request request, java.util.function.Consumer<String> logSink) {
+    public Result handle(Request request, Path workDir, java.util.function.Consumer<String> logSink) {
         if (!isConfigured()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException(
                     "This title is an audiobook, but no audiobook handler is configured on the server.");
         }
 
-        Path tempDir = null;
+        // The manifest carries the card number + PIN in cleartext, so it is shredded as soon as the tool
+        // exits rather than living for the whole (potentially minutes-long) import.
+        Path manifestFile = null;
         try {
-            tempDir = Files.createTempDirectory("overdrive-audiobook-");
-            Path manifestFile = tempDir.resolve("manifest.json");
+            Path tempDir = Files.createTempDirectory(workDir, "run-");
+            manifestFile = tempDir.resolve("manifest.json");
             Path outputDir = tempDir.resolve("out");
             Files.createDirectory(outputDir);
 
@@ -152,10 +167,9 @@ public class AudiobookHandler {
             }
 
             Path produced = singleOutputFile(outputDir, output);
-            byte[] bytes = Files.readAllBytes(produced);
             String extension = extensionOf(produced.getFileName().toString());
-            log.info("Audiobook handler tool produced {} ({} bytes)", produced.getFileName(), bytes.length);
-            return new Result(bytes, extension);
+            log.info("Audiobook handler tool produced {} ({} bytes)", produced.getFileName(), Files.size(produced));
+            return new Result(produced, extension);
 
         } catch (IOException e) {
             log.error("Audiobook handler tool IO error: {}", e.getMessage());
@@ -164,7 +178,7 @@ public class AudiobookHandler {
             Thread.currentThread().interrupt();
             throw ApiError.GENERIC_BAD_REQUEST.createException("Audiobook handler was interrupted.");
         } finally {
-            cleanup(tempDir);
+            shredManifest(manifestFile);
         }
     }
 
@@ -252,20 +266,18 @@ public class AudiobookHandler {
         }
     }
 
-    private static void cleanup(Path tempDir) {
-        if (tempDir == null) {
+    /**
+     * Delete the credential-bearing manifest the moment the tool is done with it. The rest of the work
+     * directory (including the produced audiobook) belongs to the caller.
+     */
+    private static void shredManifest(Path manifestFile) {
+        if (manifestFile == null) {
             return;
         }
-        try (Stream<Path> walk = Files.walk(tempDir)) {
-            walk.sorted((a, b) -> -a.compareTo(b)).forEach(path -> {
-                try {
-                    Files.delete(path);
-                } catch (IOException ignored) {
-                    // best-effort cleanup
-                }
-            });
-        } catch (IOException ignored) {
-            // best-effort cleanup
+        try {
+            Files.deleteIfExists(manifestFile);
+        } catch (IOException e) {
+            log.warn("Could not delete audiobook handler manifest {}: {}", manifestFile, e.getMessage());
         }
     }
 

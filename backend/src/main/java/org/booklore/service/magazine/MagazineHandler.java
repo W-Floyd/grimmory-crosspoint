@@ -57,8 +57,12 @@ public class MagazineHandler {
     public record Request(String sentryBaseUrl, String cardNumber, String pin, String libraryKey,
                           String websiteId, String ilsName, String cardId, String titleId) {}
 
-    /** One file the tool produced: its name, extension (pdf/epub) and bytes. */
-    public record OutputFile(String fileName, String extension, byte[] content) {}
+    /**
+     * One file the tool produced: its name, extension (pdf/epub) and the path it was written to inside
+     * the caller's work directory. As with the audiobook handler, produced files are never read into
+     * heap — the import moves them into the library.
+     */
+    public record OutputFile(String fileName, String extension, Path file) {}
 
     /**
      * The tool's produced magazine issue as one or more files (e.g. a fixed-layout PDF plus a
@@ -72,29 +76,32 @@ public class MagazineHandler {
     }
 
     /**
-     * Hand the loan/auth details to the configured tool and return the produced magazine file.
+     * Hand the loan/auth details to the configured tool and return the produced magazine files.
      *
-     * @return the magazine bytes + extension (pdf/epub)
+     * @param workDir a caller-owned scratch directory the manifest and output are staged under; the
+     *                returned files live inside it, so the caller must not delete it until they have
+     *                been imported
      * @throws org.booklore.exception.APIException if no tool is configured or the tool fails
      */
-    public Result handle(Request request) {
-        return handle(request, null);
+    public Result handle(Request request, Path workDir) {
+        return handle(request, workDir, null);
     }
 
     /**
-     * As {@link #handle(Request)}, but streams each line of the tool's merged stdout/stderr to
+     * As {@link #handle(Request, Path)}, but streams each line of the tool's merged stdout/stderr to
      * {@code logSink} as it is produced (in addition to buffering it), so the UI can show live progress.
      */
-    public Result handle(Request request, java.util.function.Consumer<String> logSink) {
+    public Result handle(Request request, Path workDir, java.util.function.Consumer<String> logSink) {
         if (!isConfigured()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException(
                     "This title is a magazine, but no magazine handler is configured on the server.");
         }
 
-        Path tempDir = null;
+        // The manifest carries card number + PIN in cleartext — shred it as soon as the tool exits.
+        Path manifestFile = null;
         try {
-            tempDir = Files.createTempDirectory("overdrive-magazine-");
-            Path manifestFile = tempDir.resolve("manifest.json");
+            Path tempDir = Files.createTempDirectory(workDir, "run-");
+            manifestFile = tempDir.resolve("manifest.json");
             Path outputDir = tempDir.resolve("out");
             Files.createDirectory(outputDir);
 
@@ -149,7 +156,7 @@ public class MagazineHandler {
             Thread.currentThread().interrupt();
             throw ApiError.GENERIC_BAD_REQUEST.createException("Magazine handler was interrupted.");
         } finally {
-            cleanup(tempDir);
+            shredManifest(manifestFile);
         }
     }
 
@@ -186,8 +193,8 @@ public class MagazineHandler {
 
     /**
      * Every file the tool wrote to the output directory (a magazine issue is usually several: an
-     * as-is PDF plus an article EPUB), read into memory in a stable name order so the first is a
-     * deterministic primary. Errors only when nothing was produced.
+     * as-is PDF plus an article EPUB), in a stable name order so the first is a deterministic primary.
+     * Errors only when nothing was produced.
      */
     private static List<OutputFile> outputFiles(Path outputDir, String toolOutput) throws IOException {
         try (Stream<Path> files = Files.list(outputDir)) {
@@ -201,7 +208,7 @@ public class MagazineHandler {
             List<OutputFile> out = new java.util.ArrayList<>(produced.size());
             for (Path p : produced) {
                 String name = p.getFileName().toString();
-                out.add(new OutputFile(name, extensionOf(name), Files.readAllBytes(p)));
+                out.add(new OutputFile(name, extensionOf(name), p));
             }
             return out;
         }
@@ -240,20 +247,18 @@ public class MagazineHandler {
         }
     }
 
-    private static void cleanup(Path tempDir) {
-        if (tempDir == null) {
+    /**
+     * Delete the credential-bearing manifest the moment the tool is done with it. The rest of the work
+     * directory (including the produced files) belongs to the caller.
+     */
+    private static void shredManifest(Path manifestFile) {
+        if (manifestFile == null) {
             return;
         }
-        try (Stream<Path> walk = Files.walk(tempDir)) {
-            walk.sorted((a, b) -> -a.compareTo(b)).forEach(path -> {
-                try {
-                    Files.delete(path);
-                } catch (IOException ignored) {
-                    // best-effort cleanup
-                }
-            });
-        } catch (IOException ignored) {
-            // best-effort cleanup
+        try {
+            Files.deleteIfExists(manifestFile);
+        } catch (IOException e) {
+            log.warn("Could not delete magazine handler manifest {}: {}", manifestFile, e.getMessage());
         }
     }
 

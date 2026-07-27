@@ -60,18 +60,6 @@ public class OverDriveImportService {
     private final AppProperties appProperties;
 
     /**
-     * Write the given book bytes into the target library/path, process them into a persisted book, and
-     * apply the supplied OverDrive catalog metadata (cover, ISBN, etc.) on top of what the file carries.
-     *
-     * @param bookBytes         the fulfilled book content (EPUB or PDF)
-     * @param suggestedFileName a base filename (used for the naming pattern / extension); e.g. "Some Title.epub"
-     * @param libraryId         the target library
-     * @param pathId            the target library path within that library
-     * @param metadata          OverDrive catalog metadata to apply (title/authors/isbn13/thumbnailUrl); may be null
-     * @param fileType          the book file type (EPUB or PDF)
-     * @return the persisted {@link Book}
-     */
-    /**
      * Whether a library would keep a file of the given type. A library with no explicit allowed-formats
      * list accepts everything; otherwise only listed types survive — importing another type just gets it
      * purged on the next scan, so callers should route it elsewhere (e.g. Bookdrop) instead.
@@ -85,16 +73,31 @@ public class OverDriveImportService {
                 .orElse(true);
     }
 
+    /**
+     * Move a fulfilled file into the target library/path, process it into a persisted book, and apply
+     * the supplied OverDrive catalog metadata (cover, ISBN, etc.) on top of what the file carries.
+     *
+     * <p>Takes a {@link Path} rather than bytes: an audiobook is routinely 200+ MB, and buffering that
+     * in heap is what made large imports thrash the GC. {@code sourceFile} lives in the caller's scratch
+     * directory and is <b>moved</b> out of it (a same-filesystem rename where possible, a copy+delete
+     * across filesystems) — the caller's cleanup of that directory is a no-op for this file afterward.
+     *
+     * @param sourceFile        the fulfilled file, in caller-owned scratch space
+     * @param suggestedFileName a base filename (used for the naming pattern / extension); e.g. "Some Title.epub"
+     * @param libraryId         the target library
+     * @param pathId            the target library path within that library
+     * @param metadata          OverDrive catalog metadata to apply (title/authors/isbn13/thumbnailUrl); may be null
+     * @param fileType          the book file type (EPUB, PDF, AUDIOBOOK, …)
+     * @return the persisted {@link Book}
+     */
     // Transactional so the persistence session stays open while the metadata overlay and re-fetch touch
     // lazily-loaded metadata.authors. With OSIV disabled (spring.jpa.open-in-view: false) that access
     // would otherwise throw LazyInitializationException after the book was already written — and the
     // catch below would then delete the imported file, leaving an orphaned library row with no file.
     @Transactional
-    public Book importBook(byte[] bookBytes, String suggestedFileName, long libraryId, long pathId,
+    public Book importBook(Path sourceFile, String suggestedFileName, long libraryId, long pathId,
                            BookMetadata metadata, BookFileType fileType) {
-        if (bookBytes == null || bookBytes.length == 0) {
-            throw ApiError.GENERIC_BAD_REQUEST.createException("No book content to import");
-        }
+        requireNonEmpty(sourceFile);
 
         LibraryEntity library = libraryRepository.findByIdWithPaths(libraryId)
                 .orElseThrow(() -> ApiError.LIBRARY_NOT_FOUND.createException(libraryId));
@@ -126,8 +129,11 @@ public class OverDriveImportService {
         monitoringRegistrationService.unregisterLibrary(libraryId);
         try {
             Files.createDirectories(target.getParent());
-            Files.write(target, bookBytes);
-            log.info("OverDrive import: wrote {} bytes to {}", bookBytes.length, target);
+            long size = Files.size(sourceFile);
+            // Move, never read-then-write: keeps a 200+ MB audiobook entirely out of heap, and is a
+            // rename when the scratch dir and the library share a filesystem.
+            Files.move(sourceFile, target);
+            log.info("OverDrive import: moved {} bytes to {}", size, target);
 
             Book book = processFileInLibrary(targetFile.getName(), library, path, targetFile, fileType);
             applyOverDriveMetadata(book, metadata);
@@ -159,15 +165,13 @@ public class OverDriveImportService {
 
 
     /**
-     * Write a fulfilled OverDrive book into the Bookdrop folder for the operator to review and finalize,
-     * used when no destination library/path was chosen. Writes to a temporary {@code .part} file first
-     * (ignored by the Bookdrop watcher, which ingests only known book extensions) then atomically moves
-     * it to its final name, so the watcher never sees a partially written file.
+     * Move a fulfilled OverDrive file into the Bookdrop folder for the operator to review and finalize,
+     * used when no destination library/path was chosen. Lands on a temporary {@code .part} name first
+     * (ignored by the Bookdrop watcher, which ingests only known book extensions) then atomically
+     * renames it, so the watcher never sees a partially written file.
      */
-    public void dropToBookdrop(byte[] bookBytes, String suggestedFileName) {
-        if (bookBytes == null || bookBytes.length == 0) {
-            throw ApiError.GENERIC_BAD_REQUEST.createException("No book content to import");
-        }
+    public void dropToBookdrop(Path sourceFile, String suggestedFileName) {
+        requireNonEmpty(sourceFile);
         try {
             Path dropFolder = Path.of(appProperties.getBookdropFolder()).toAbsolutePath().normalize();
             Files.createDirectories(dropFolder);
@@ -178,12 +182,26 @@ public class OverDriveImportService {
             } catch (IllegalArgumentException e) {
                 throw ApiError.GENERIC_BAD_REQUEST.createException("Invalid Bookdrop target path");
             }
+            long size = Files.size(sourceFile);
+            // Two-step so the final rename is atomic *within* the drop folder even when the scratch dir
+            // is on another filesystem (where the first move degrades to copy+delete).
             Path temp = Files.createTempFile(dropFolder, "overdrive-", ".part");
-            Files.write(temp, bookBytes);
+            Files.move(sourceFile, temp, StandardCopyOption.REPLACE_EXISTING);
             Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE);
-            log.info("OverDrive import: dropped {} bytes into Bookdrop at {}", bookBytes.length, target);
+            log.info("OverDrive import: dropped {} bytes into Bookdrop at {}", size, target);
         } catch (IOException e) {
             throw ApiError.GENERIC_BAD_REQUEST.createException("Failed to write imported book to Bookdrop: " + e.getMessage());
+        }
+    }
+
+    /** Reject a missing or zero-length fulfilled file before it can create an empty book. */
+    private static void requireNonEmpty(Path sourceFile) {
+        try {
+            if (sourceFile == null || !Files.isRegularFile(sourceFile) || Files.size(sourceFile) == 0) {
+                throw ApiError.GENERIC_BAD_REQUEST.createException("No book content to import");
+            }
+        } catch (IOException e) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("No book content to import");
         }
     }
 

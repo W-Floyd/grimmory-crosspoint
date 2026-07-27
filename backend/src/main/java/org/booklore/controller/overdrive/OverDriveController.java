@@ -16,9 +16,15 @@ import org.booklore.service.acsm.AcsmHandlerConfig;
 import org.booklore.service.audiobook.AudiobookHandler;
 import org.booklore.service.metadata.parser.OverDriveItemExtractor;
 import org.booklore.service.overdrive.OverDriveService;
+import org.booklore.util.FileUtils;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import jakarta.servlet.http.HttpServletResponse;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import java.util.*;
 
@@ -544,13 +550,17 @@ public class OverDriveController {
      * The audiobook analogue of {@link #downloadViaAcsm}: hands the loan to the external audiobook tool,
      * which authenticates itself and assembles the audiobook file, and streams that file back. The tool
      * picks the container, so the download name uses the extension it reports.
+     *
+     * <p>The file is streamed straight off disk rather than buffered into a {@code byte[]} — an
+     * assembled audiobook is routinely 200+ MB. The scratch directory holding it is deleted once the
+     * response body has been written (or the client has given up), and eagerly on any earlier failure.
      */
     @Operation(summary = "Download an audiobook loan via the external audiobook handler",
                description = "Hands the audiobook loan to the configured external audiobook tool, which fulfills and assembles the file, and returns it as a download.")
     @ApiResponse(responseCode = "200", description = "Audiobook file returned")
     @ApiResponse(responseCode = "400", description = "Audiobook handler not configured or failed")
     @PostMapping(value = "/{identity}/fulfill/{loanId}/download-audiobook", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-    public ResponseEntity<byte[]> downloadAudiobook(
+    public ResponseEntity<StreamingResponseBody> downloadAudiobook(
             @Parameter(description = "Library card id") @PathVariable String identity,
             @Parameter(description = "Loan ID to fulfill") @PathVariable String loanId,
             @Parameter(description = "Audiobook format id (optional; discovered from the loan when omitted)") @RequestParam(required = false) String formatId
@@ -560,16 +570,33 @@ public class OverDriveController {
             log.warn("Audiobook handler not configured; cannot download audiobook for loan {}", loanId);
             throw ApiError.GENERIC_BAD_REQUEST.createException("Audiobook handler not configured");
         }
+        Path workDir;
         try {
-            AudiobookHandler.Result result = overDriveService.downloadAudiobook(identity, loanId, formatId);
+            workDir = Files.createTempDirectory("overdrive-audiobook-download-");
+        } catch (IOException e) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException(
+                    "Could not create a temporary directory for the download: " + e.getMessage());
+        }
+        try {
+            AudiobookHandler.Result result = overDriveService.downloadAudiobook(identity, loanId, formatId, workDir);
             String filename = loanId + "." + result.extension();
+            StreamingResponseBody body = out -> {
+                try {
+                    Files.copy(result.file(), out);
+                } finally {
+                    FileUtils.deleteDirectoryQuietly(workDir);
+                }
+            };
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                     .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                    .body(result.content());
+                    .contentLength(Files.size(result.file()))
+                    .body(body);
         } catch (APIException e) {
+            FileUtils.deleteDirectoryQuietly(workDir);
             throw e;
         } catch (Exception e) {
+            FileUtils.deleteDirectoryQuietly(workDir);
             log.warn("OverDrive audiobook download failed for loan {}: {}", loanId, e.getMessage());
             throw ApiError.GENERIC_BAD_REQUEST.createException(
                     e.getMessage() != null ? e.getMessage() : "OverDrive audiobook download failed");
