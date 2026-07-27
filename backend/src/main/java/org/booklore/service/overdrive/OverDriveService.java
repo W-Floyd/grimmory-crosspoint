@@ -1376,6 +1376,31 @@ public class OverDriveService {
         return SUPPORTED_FORMATS.contains(formatId) && (isOpenFormat(formatId) || acsmHandler.isConfigured());
       }
 
+      /**
+       * Why nothing could be imported, phrased for the formats this loan actually offers. Naming a
+       * handler the operator could configure is only useful when a format needing it is on the table —
+       * a title offered solely as {@code ebook-overdrive}/{@code ebook-kobo} (Libby's read-in-browser
+       * and Kobo hand-off formats) has no Adobe format, so pointing at the ACSM handler would send the
+       * operator chasing a setting that cannot help.
+       */
+      static String noImportableFormatMessage(String loanId, List<String> formats) { // package-private for testing
+        List<String> fixes = new ArrayList<>();
+        if (formats.stream().anyMatch(f -> SUPPORTED_FORMATS.contains(f) && !isOpenFormat(f))) {
+            fixes.add("Adobe formats require a configured external ACSM handler.");
+        }
+        if (formats.stream().anyMatch(OverDriveService::isAudiobookFormat)) {
+            fixes.add("Audiobook formats require a configured audiobook handler.");
+        }
+        if (formats.stream().anyMatch(OverDriveService::isMagazineFormat)) {
+            fixes.add("Magazine formats require a configured magazine handler.");
+        }
+        String detail = fixes.isEmpty()
+                ? "None of these can be downloaded — Grimmory imports "
+                        + String.join(", ", SUPPORTED_FORMATS) + " and audiobook formats."
+                : String.join(" ", fixes);
+        return "No importable format for this title (loan " + loanId + "). Offered: " + formats + ". " + detail;
+      }
+
       /** Backwards-compatible overload (ebook-only) — no audiobook handler. */
       static String selectFormat(List<String> loanFormats, List<String> preference, boolean acsmHandlerReady) {
         return selectFormat(loanFormats, preference, acsmHandlerReady, false);
@@ -1922,9 +1947,7 @@ public class OverDriveService {
             chosenFormat = chooseFormat(formats);
         }
         if (chosenFormat == null) {
-            throw new RestClientException("No importable format for this title (loan " + loanId + "). "
-                    + "Offered: " + formats + ". Open formats import directly; Adobe formats require a "
-                    + "configured external ACSM handler.");
+            throw new RestClientException(noImportableFormatMessage(loanId, formats));
         }
 
         Path content;

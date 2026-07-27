@@ -772,6 +772,48 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void noImportableFormatMessage_doesNotMentionAcsmWhenNoAdobeFormatIsOffered() {
+        // Libby's read-in-browser + Kobo hand-off formats. There is no Adobe format here, so an ACSM
+        // handler could not help and must not be suggested.
+        String message = OverDriveService.noImportableFormatMessage(
+                "1084737", List.of("ebook-overdrive", "ebook-kobo"));
+
+        assertThat(message)
+                .contains("loan 1084737")
+                .contains("ebook-overdrive", "ebook-kobo")
+                .contains("None of these can be downloaded")
+                .doesNotContain("ACSM")
+                .doesNotContain("audiobook handler");
+    }
+
+    @Test
+    void noImportableFormatMessage_pointsAtTheAcsmHandlerOnlyForAdobeFormats() {
+        String message = OverDriveService.noImportableFormatMessage(
+                "42", List.of("ebook-epub-adobe", "ebook-kobo"));
+
+        assertThat(message).contains("Adobe formats require a configured external ACSM handler.");
+        assertThat(message).doesNotContain("None of these can be downloaded");
+    }
+
+    @Test
+    void noImportableFormatMessage_pointsAtTheAudiobookHandlerForAudiobookFormats() {
+        String message = OverDriveService.noImportableFormatMessage("42", List.of("audiobook-mp3"));
+
+        assertThat(message).contains("Audiobook formats require a configured audiobook handler.");
+        assertThat(message).doesNotContain("ACSM");
+    }
+
+    @Test
+    void noImportableFormatMessage_namesEveryUnconfiguredHandlerTheLoanCouldUse() {
+        String message = OverDriveService.noImportableFormatMessage(
+                "42", List.of("ebook-pdf-adobe", "audiobook-mp3"));
+
+        assertThat(message)
+                .contains("Adobe formats require a configured external ACSM handler.")
+                .contains("Audiobook formats require a configured audiobook handler.");
+    }
+
+    @Test
     void parseToolEvent_recognisesStructuredEvents() {
         assertThat(OverDriveService.parseToolEvent(
                 "{\"type\":\"progress\",\"phase\":\"download\",\"current\":3,\"total\":12,\"pct\":25.0}"))
