@@ -224,6 +224,7 @@ public class EpubMetadataWriter implements MetadataWriter {
                 addBookloreMetadata(metadataElement, opfDoc, metadata);
                 cleanupCalibreArtifacts(metadataElement, opfDoc);
                 organizeMetadataElements(metadataElement);
+                removeInvalidMetaRefines(metadataElement, opfDoc);
                 removeEmptyTextNodes(opfDoc);
                 Transformer transformer = TransformerFactory.newInstance().newTransformer();
                 transformer.setOutputProperty(OutputKeys.INDENT, "yes");
@@ -591,6 +592,41 @@ public class EpubMetadataWriter implements MetadataWriter {
             Element meta = (Element) metas.item(i);
             if (name.equals(meta.getAttribute("name"))) {
                 metadataElement.removeChild(meta);
+            }
+        }
+    }
+
+    private void removeInvalidMetaRefines(Element metadataElement, Document doc) {
+        // In an ideal world we could set the `validating` flag or
+        // otherwise set the `isId` attribute tag correctly for `id`
+        // but because we cannot, we can't use `getElementById()` on
+        // the document.  With that in mind, we area going to read all
+        // tags, check if they have an `id`, and store that in a `Set`
+        Set<String> ids = new HashSet<>();
+
+        NodeList nodes = doc.getElementsByTagName("*");
+        for (int i = 0; i < nodes.getLength(); i++) {
+            var node = nodes.item(i);
+
+            if (node instanceof Element element) {
+                var idAttribute = element.getAttribute("id");
+                if (!idAttribute.isBlank()) {
+                    ids.add(idAttribute);
+                }
+            }
+        }
+
+        NodeList metas = metadataElement.getElementsByTagNameNS("*", "meta");
+        for (int i = metas.getLength() - 1; i >= 0; i--) {
+            Element meta = (Element) metas.item(i);
+            String refines = meta.getAttribute("refines");
+
+            if (refines.startsWith("#")) {
+                String refinesId = refines.substring(1);
+
+                if (!ids.contains(refinesId)) {
+                    metadataElement.removeChild(meta);
+                }
             }
         }
     }

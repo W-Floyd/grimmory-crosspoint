@@ -70,7 +70,12 @@ public class OpdsBookService {
     }
 
     public Page<Book> getBooksPage(Long userId, String query, Long libraryId, Set<Long> shelfIds, int page, int size) {
-        BookLoreUserEntity entity = requireOpdsAccess(userId);
+        if (userId == null) {
+            throw ApiError.FORBIDDEN.createException("Authentication required");
+        }
+
+        BookLoreUserEntity entity = userRepository.findByIdWithDetails(userId)
+                .orElseThrow(() -> ApiError.USER_NOT_FOUND.createException(userId));
 
         BookLoreUser user = bookLoreUserTransformer.toDTO(entity);
         boolean isAdmin = user.getPermissions().isAdmin();

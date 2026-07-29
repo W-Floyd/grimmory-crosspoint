@@ -4,12 +4,10 @@ services:
   # and mounted volumes. Replace only the image line(s) with Grimmory tags.
   grimmory:
     # Stable release example:
-    image: grimmory/grimmory:v0.38.2
-    # Convenience tag:
-    # image: grimmory/grimmory:latest
-    # Or the GHCR image:
-    # image: ghcr.io/grimmory-tools/grimmory:v0.38.2
-    # The image already embeds its own release version metadata.
+    image: ghcr.io/grimmory-tools/grimmory:latest
+    # The suggested deployment approach is to use a specific version rather than `latest`
+    # so upgrading is more straightforward and convenient.  In those cases, you can
+    # use the tagged version, such as `v3.2.4` rather than `latest`.
     container_name: grimmory
     environment:
       - USER_ID=1000
