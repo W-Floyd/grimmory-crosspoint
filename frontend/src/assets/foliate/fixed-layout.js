@@ -328,12 +328,6 @@ export class FixedLayout extends HTMLElement {
         const s = this.rtl ? this.#goRight() : this.#goLeft()
         if (!s) return this.goToSpread(this.#index - 1, this.rtl ? 'left' : 'right', 'page')
     }
-    getContents() {
-        return Array.from(this.#root.querySelectorAll('iframe'), frame => ({
-            doc: frame.contentDocument,
-            // TODO: index, overlayer
-        }))
-    }
     destroy() {
         this.#observer.unobserve(this)
     }
