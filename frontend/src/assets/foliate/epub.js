@@ -450,8 +450,14 @@ class MediaOverlay extends EventTarget {
         const src = this.#activeAudio?.src
         if (!src || !this.#activeItem) return this.start(this.#sectionIndex + 1)
 
-        const url = URL.createObjectURL(await this.book.loadBlob(src))
-        const audio = new Audio(url)
+        // Prefer a URL the browser can range-request: media overlay audio is one file per
+        // chapter, so buffering the whole blob before the first word delays playback by
+        // megabytes and keeps every played chapter resident in memory.
+        const directUrl = this.book.getDirectUrl?.(src) ?? null
+        const url = directUrl ?? URL.createObjectURL(await this.book.loadBlob(src))
+        const audio = new Audio()
+        audio.preload = 'metadata'
+        audio.src = url
         this.#audio = audio
         audio.volume = this.#volume
         audio.playbackRate = this.#rate
@@ -475,7 +481,7 @@ class MediaOverlay extends EventTarget {
         audio.addEventListener('playing', () => this.#highlight())
         audio.addEventListener('ended', () => {
             this.#unhighlight()
-            URL.revokeObjectURL(url)
+            if (!directUrl) URL.revokeObjectURL(url)
             this.#audio = null
             this.#play(audioIndex + 1, 0).catch(e => this.#error(e))
         })
@@ -483,9 +489,13 @@ class MediaOverlay extends EventTarget {
             this.#highlight()
             audio.currentTime = this.#activeItem.begin ?? 0
         }
-        else audio.addEventListener('canplaythrough', () => {
-            // for some reason need to seek in `canplaythrough`
-            // or it won't play when skipping in WebKit
+        // When streaming, waiting for `canplaythrough` would mean waiting on the browser's
+        // estimate that the whole clip can play uninterrupted — which is the buffering this
+        // path exists to avoid. `loadedmetadata` is the earliest point a seek is valid, and
+        // the seek itself issues the range request for the clip's start.
+        // On the blob path this must stay `canplaythrough`: for some reason the seek has to
+        // happen there or it won't play when skipping in WebKit.
+        else audio.addEventListener(directUrl ? 'loadedmetadata' : 'canplaythrough', () => {
             audio.currentTime = this.#activeItem.begin ?? 0
             this.#state = 'playing'
             audio.play().catch(e => this.#error(e))
@@ -1160,6 +1170,11 @@ ${doc.querySelector('parsererror').innerText}`)
     getTOCFragment(doc, id) {
         return doc.getElementById(id)
             ?? doc.querySelector(`[name="${CSS.escape(id)}"]`)
+    }
+    // A URL the browser can fetch directly, when the book is backed by a streaming loader.
+    // Null for archive-backed books, where callers must fall back to loadBlob.
+    getDirectUrl(href) {
+        return this.#getDirectUrl?.(href) ?? null
     }
     isExternal(uri) {
         return isExternal(uri)

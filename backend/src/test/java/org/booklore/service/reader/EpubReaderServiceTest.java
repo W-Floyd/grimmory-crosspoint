@@ -7,6 +7,7 @@ import org.booklore.model.dto.response.EpubSpineItem;
 import org.booklore.model.dto.response.EpubTocItem;
 import org.booklore.model.entity.BookEntity;
 import org.booklore.repository.BookRepository;
+import org.booklore.service.ByteRangeSource;
 import org.booklore.util.FileUtils;
 import org.grimmory.epub4j.domain.*;
 import org.grimmory.epub4j.epub.EpubWriter;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -27,6 +29,7 @@ import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,6 +42,10 @@ class EpubReaderServiceTest {
 
     @Mock
     BookRepository bookRepository;
+
+    // A real locator: the range path is only meaningful against an actual archive.
+    @Spy
+    ZipEntryLocator zipEntryLocator = new ZipEntryLocator();
 
     @InjectMocks
     EpubReaderService epubReaderService;
@@ -198,6 +205,83 @@ class EpubReaderServiceTest {
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             assertThrows(FileNotFoundException.class,
                     () -> epubReaderService.streamFile(1L, "../../../etc/passwd", outputStream));
+        }
+    }
+
+    @Test
+    void testOpenRangeSource_FullReadMatchesStreamFile() throws Exception {
+        when(bookRepository.findByIdForStreaming(1L)).thenReturn(Optional.of(bookEntity));
+
+        try (MockedStatic<FileUtils> fileUtilsStatic = mockStatic(FileUtils.class)) {
+            fileUtilsStatic.when(() -> FileUtils.getBookFullPath(bookEntity)).thenReturn(epubPath);
+
+            writeTestEpub();
+
+            String coverHref = epubReaderService.getBookInfo(1L).getManifest().stream()
+                    .filter(m -> "cover".equals(m.getId()))
+                    .map(EpubManifestItem::getHref)
+                    .findFirst()
+                    .orElseThrow();
+
+            ByteArrayOutputStream viaStream = new ByteArrayOutputStream();
+            epubReaderService.streamFile(1L, coverHref, viaStream);
+
+            ByteRangeSource source = epubReaderService.openRangeSource(1L, null, null, coverHref);
+            ByteArrayOutputStream viaRange = new ByteArrayOutputStream();
+            source.transferTo(0, source.size(), viaRange);
+
+            assertEquals(viaStream.size(), source.size());
+            assertArrayEquals(viaStream.toByteArray(), viaRange.toByteArray());
+        }
+    }
+
+    @Test
+    void testOpenRangeSource_SubRangeMatchesSlice() throws Exception {
+        when(bookRepository.findByIdForStreaming(1L)).thenReturn(Optional.of(bookEntity));
+
+        try (MockedStatic<FileUtils> fileUtilsStatic = mockStatic(FileUtils.class)) {
+            fileUtilsStatic.when(() -> FileUtils.getBookFullPath(bookEntity)).thenReturn(epubPath);
+
+            writeTestEpub();
+
+            String coverHref = epubReaderService.getBookInfo(1L).getManifest().stream()
+                    .filter(m -> "cover".equals(m.getId()))
+                    .map(EpubManifestItem::getHref)
+                    .findFirst()
+                    .orElseThrow();
+
+            ByteArrayOutputStream full = new ByteArrayOutputStream();
+            epubReaderService.streamFile(1L, coverHref, full);
+            byte[] expected = full.toByteArray();
+
+            ByteRangeSource source = epubReaderService.openRangeSource(1L, null, null, coverHref);
+
+            // A range that starts well past the entry header, so a naive whole-entry read would differ
+            long start = 1024;
+            long length = 512;
+            ByteArrayOutputStream partial = new ByteArrayOutputStream();
+            source.transferTo(start, length, partial);
+
+            assertArrayEquals(
+                    Arrays.copyOfRange(expected, (int) start, (int) (start + length)),
+                    partial.toByteArray());
+        }
+    }
+
+    @Test
+    void testOpenRangeSource_RejectsPathOutsideManifest() throws Exception {
+        when(bookRepository.findByIdForStreaming(1L)).thenReturn(Optional.of(bookEntity));
+
+        try (MockedStatic<FileUtils> fileUtilsStatic = mockStatic(FileUtils.class)) {
+            fileUtilsStatic.when(() -> FileUtils.getBookFullPath(bookEntity)).thenReturn(epubPath);
+
+            writeTestEpub();
+            epubReaderService.getBookInfo(1L);
+
+            assertThrows(FileNotFoundException.class,
+                    () -> epubReaderService.openRangeSource(1L, null, null, "nonexistent.xhtml"));
+            assertThrows(FileNotFoundException.class,
+                    () -> epubReaderService.openRangeSource(1L, null, null, "../../../etc/passwd"));
         }
     }
 

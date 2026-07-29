@@ -47,6 +47,93 @@ class FileStreamingServiceTest {
         Files.write(testFile, testContent);
     }
 
+    // ==================== streamWithRangeSupport - ByteRangeSource overload ====================
+
+    /** An in-memory source, standing in for bytes that are not a standalone file (e.g. an archive entry). */
+    private record InMemorySource(byte[] content, Instant lastModified) implements ByteRangeSource {
+        @Override
+        public long size() {
+            return content.length;
+        }
+
+        @Override
+        public void transferTo(long position, long count, java.io.OutputStream out) throws IOException {
+            out.write(content, (int) position, (int) count);
+            out.flush();
+        }
+    }
+
+    @Test
+    void streamWithRangeSupport_byteRangeSource_noRangeHeader_streamsFullContent() throws IOException {
+        var request = mock(HttpServletRequest.class);
+        var response = mock(HttpServletResponse.class);
+        var outputStream = new ByteArrayOutputStream();
+        var source = new InMemorySource(testContent, Instant.ofEpochMilli(1_700_000_000_000L));
+
+        when(request.getHeader("Range")).thenReturn(null);
+        when(response.getOutputStream()).thenReturn(createServletOutputStream(outputStream));
+
+        fileStreamingService.streamWithRangeSupport(
+                source, "audio/mpeg", "private, max-age=3600", "chapter1.mp3", request, response);
+
+        verify(response).setStatus(HttpServletResponse.SC_OK);
+        verify(response).setContentLengthLong(testContent.length);
+        verify(response).setHeader("Accept-Ranges", "bytes");
+        verify(response).setHeader("Cache-Control", "private, max-age=3600");
+        assertArrayEquals(testContent, outputStream.toByteArray());
+    }
+
+    @Test
+    void streamWithRangeSupport_byteRangeSource_range_streamsPartialContent() throws IOException {
+        var request = mock(HttpServletRequest.class);
+        var response = mock(HttpServletResponse.class);
+        var outputStream = new ByteArrayOutputStream();
+        var source = new InMemorySource(testContent, Instant.ofEpochMilli(1_700_000_000_000L));
+
+        when(request.getHeader("Range")).thenReturn("bytes=100-199");
+        when(response.getOutputStream()).thenReturn(createServletOutputStream(outputStream));
+
+        fileStreamingService.streamWithRangeSupport(
+                source, "audio/mpeg", "private, max-age=3600", "chapter1.mp3", request, response);
+
+        verify(response).setStatus(HttpServletResponse.SC_PARTIAL_CONTENT);
+        verify(response).setHeader("Content-Range", "bytes 100-199/" + testContent.length);
+        verify(response).setContentLengthLong(100);
+        assertArrayEquals(java.util.Arrays.copyOfRange(testContent, 100, 200), outputStream.toByteArray());
+    }
+
+    @Test
+    void streamWithRangeSupport_byteRangeSource_invalidRange_sends416() throws IOException {
+        var request = mock(HttpServletRequest.class);
+        var response = mock(HttpServletResponse.class);
+        var source = new InMemorySource(testContent, Instant.ofEpochMilli(1_700_000_000_000L));
+
+        when(request.getHeader("Range")).thenReturn("bytes=999999-");
+
+        fileStreamingService.streamWithRangeSupport(
+                source, "audio/mpeg", "private, max-age=3600", "chapter1.mp3", request, response);
+
+        verify(response).setStatus(HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE);
+        verify(response).setHeader("Content-Range", "bytes */" + testContent.length);
+    }
+
+    @Test
+    void streamWithRangeSupport_byteRangeSource_ifNoneMatchMatchingEtag_returns304() throws IOException {
+        var request = mock(HttpServletRequest.class);
+        var response = mock(HttpServletResponse.class);
+        Instant lastModified = Instant.ofEpochMilli(1_700_000_000_000L);
+        var source = new InMemorySource(testContent, lastModified);
+
+        String etag = fileStreamingService.generateETag(testContent.length, lastModified);
+        when(request.getHeader("If-None-Match")).thenReturn(etag);
+
+        fileStreamingService.streamWithRangeSupport(
+                source, "audio/mpeg", "private, max-age=3600", "chapter1.mp3", request, response);
+
+        verify(response).setStatus(HttpServletResponse.SC_NOT_MODIFIED);
+        verify(response, never()).getOutputStream();
+    }
+
     // ==================== streamWithRangeSupport - Full file tests ====================
 
     @Test

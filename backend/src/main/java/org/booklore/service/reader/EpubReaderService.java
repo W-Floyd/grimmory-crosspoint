@@ -11,6 +11,7 @@ import org.booklore.model.entity.BookEntity;
 import org.booklore.model.entity.BookFileEntity;
 import org.booklore.model.enums.BookFileType;
 import org.booklore.repository.BookRepository;
+import org.booklore.service.ByteRangeSource;
 import org.booklore.util.FileUtils;
 import org.grimmory.epub4j.domain.*;
 import org.grimmory.epub4j.epub.CoverDetector;
@@ -69,6 +70,7 @@ public class EpubReaderService {
     );
 
     private final BookRepository bookRepository;
+    private final ZipEntryLocator zipEntryLocator;
     private final Cache<String, CachedEpubMetadata> metadataCache = Caffeine.newBuilder()
             .maximumSize(MAX_CACHE_ENTRIES)
             .expireAfterAccess(Duration.ofMinutes(30))
@@ -128,7 +130,32 @@ public class EpubReaderService {
     public void streamFile(Long bookId, String bookType, Long fileId, String filePath, OutputStream outputStream) throws IOException {
         Path epubPath = getBookPath(bookId, bookType, fileId);
         CachedEpubMetadata metadata = getCachedMetadata(epubPath);
+        String actualPath = resolveEntryPath(metadata, filePath);
 
+        streamEntryFromZip(epubPath, actualPath, outputStream);
+    }
+
+    /**
+     * Opens a file inside the EPUB as a seekable byte range, for endpoints that serve HTTP ranges.
+     * Applies the same manifest allowlist as {@link #streamFile}: only entries the package document
+     * declares are reachable.
+     *
+     * @throws FileNotFoundException if the path is not an allowed manifest entry, or is absent from the archive
+     */
+    public ByteRangeSource openRangeSource(Long bookId, String bookType, Long fileId, String filePath) throws IOException {
+        Path epubPath = getBookPath(bookId, bookType, fileId);
+        CachedEpubMetadata metadata = getCachedMetadata(epubPath);
+        String actualPath = resolveEntryPath(metadata, filePath);
+
+        return zipEntryLocator.openEntry(epubPath, actualPath);
+    }
+
+    /**
+     * Maps a request path to the archive entry it addresses, rejecting anything outside the manifest.
+     * The container document sits outside the manifest and above the OPF root, so it is matched
+     * before root-relative normalization.
+     */
+    private String resolveEntryPath(CachedEpubMetadata metadata, String filePath) throws FileNotFoundException {
         String cleanPath = filePath.startsWith("/") ? filePath.substring(1) : filePath;
         String actualPath;
         if (CONTAINER_PATH.equals(cleanPath) || cleanPath.equals(metadata.bookInfo.getContainerPath())) {
@@ -140,8 +167,7 @@ public class EpubReaderService {
         if (!isValidPath(actualPath, metadata)) {
             throw new FileNotFoundException("File not found in EPUB: " + filePath);
         }
-
-        streamEntryFromZip(epubPath, actualPath, outputStream);
+        return actualPath;
     }
 
     public String getContentType(Long bookId, String filePath) {

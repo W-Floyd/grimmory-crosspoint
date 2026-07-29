@@ -10,9 +10,7 @@ import org.springframework.web.context.request.async.AsyncRequestNotUsableExcept
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.SocketTimeoutException;
-import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
-import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -31,6 +29,12 @@ public class FileStreamingService {
     private static final DateTimeFormatter HTTP_DATE_FORMAT = DateTimeFormatter
             .ofPattern("EEE, dd MMM yyyy HH:mm:ss z", Locale.US)
             .withZone(ZoneId.of("GMT"));
+
+    /**
+     * Caching with mandatory revalidation via ETag eliminates redundant byte transfers
+     * on seeks while keeping access-control checks on every request.
+     */
+    public static final String DEFAULT_CACHE_CONTROL = "no-cache";
 
     /**
      * Streams a file with HTTP Range support for seeking.
@@ -52,8 +56,31 @@ public class FileStreamingService {
             throw ApiError.FILE_NOT_FOUND.createException(filePath.toString());
         }
 
-        long fileSize = attrs.size();
-        Instant lastModified = attrs.lastModifiedTime().toInstant();
+        ByteRangeSource source = new PathByteRangeSource(
+                filePath, attrs.size(), attrs.lastModifiedTime().toInstant());
+        streamWithRangeSupport(source, contentType, DEFAULT_CACHE_CONTROL, filePath.toString(), request, response);
+    }
+
+    /**
+     * Streams any {@link ByteRangeSource} with HTTP Range support.
+     * Owns the RFC 7233 / 7232 protocol: Accept-Ranges, 206 + Content-Range, 416, If-Range,
+     * If-None-Match / 304 and HEAD. Callers are free to set additional response headers
+     * (CSP, CORS) before calling; nothing here resets the response.
+     *
+     * @param cacheControl value for the Cache-Control header
+     * @param sourceLabel  identifier used only for error messages and logging
+     */
+    public void streamWithRangeSupport(
+            ByteRangeSource source,
+            String contentType,
+            String cacheControl,
+            String sourceLabel,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws IOException {
+
+        long fileSize = source.size();
+        Instant lastModified = source.lastModified();
         String etag = generateETag(fileSize, lastModified);
         String rangeHeader = request.getHeader("Range");
 
@@ -62,9 +89,7 @@ public class FileStreamingService {
         response.setContentType(contentType);
         response.setHeader("ETag", etag);
         response.setDateHeader("Last-Modified", lastModified.toEpochMilli());
-        // Allow caching with mandatory revalidation via ETag eliminates
-        // redundant byte transfers on seeks while keeping access-control checks.
-        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("Cache-Control", cacheControl);
         response.setHeader("Content-Disposition", "inline");
 
         // Conditional: If-None-Match, 304
@@ -81,14 +106,13 @@ public class FileStreamingService {
             return;
         }
 
-        try (var fileChannel = FileChannel.open(filePath, StandardOpenOption.READ)) {
-
+        try {
             String ifRange = request.getHeader("If-Range");
             if (rangeHeader != null && ifRange != null && !validateIfRange(ifRange, etag, lastModified)) {
                 // If-Range failed: return full file
                 response.setStatus(HttpServletResponse.SC_OK);
                 response.setContentLengthLong(fileSize);
-                transferFile(fileChannel, 0, fileSize, response.getOutputStream());
+                source.transferTo(0, fileSize, response.getOutputStream());
                 return;
             }
 
@@ -96,7 +120,7 @@ public class FileStreamingService {
             if (rangeHeader == null) {
                 response.setStatus(HttpServletResponse.SC_OK);
                 response.setContentLengthLong(fileSize);
-                transferFile(fileChannel, 0, fileSize, response.getOutputStream());
+                source.transferTo(0, fileSize, response.getOutputStream());
                 return;
             }
 
@@ -113,18 +137,31 @@ public class FileStreamingService {
             response.setHeader("Content-Range", "bytes " + range.start + "-" + range.end + "/" + fileSize);
             response.setContentLengthLong(length);
 
-            transferFile(fileChannel, range.start, length, response.getOutputStream());
+            source.transferTo(range.start, length, response.getOutputStream());
 
         } catch (NoSuchFileException _) {
-            throw ApiError.FILE_NOT_FOUND.createException(filePath.toString());
+            throw ApiError.FILE_NOT_FOUND.createException(sourceLabel);
         } catch (IOException e) {
             if (isClientDisconnect(e)) {
                 log.debug("Client disconnected during streaming: {}", e.getMessage());
             } else {
-                log.error("Error during file streaming: {}", filePath, e);
+                log.error("Error during file streaming: {}", sourceLabel, e);
                 if (!response.isCommitted()) {
                     throw ApiError.INTERNAL_SERVER_ERROR.createException("Streaming error: " + e.getMessage());
                 }
+            }
+        }
+    }
+
+    /**
+     * A plain file on disk. Opens its own channel per transfer so the source stays stateless
+     * and safe to hand around.
+     */
+    private record PathByteRangeSource(Path path, long size, Instant lastModified) implements ByteRangeSource {
+        @Override
+        public void transferTo(long position, long count, OutputStream out) throws IOException {
+            try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+                ByteRangeSource.transferFromChannel(channel, position, count, out);
             }
         }
     }
@@ -187,35 +224,6 @@ public class FileStreamingService {
         String opaque1 = tag1.startsWith("W/") ? tag1.substring(2) : tag1;
         String opaque2 = tag2.startsWith("W/") ? tag2.substring(2) : tag2;
         return opaque1.equals(opaque2);
-    }
-
-    /**
-     * Zero-copy transfer from file channel to output stream via NIO.
-     * Delegates to sendfile(2) on Linux / equivalent on macOS when the
-     * servlet container's OutputStream maps to a socket channel.
-     * Closes the output stream upon completion as the channel wrapper propagates close.
-     */
-    private void transferFile(FileChannel source, long position, long count, OutputStream out) throws IOException {
-        try (WritableByteChannel destination = Channels.newChannel(out)) {
-            long remaining = count;
-            long currentPos = position;
-            int zeroTransferCount = 0;
-
-            while (remaining > 0) {
-                long transferred = source.transferTo(currentPos, remaining, destination);
-                if (transferred <= 0) {
-                    ++zeroTransferCount;
-                    if (zeroTransferCount > 100) {
-                        throw new IOException("File transfer stalled with " + remaining + " bytes remaining");
-                    }
-                    Thread.onSpinWait();
-                    continue;
-                }
-                zeroTransferCount = 0;
-                currentPos += transferred;
-                remaining -= transferred;
-            }
-        }
     }
 
     /**
