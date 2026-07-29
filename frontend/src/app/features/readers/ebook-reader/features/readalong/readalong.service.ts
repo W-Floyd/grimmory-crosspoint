@@ -1,5 +1,6 @@
 import {computed, inject, Injectable, signal} from '@angular/core';
-import {catchError, of} from 'rxjs';
+import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
+import {catchError, debounceTime, of, tap} from 'rxjs';
 import {ReaderViewManagerService} from '../../core/view-manager.service';
 
 export type ReadalongState = 'stopped' | 'playing' | 'paused';
@@ -9,6 +10,9 @@ export const READALONG_RATES = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;
 
 const RATE_STORAGE_KEY = 'reader.readalong.rate';
 const VOLUME_STORAGE_KEY = 'reader.readalong.volume';
+
+/** How long navigation must be quiet before playback re-anchors to the new location. */
+const NAVIGATION_SETTLE_MS = 300;
 
 /**
  * Drives EPUB3 media overlay (readalong) playback for the ebook reader.
@@ -31,6 +35,40 @@ export class ReaderReadalongService {
   readonly rate = this._rate.asReadonly();
   readonly volume = this._volume.asReadonly();
   readonly isPlaying = computed(() => this._state() === 'playing');
+
+  constructor() {
+    this.viewManager.navigation$
+      .pipe(
+        // Playback drives the renderer phrase by phrase, so while it runs it drags the
+        // reader straight back to the audio. Stop that immediately or navigating during
+        // playback is a fight the reader cannot win.
+        tap(() => {
+          if (this._state() === 'playing') this.viewManager.pauseMediaOverlay();
+        }),
+        // Settle first: a slider drag or held page-turn key is a burst, not one move.
+        debounceTime(NAVIGATION_SETTLE_MS),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => this.resyncToReader());
+  }
+
+  /**
+   * Re-anchors playback to wherever the reader now is, so seeking moves the narration
+   * rather than being undone by it.
+   */
+  private resyncToReader(): void {
+    if (this._state() !== 'playing') return;
+    // Undo the pause above before restarting: the player will not resume a paused
+    // element, it would only seek and highlight.
+    this.viewManager.resumeMediaOverlay();
+    this.viewManager.startMediaOverlay()
+      .pipe(catchError((error: unknown) => {
+        console.error('Readalong failed to resync after navigation', error);
+        this._state.set('stopped');
+        return of(undefined);
+      }))
+      .subscribe();
+  }
 
   /**
    * Call once the book is open: whether overlays exist can only be known after Foliate has

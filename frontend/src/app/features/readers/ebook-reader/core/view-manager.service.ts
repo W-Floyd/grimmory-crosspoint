@@ -1,6 +1,6 @@
 import {inject, Injectable} from '@angular/core';
-import {defer, from, Observable, of, throwError, timer} from 'rxjs';
-import {catchError, map, switchMap} from 'rxjs/operators';
+import {defer, from, Observable, of, Subject, throwError, timer} from 'rxjs';
+import {catchError, map, switchMap, tap} from 'rxjs/operators';
 import {ReaderAnnotationService, Annotation} from '../features/annotations/annotation-renderer.service';
 import {ReaderEventService, ViewEvent, TextSelection} from './event.service';
 import {PageInfo, ThemeInfo, PageDecorator} from '../shared/header-footer.util';
@@ -127,9 +127,20 @@ export class ReaderViewManagerService {
   private eventService = inject(ReaderEventService);
   private epubStreamingService = inject(EpubStreamingService);
   private view: FoliateViewElement | null = null;
+  private readonly navigation = new Subject<void>();
 
   public get events$(): Observable<ViewEvent> {
     return this.eventService.events$;
+  }
+
+  /**
+   * Emits when the reader is moved deliberately — a page turn, the progress slider, a
+   * chapter jump. Media overlay highlighting drives the renderer directly and is
+   * deliberately absent here, so a listener can tell a reader's intent from playback
+   * following along.
+   */
+  public get navigation$(): Observable<void> {
+    return this.navigation.asObservable();
   }
 
   createView(container: HTMLElement): void {
@@ -214,7 +225,8 @@ export class ReaderViewManagerService {
     return defer(() =>
       from(view.goTo(resolvedTarget) as Promise<void>)
     ).pipe(
-      map(() => undefined)
+      map(() => undefined),
+      tap(() => this.navigation.next())
     );
   }
 
@@ -228,16 +240,19 @@ export class ReaderViewManagerService {
     }
     const view = this.view;
     return defer(() => from(view.goToFraction(fraction) as Promise<void>)).pipe(
-      map(() => undefined)
+      map(() => undefined),
+      tap(() => this.navigation.next())
     );
   }
 
   prev(): void {
     this.view?.prev();
+    this.navigation.next();
   }
 
   next(): void {
     this.view?.next();
+    this.navigation.next();
   }
 
   getRenderer(): FoliateRenderer | null {

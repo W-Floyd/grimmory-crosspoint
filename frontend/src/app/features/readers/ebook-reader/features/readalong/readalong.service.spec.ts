@@ -1,5 +1,5 @@
 import {TestBed} from '@angular/core/testing';
-import {of, throwError} from 'rxjs';
+import {of, Subject, throwError} from 'rxjs';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {ReaderViewManagerService} from '../../core/view-manager.service';
@@ -7,7 +7,9 @@ import {READALONG_RATES, ReaderReadalongService} from './readalong.service';
 
 describe('ReaderReadalongService', () => {
   let service: ReaderReadalongService;
+  let navigation$: Subject<void>;
   const viewManager = {
+    navigation$: null as unknown as Subject<void>,
     hasMediaOverlay: vi.fn(),
     startMediaOverlay: vi.fn(),
     pauseMediaOverlay: vi.fn(),
@@ -20,8 +22,13 @@ describe('ReaderReadalongService', () => {
   };
 
   beforeEach(() => {
+    vi.useFakeTimers();
     localStorage.clear();
-    Object.values(viewManager).forEach(mock => mock.mockReset());
+    Object.values(viewManager).forEach(value => {
+      if (vi.isMockFunction(value)) value.mockReset();
+    });
+    navigation$ = new Subject<void>();
+    viewManager.navigation$ = navigation$;
     viewManager.hasMediaOverlay.mockReturnValue(true);
     viewManager.startMediaOverlay.mockReturnValue(of(undefined));
 
@@ -38,6 +45,7 @@ describe('ReaderReadalongService', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     localStorage.clear();
+    vi.useRealTimers();
   });
 
   it('reports availability only after detection', () => {
@@ -149,6 +157,54 @@ describe('ReaderReadalongService', () => {
 
     expect(revived.rate()).toBe(1.75);
     expect(revived.volume()).toBe(0.25);
+  });
+
+  it('pauses immediately when the reader navigates during playback', () => {
+    service.detectAvailability();
+    service.start();
+
+    navigation$.next();
+
+    // Without this the next phrase's highlight drags the reader back to the audio
+    expect(viewManager.pauseMediaOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-anchors playback to the new location once navigation settles', () => {
+    service.detectAvailability();
+    service.start();
+    viewManager.startMediaOverlay.mockClear();
+
+    navigation$.next();
+    vi.advanceTimersByTime(500);
+
+    expect(viewManager.resumeMediaOverlay).toHaveBeenCalledTimes(1);
+    expect(viewManager.startMediaOverlay).toHaveBeenCalledTimes(1);
+    expect(service.state()).toBe('playing');
+  });
+
+  it('re-anchors once for a burst of navigation, not once per step', () => {
+    service.detectAvailability();
+    service.start();
+    viewManager.startMediaOverlay.mockClear();
+
+    navigation$.next();
+    vi.advanceTimersByTime(100);
+    navigation$.next();
+    vi.advanceTimersByTime(100);
+    navigation$.next();
+    vi.advanceTimersByTime(500);
+
+    expect(viewManager.startMediaOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores navigation while not playing', () => {
+    service.detectAvailability();
+
+    navigation$.next();
+    vi.advanceTimersByTime(500);
+
+    expect(viewManager.pauseMediaOverlay).not.toHaveBeenCalled();
+    expect(viewManager.startMediaOverlay).not.toHaveBeenCalled();
   });
 
   it('stops playback on reset so narration does not outlive the reader', () => {
