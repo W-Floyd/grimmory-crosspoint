@@ -87,14 +87,14 @@ export class FixedLayout extends HTMLElement {
         iframe.setAttribute('scrolling', 'no')
         iframe.setAttribute('part', 'filter')
         this.#root.append(element)
-        if (!src) return { blank: true, element, iframe }
+        if (!src) return { blank: true, element, iframe, index }
         return new Promise(resolve => {
             iframe.addEventListener('load', () => {
                 const doc = iframe.contentDocument
                 this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } }))
                 const { width, height } = getViewport(doc, this.defaultViewport)
                 resolve({
-                    element, iframe,
+                    element, iframe, index,
                     width: parseFloat(width),
                     height: parseFloat(height),
                     onZoom,
@@ -248,6 +248,16 @@ export class FixedLayout extends HTMLElement {
         const section = spread?.center ?? (this.#side === 'left'
             ? spread.left ?? spread.right : spread.right ?? spread.left)
         return this.book.sections.indexOf(section)
+    }
+    // Same shape as the paginator's, so callers that need the rendered document — media
+    // overlay highlighting, text selection — work for fixed-layout books too. A spread
+    // shows two documents at once; the current side comes first.
+    getContents() {
+        const frames = this.#center ? [this.#center]
+            : this.#side === 'right' ? [this.#right, this.#left] : [this.#left, this.#right]
+        return frames
+            .filter(frame => frame && !frame.blank && frame.iframe?.contentDocument)
+            .map(({ index, iframe }) => ({ index, doc: iframe.contentDocument }))
     }
     #reportLocation(reason) {
         this.dispatchEvent(new CustomEvent('relocate', { detail:

@@ -60,7 +60,10 @@ export class ReaderReadalongService {
     this.viewManager.setMediaOverlayVolume(this._volume());
     this._state.set('playing');
     this.viewManager.startMediaOverlay()
-      .pipe(catchError(() => {
+      .pipe(catchError((error: unknown) => {
+        // Never swallow this: a failed clip, an unreadable SMIL document and a book whose
+        // overlays don't line up with its spine all land here and are otherwise silent.
+        console.error('Readalong failed to start', error);
         this._state.set('stopped');
         return of(undefined);
       }))

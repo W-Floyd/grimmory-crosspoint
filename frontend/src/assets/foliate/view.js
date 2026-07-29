@@ -158,6 +158,28 @@ export const makeStreamingBook = async (bookId, baseUrl, bookInfo, authToken = n
   return new EPUB(loader).init()
 }
 
+const HIGHLIGHT_STYLE_ID = 'foliate-media-overlay-style'
+
+/**
+ * Injects the readalong highlight rule into a rendered document.
+ *
+ * The reader's own stylesheet can't cover this: it reaches paginated documents only, so
+ * fixed-layout books get no styles at all, and it can only guess at the class name — books
+ * are free to declare their own via `media:active-class`.
+ */
+const ensureHighlightStyle = (doc, className) => {
+  if (!doc || doc.getElementById(HIGHLIGHT_STYLE_ID)) return
+  const parent = doc.head ?? doc.documentElement
+  if (!parent) return
+  const style = doc.createElement('style')
+  style.id = HIGHLIGHT_STYLE_ID
+  const selector = `.${CSS.escape(className)}`
+  style.textContent = `${selector}, ${selector} * {`
+    + ' background: color-mix(in srgb, currentColor 18%, transparent);'
+    + ' border-radius: 2px; }'
+  parent.append(style)
+}
+
 class CursorAutohider {
   #timeout
   #el
@@ -340,6 +362,7 @@ export class View extends HTMLElement {
             // The SMIL fragment may not resolve to an element in the rendered
             // document; skip the highlight rather than breaking playback.
             if (!el?.classList) return
+            ensureHighlightStyle(content.doc, activeClass)
             el.classList.add(activeClass)
             if (playbackActiveClass) el.ownerDocument
               .documentElement.classList.add(playbackActiveClass)
@@ -684,7 +707,9 @@ export class View extends HTMLElement {
   }
 
   startMediaOverlay() {
-    const {index} = this.renderer.getContents()[0]
+    // A fixed-layout spread can show a blank page, and `index` is the renderer's own idea
+    // of where it is — either way, better than throwing on an empty contents list.
+    const index = this.renderer.getContents()?.[0]?.index ?? this.renderer.index ?? 0
     return this.mediaOverlay.start(index)
   }
 }

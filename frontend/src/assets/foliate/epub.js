@@ -533,7 +533,12 @@ class MediaOverlay extends EventTarget {
         this.#audio?.pause()
         const section = this.book.sections[sectionIndex]
         const href = section?.id
-        if (!href) return
+        if (!href) {
+            // Walked off the end of the spine looking for a section with an overlay.
+            if (sectionIndex > 0) console.warn(
+                `No media overlay found from section ${this.#sectionIndex ?? 0} onwards`)
+            return
+        }
 
         const { mediaOverlay } = section
         if (!mediaOverlay) return this.start(sectionIndex + 1)
@@ -547,6 +552,11 @@ class MediaOverlay extends EventTarget {
                     return this.#play(i, j).catch(e => this.#error(e))
             }
         }
+
+        // The SMIL parsed, but none of its <text> targets name this section's document.
+        // Silently doing nothing here is indistinguishable from broken playback.
+        this.#error(new Error(`Media overlay ${mediaOverlay.href} has no phrase for ${href}`
+            + ` (${this.#entries.length} audio groups parsed)`))
     }
     pause() {
         this.#state = 'paused'
