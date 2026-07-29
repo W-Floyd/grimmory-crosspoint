@@ -199,6 +199,18 @@ describe('ReaderReadalongService', () => {
     expect(viewManager.pauseMediaOverlay).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps playing when a click during playback matches nothing', () => {
+    service.detectAvailability();
+    service.start();
+    viewManager.startMediaOverlayAt.mockReturnValue(of(false));
+
+    service.seekToPhraseAt(doc, ['not-narrated']);
+
+    // The search pauses the element to look, so playback has to be put back
+    expect(viewManager.resumeMediaOverlay).toHaveBeenCalledTimes(1);
+    expect(service.state()).toBe('playing');
+  });
+
   it('ignores clicks in a book without narration', () => {
     viewManager.hasMediaOverlay.mockReturnValue(false);
     service.detectAvailability();

@@ -114,9 +114,9 @@ export class ReaderReadalongService {
    */
   seekToPhraseAt(doc: Document, ids: string[]): void {
     if (!this._available() || ids.length === 0) return;
-    const wasPaused = this._state() === 'paused';
+    const previous = this._state();
     // The player will not play a paused element; it would seek and highlight in silence.
-    if (wasPaused) this.viewManager.resumeMediaOverlay();
+    if (previous === 'paused') this.viewManager.resumeMediaOverlay();
 
     this.viewManager.startMediaOverlayAt(doc, ids)
       .pipe(catchError((error: unknown) => {
@@ -124,8 +124,13 @@ export class ReaderReadalongService {
         return of(false);
       }))
       .subscribe(matched => {
-        if (matched) this._state.set('playing');
-        else if (wasPaused) this.viewManager.pauseMediaOverlay();
+        if (matched) {
+          this._state.set('playing');
+          return;
+        }
+        // Searching for the phrase pauses the audio, so put back what was interrupted.
+        if (previous === 'playing') this.viewManager.resumeMediaOverlay();
+        else if (previous === 'paused') this.viewManager.pauseMediaOverlay();
       });
   }
 
