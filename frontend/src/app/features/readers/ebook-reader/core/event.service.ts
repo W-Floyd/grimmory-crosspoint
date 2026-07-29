@@ -60,6 +60,9 @@ export type ViewEvent =
   | { type: 'relocate'; detail: RelocateEventDetail }
   | { type: 'error'; detail?: unknown }
   | { type: 'media-overlay-error'; detail?: unknown }
+  | { type: 'toggle-readalong' }
+  | { type: 'readalong-previous-phrase' }
+  | { type: 'readalong-next-phrase' }
   | { type: 'middle-single-tap' }
   | { type: 'draw-annotation'; detail: DrawAnnotationEventDetail }
   | { type: 'show-annotation'; detail?: unknown }
@@ -245,6 +248,15 @@ export class ReaderEventService {
         event.preventDefault();
       } else if (k === 'i' || k === 'I') {
         this.eventSubject.next({type: 'toggle-immersive'});
+        event.preventDefault();
+      } else if (k === 'r' || k === 'R') {
+        this.eventSubject.next({type: 'toggle-readalong'});
+        event.preventDefault();
+      } else if (k === '[') {
+        this.eventSubject.next({type: 'readalong-previous-phrase'});
+        event.preventDefault();
+      } else if (k === ']') {
+        this.eventSubject.next({type: 'readalong-next-phrase'});
         event.preventDefault();
       } else if (k === '?') {
         this.eventSubject.next({type: 'toggle-shortcuts-help'});

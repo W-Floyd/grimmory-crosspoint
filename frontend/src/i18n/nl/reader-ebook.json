@@ -142,7 +142,11 @@
         "lastSection": "",
         "tableOfContents": "",
         "gotIt": "",
-        "title": ""
+        "title": "",
+        "readalong": "",
+        "toggleReadalong": "",
+        "previousPhrase": "",
+        "nextPhrase": ""
     },
     "sidebar": {
         "noBookmarksYet": "",

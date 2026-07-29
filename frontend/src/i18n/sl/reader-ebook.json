@@ -31,7 +31,11 @@
         "other": "Ostalo",
         "swipeRight": "Podrsaj desno",
         "swipeLeft": "Podrsaj levo",
-        "toggleImmersive": ""
+        "toggleImmersive": "",
+        "readalong": "",
+        "toggleReadalong": "",
+        "previousPhrase": "",
+        "nextPhrase": ""
     },
     "footer": {
         "go": "Pojdi",

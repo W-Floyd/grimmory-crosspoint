@@ -162,7 +162,11 @@
     "other": "Other",
     "showHelpDialog": "Show this help dialog",
     "swipeRight": "Swipe right",
-    "swipeLeft": "Swipe left"
+    "swipeLeft": "Swipe left",
+    "readalong": "Readalong",
+    "toggleReadalong": "Play / pause readalong",
+    "previousPhrase": "Previous phrase",
+    "nextPhrase": "Next phrase"
   },
   "headerFooterUtil": {
     "timeRemainingInSection": "Time remaining in section: {{ time }}"

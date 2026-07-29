@@ -88,6 +88,7 @@
   }
 
   @if (showShortcutsHelp()) {
-    <app-ebook-shortcuts-help (closed)="showShortcutsHelp.set(false)"></app-ebook-shortcuts-help>
+    <app-ebook-shortcuts-help [hasReadalong]="readalong.available()"
+      (closed)="showShortcutsHelp.set(false)"></app-ebook-shortcuts-help>
   }
 </div>

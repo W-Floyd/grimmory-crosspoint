@@ -162,7 +162,11 @@
         "showHelpDialog": "Pokaż to okno pomocy",
         "swipeRight": "Przesuń w prawo",
         "swipeLeft": "Przesuń w lewo",
-        "toggleImmersive": ""
+        "toggleImmersive": "",
+        "readalong": "",
+        "toggleReadalong": "",
+        "previousPhrase": "",
+        "nextPhrase": ""
     },
     "headerFooterUtil": {
         "timeRemainingInSection": "Pozostały czas w sekcji: {{ time }}"

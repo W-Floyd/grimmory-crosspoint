@@ -162,7 +162,11 @@
         "showHelpDialog": "Visa denna hjälpdialog",
         "swipeRight": "Svep höger",
         "swipeLeft": "Svep vänster",
-        "toggleImmersive": ""
+        "toggleImmersive": "",
+        "readalong": "",
+        "toggleReadalong": "",
+        "previousPhrase": "",
+        "nextPhrase": ""
     },
     "headerFooterUtil": {
         "timeRemainingInSection": "Tid kvar i avsnitt: {{ time }}"

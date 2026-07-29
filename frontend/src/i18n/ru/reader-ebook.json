@@ -162,7 +162,11 @@
         "showHelpDialog": "Показать это окно справки",
         "swipeRight": "Свайп вправо",
         "swipeLeft": "Свайп влево",
-        "toggleImmersive": ""
+        "toggleImmersive": "",
+        "readalong": "",
+        "toggleReadalong": "",
+        "previousPhrase": "",
+        "nextPhrase": ""
     },
     "headerFooterUtil": {
         "timeRemainingInSection": "Осталось в разделе: {{ time }}"

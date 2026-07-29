@@ -162,7 +162,11 @@
         "showHelpDialog": "このヘルプダイアログを表示",
         "swipeRight": "右にスワイプ",
         "swipeLeft": "左にスワイプ",
-        "toggleImmersive": ""
+        "toggleImmersive": "",
+        "readalong": "",
+        "toggleReadalong": "",
+        "previousPhrase": "",
+        "nextPhrase": ""
     },
     "headerFooterUtil": {
         "timeRemainingInSection": "セクションの残り時間: {{ time }}"

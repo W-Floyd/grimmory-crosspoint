@@ -162,7 +162,11 @@
         "showHelpDialog": "Prikaži ovaj dijalog pomoći",
         "swipeRight": "Povucite desno",
         "swipeLeft": "Povucite lijevo",
-        "toggleImmersive": "Uključi/isključi imerzivni način rada"
+        "toggleImmersive": "Uključi/isključi imerzivni način rada",
+        "readalong": "",
+        "toggleReadalong": "",
+        "previousPhrase": "",
+        "nextPhrase": ""
     },
     "headerFooterUtil": {
         "timeRemainingInSection": "Preostalo vrijeme u odjeljku: {{ time }}"

@@ -162,7 +162,11 @@
         "showHelpDialog": "显示此帮助对话框",
         "swipeRight": "右滑",
         "swipeLeft": "左滑",
-        "toggleImmersive": ""
+        "toggleImmersive": "",
+        "readalong": "",
+        "toggleReadalong": "",
+        "previousPhrase": "",
+        "nextPhrase": ""
     },
     "headerFooterUtil": {
         "timeRemainingInSection": "本节剩余时间：{{ time }}"

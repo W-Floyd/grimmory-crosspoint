@@ -100,6 +100,9 @@ export class EbookReaderComponent implements OnInit {
   private messageService = inject(MessageService);
   private readalongService = inject(ReaderReadalongService);
 
+  /** Exposed for the template: gates the readalong section of the shortcuts dialog. */
+  public readonly readalong = this.readalongService;
+
   public sidebarService = inject(ReaderSidebarService);
   public leftSidebarService = inject(ReaderLeftSidebarService);
   public viewManager = inject(ReaderViewManagerService);
@@ -345,6 +348,16 @@ export class EbookReaderComponent implements OnInit {
           case 'media-overlay-error':
             // Also how the player reports running past the last overlay in the book.
             this.readalongService.handlePlaybackError();
+            break;
+          // The service ignores these for a book without narration, or while stopped.
+          case 'toggle-readalong':
+            this.readalongService.toggle();
+            break;
+          case 'readalong-previous-phrase':
+            this.readalongService.previousPhrase();
+            break;
+          case 'readalong-next-phrase':
+            this.readalongService.nextPhrase();
             break;
           case 'middle-single-tap':
             if (this.immersiveMode()) {

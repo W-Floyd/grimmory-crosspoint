@@ -162,7 +162,11 @@
         "showHelpDialog": "Показати це вікно довідки",
         "swipeRight": "Гортання вправо",
         "swipeLeft": "Гортання вліво",
-        "toggleImmersive": ""
+        "toggleImmersive": "",
+        "readalong": "",
+        "toggleReadalong": "",
+        "previousPhrase": "",
+        "nextPhrase": ""
     },
     "headerFooterUtil": {
         "timeRemainingInSection": "Залишилось часу в розділі: {{ time }}"

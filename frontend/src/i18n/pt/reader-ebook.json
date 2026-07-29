@@ -162,7 +162,11 @@
         "showHelpDialog": "Mostrar este diálogo de ajuda",
         "swipeRight": "Deslizar para a direita",
         "swipeLeft": "Deslizar para a esquerda",
-        "toggleImmersive": ""
+        "toggleImmersive": "",
+        "readalong": "",
+        "toggleReadalong": "",
+        "previousPhrase": "",
+        "nextPhrase": ""
     },
     "headerFooterUtil": {
         "timeRemainingInSection": "Tempo restante na seção: {{ time }}"

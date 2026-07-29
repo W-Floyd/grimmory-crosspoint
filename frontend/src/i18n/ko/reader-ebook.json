@@ -162,7 +162,11 @@
     "other": "",
     "showHelpDialog": "",
     "swipeRight": "",
-    "swipeLeft": ""
+    "swipeLeft": "",
+    "readalong": "",
+    "toggleReadalong": "",
+    "previousPhrase": "",
+    "nextPhrase": ""
   },
   "headerFooterUtil": {
     "timeRemainingInSection": ""

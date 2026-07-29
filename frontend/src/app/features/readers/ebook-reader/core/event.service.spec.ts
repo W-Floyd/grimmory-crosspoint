@@ -231,6 +231,26 @@ describe('ReaderEventService', () => {
     ]));
   });
 
+  it('emits readalong events for their shortcut keys', () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', {key: 'r', bubbles: true}));
+    document.dispatchEvent(new KeyboardEvent('keydown', {key: 'R', bubbles: true}));
+    document.dispatchEvent(new KeyboardEvent('keydown', {key: '[', bubbles: true}));
+    document.dispatchEvent(new KeyboardEvent('keydown', {key: ']', bubbles: true}));
+
+    expect(emittedEvents.map(event => event.type)).toEqual([
+      'toggle-readalong',
+      'toggle-readalong',
+      'readalong-previous-phrase',
+      'readalong-next-phrase',
+    ]);
+  });
+
+  it('forwards media overlay errors from the view', () => {
+    view.dispatchEvent(new CustomEvent('media-overlay-error', {detail: {message: 'clip failed'}}));
+
+    expect(emittedEvents).toContainEqual({type: 'media-overlay-error', detail: {message: 'clip failed'}});
+  });
+
   it('handles iframe clicks with double-click suppression and middle tap fallback', () => {
     privateService.longHoldTimeout = setTimeout(() => undefined, 1_000);
 
