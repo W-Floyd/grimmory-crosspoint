@@ -486,10 +486,16 @@ class MediaOverlay extends EventTarget {
         this.#audioSrc = src
         audio.volume = this.#volume
         audio.playbackRate = this.#rate
-        audio.addEventListener('timeupdate', () => {
+        // Follow the clock a frame at a time rather than on `timeupdate`, which fires only
+        // about four times a second. A phrase shorter than that gap — "Mr.", "said she" —
+        // would be stepped over by the loop below without ever being highlighted, and
+        // everything else would land up to a quarter second late.
+        let frame = null
+        const advance = () => {
             if (audio.paused) return
             const t = audio.currentTime
-            const { items } = this.#activeAudio
+            const items = this.#activeAudio?.items
+            if (!items) return
             if (t > this.#activeItem?.end) {
                 this.#unhighlight()
                 if (this.#itemIndex === items.length - 1) {
@@ -500,11 +506,34 @@ class MediaOverlay extends EventTarget {
             const oldIndex = this.#itemIndex
             while (items[this.#itemIndex + 1]?.begin <= t) this.#itemIndex++
             if (this.#itemIndex !== oldIndex) this.#highlight()
+        }
+        const loop = () => {
+            frame = null
+            if (this.#audio !== audio || audio.paused) return
+            advance()
+            // `advance` may have handed off to another element; don't keep this loop alive
+            if (this.#audio === audio) frame = requestAnimationFrame(loop)
+        }
+        const startLoop = () => {
+            if (frame == null) frame = requestAnimationFrame(loop)
+        }
+        const stopLoop = () => {
+            if (frame != null) cancelAnimationFrame(frame)
+            frame = null
+        }
+        audio.addEventListener('play', startLoop)
+        audio.addEventListener('playing', startLoop)
+        audio.addEventListener('pause', stopLoop)
+        // Frame callbacks are suspended in a background tab; `timeupdate` still fires there
+        // and keeps the highlight from being stranded mid-phrase when the tab comes back.
+        audio.addEventListener('timeupdate', () => {
+            if (frame == null) advance()
         })
         audio.addEventListener('error', () =>
             this.#error(new Error(`Failed to load ${src}`)))
         audio.addEventListener('playing', () => this.#highlight())
         audio.addEventListener('ended', () => {
+            stopLoop()
             this.#unhighlight()
             if (!directUrl) URL.revokeObjectURL(url)
             this.#audio = null

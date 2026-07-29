@@ -352,10 +352,16 @@ export class View extends HTMLElement {
           .documentElement.classList.remove(playbackActiveClass)
         lastActive = null
       }
+      // Phrases can be a fraction of a second apart, so a `goTo` for an earlier one can
+      // still be in flight when the next arrives. Without this, a late arrival re-adds its
+      // class and overwrites `lastActive`, stranding a highlight that nothing will remove.
+      let highlightSeq = 0
       this.mediaOverlay.addEventListener('highlight', e => {
+        const seq = ++highlightSeq
         const resolved = this.resolveNavigation(e.detail.text)
         this.renderer.goTo(resolved)
           .then(() => {
+            if (seq !== highlightSeq) return
             const contents = this.renderer.getContents()
             const content = contents.find(x => x.index === resolved.index)
             if (!content?.doc) {
@@ -370,6 +376,9 @@ export class View extends HTMLElement {
               console.warn(`Media overlay: ${e.detail.text} matched no element`)
               return
             }
+            // Defensive: guarantees a single active phrase even if an `unhighlight`
+            // was missed between two closely spaced phrases.
+            if (lastActive?.deref() !== el) unhighlight()
             ensureHighlightStyle(content.doc, activeClass)
             el.classList.add(activeClass)
             if (playbackActiveClass) el.ownerDocument
