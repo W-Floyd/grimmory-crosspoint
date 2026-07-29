@@ -2,6 +2,7 @@ package org.booklore.service.overdrive;
 
 import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.model.dto.BookLoreUser;
+import org.booklore.model.entity.OverDriveLoanEntity;
 import org.booklore.model.entity.OverDriveTokenEntity;
 import org.booklore.repository.OverDriveLoanRepository;
 import org.booklore.repository.OverDriveTokenRepository;
@@ -40,6 +41,7 @@ class OverDriveServiceTest {
     @Mock private org.booklore.service.audiobook.AudiobookHandler audiobookHandler;
     @Mock private org.booklore.service.magazine.MagazineHandler magazineHandler;
     @Mock private org.booklore.service.ebook.EbookHandler ebookHandler;
+    @Mock private org.booklore.service.book.BookService bookService;
     @Mock private RestClient restClient;
     @Mock private OverDriveImportService overDriveImportService;
     @Mock private OverDriveParser overDriveParser;
@@ -60,7 +62,7 @@ class OverDriveServiceTest {
         // Credential cipher with no key configured -> disabled (token-only), matching default deploys.
         OverDriveCredentialCipher cipher = new OverDriveCredentialCipher("");
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
-                ebookHandler,
+                ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 importDestinationRepository, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
@@ -578,7 +580,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card").token("t").build()));
-        assertThatThrownBy(() -> service.borrowAndImport("card", "title", 1L, 1L, "t", "a", null, null, null, null))
+        assertThatThrownBy(() -> service.borrowAndImport("card", "title", 1L, 1L, "t", "a", null, null, null, null, null))
                 .isInstanceOf(RuntimeException.class);
         verifyNoInteractions(overDriveImportService);
     }
@@ -588,7 +590,7 @@ class OverDriveServiceTest {
         // No stored token for the current user's card → resolveToken throws, nothing imported.
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.borrowAndImport("card", "title", 1L, 1L, "t", "a", null, null, null, null))
+        assertThatThrownBy(() -> service.borrowAndImport("card", "title", 1L, 1L, "t", "a", null, null, null, null, null))
                 .isInstanceOf(RuntimeException.class);
         verifyNoInteractions(overDriveImportService);
     }
@@ -773,6 +775,58 @@ class OverDriveServiceTest {
                 .containsExactly("TIME America at 250 (Articles).epub", "TIME America at 250.epub");
     }
 
+    // ── Replace (delete the existing copy, then re-import) ───────────────
+
+    @Test
+    void deleteReplacedBook_isANoOpForAPlainImport() {
+        service.deleteReplacedBook(null, "loan-1");
+
+        verifyNoInteractions(bookService);
+        verifyNoInteractions(bookRepository);
+    }
+
+    @Test
+    void deleteReplacedBook_deletesTheOldCopyAndClearsTheLoanLink() {
+        authAs(1L);
+        // Present before the delete, gone after it.
+        when(bookRepository.existsById(99L)).thenReturn(true, false);
+        OverDriveLoanEntity row = new OverDriveLoanEntity();
+        row.setOverdriveLoanId("loan-1");
+        row.setBookId(99L);
+        when(loanRepository.findByUserIdAndOverdriveLoanId(1L, "loan-1")).thenReturn(Optional.of(row));
+
+        service.deleteReplacedBook(99L, "loan-1");
+
+        verify(bookService).deleteBooks(java.util.Set.of(99L));
+        // Cleared before deleting, so a subsequent import failure can't leave a dangling book link.
+        verify(loanRepository).save(row);
+        assertThat(row.getBookId()).isNull();
+    }
+
+    @Test
+    void deleteReplacedBook_failsUpFrontWhenTheCopyToReplaceIsGone() {
+        when(bookRepository.existsById(99L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.deleteReplacedBook(99L, "loan-1"))
+                .hasMessageContaining("no longer exists");
+
+        verify(bookService, never()).deleteBooks(any());
+        verify(loanRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteReplacedBook_refusesWhenTheDeleteDidNotTake() {
+        // deleteBooks echoes the requested ids back as "deleted" even when it skipped a book outside the
+        // user's libraries, so a still-present book afterwards must abort the replace rather than let the
+        // re-import collide on the old file's path.
+        authAs(1L);
+        when(bookRepository.existsById(99L)).thenReturn(true, true);
+        when(loanRepository.findByUserIdAndOverdriveLoanId(1L, "loan-1")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.deleteReplacedBook(99L, "loan-1"))
+                .hasMessageContaining("not replaced");
+    }
+
     @Test
     void selectFormat_picksReadInBrowserEbookOnlyWhenHandlerReady() {
         // The Libby-Read-only case: no open format, no Adobe format, so nothing to fulfill without
@@ -926,7 +980,7 @@ class OverDriveServiceTest {
 
         Thread inFlight = new Thread(() -> {
             try {
-                service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null);
+                service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null, null);
             } catch (RuntimeException ignored) {
                 // the held lookup returns no token, so this import fails — we only need it in flight
             }
@@ -936,7 +990,7 @@ class OverDriveServiceTest {
 
         try {
             assertThatThrownBy(() ->
-                    service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null))
+                    service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null, null))
                     .hasMessageContaining("already being imported");
         } finally {
             release.countDown();
@@ -957,7 +1011,7 @@ class OverDriveServiceTest {
 
         Thread inFlight = new Thread(() -> {
             try {
-                service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null);
+                service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null, null);
             } catch (RuntimeException ignored) {
                 // see above
             }
@@ -968,7 +1022,7 @@ class OverDriveServiceTest {
         try {
             // A different title is not blocked: it gets past the guard and fails on the missing token.
             assertThatThrownBy(() ->
-                    service.borrowAndImport("card-1", "title-OTHER", null, null, "T", "A", null, null, null, null))
+                    service.borrowAndImport("card-1", "title-OTHER", null, null, "T", "A", null, null, null, null, null))
                     .hasMessageContaining("No OverDrive token available");
         } finally {
             release.countDown();
@@ -985,7 +1039,7 @@ class OverDriveServiceTest {
         // in-flight import, not a permanent "already imported" block (the UI offers "Import again").
         for (int i = 0; i < 2; i++) {
             assertThatThrownBy(() ->
-                    service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null))
+                    service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null, null))
                     .hasMessageContaining("No OverDrive token available");
         }
     }

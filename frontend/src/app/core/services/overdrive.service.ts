@@ -270,6 +270,12 @@ export interface OverDriveBorrowImportRequest {
   formatId?: string | null;
   /** Media-type hint ("audiobook"/"ebook") so the borrow's title_format matches the title. */
   titleFormat?: string | null;
+  /**
+   * Id of an already-imported book this import *replaces*: the server deletes it once the new file has
+   * been fulfilled, so the re-import lands in its place instead of adding a second copy. Omit to keep
+   * the existing copy.
+   */
+  replaceBookId?: number | null;
 }
 
 /** Minimal shape of the imported book returned by borrow-and-import. */

@@ -85,6 +85,7 @@ public class OverDriveService {
     private final AudiobookHandler audiobookHandler;
     private final MagazineHandler magazineHandler;
     private final EbookHandler ebookHandler;
+    private final org.booklore.service.book.BookService bookService;
 
      @Value("${app.overdrive.sentry-base-url:https://sentry.libbyapp.com}")
     private String sentryBaseUrl;
@@ -1921,12 +1922,15 @@ public class OverDriveService {
        * looks for a file the winner has already moved. Reject the duplicate up front instead — the
        * winner still imports normally.
        *
-       * @param titleId the OverDrive title id to borrow
+       * @param titleId       the OverDrive title id to borrow
+       * @param replaceBookId when set, the already-imported book this import replaces: it is deleted
+       *                      once the new file has been fulfilled, so the re-import lands in its place
+       *                      instead of adding a second copy
        * @return the persisted {@link Book}
        */
       public Book borrowAndImport(String identity, String titleId, Long libraryId, Long pathId,
                                   String title, String author, String coverUrl, String isbn, String preferredFormat,
-                                  String titleFormat) {
+                                  String titleFormat, Long replaceBookId) {
         String importKey = currentUserId() + ":" + titleId;
         if (!importsInFlight.add(importKey)) {
             log.info("OverDrive: rejecting duplicate concurrent import of title {} (one is already running)", titleId);
@@ -1935,7 +1939,7 @@ public class OverDriveService {
         }
         try {
             return doBorrowAndImport(identity, titleId, libraryId, pathId, title, author, coverUrl, isbn,
-                    preferredFormat, titleFormat);
+                    preferredFormat, titleFormat, replaceBookId);
         } finally {
             importsInFlight.remove(importKey);
         }
@@ -1943,14 +1947,15 @@ public class OverDriveService {
 
       private Book doBorrowAndImport(String identity, String titleId, Long libraryId, Long pathId,
                                      String title, String author, String coverUrl, String isbn, String preferredFormat,
-                                     String titleFormat) {
+                                     String titleFormat, Long replaceBookId) {
         // Track whether this became an import of an existing loan (vs a fresh borrow) so both the
         // success and the failure history entries can report the right action. Hoisted out of the try
         // so the catch can see it.
         boolean alreadyBorrowed = false;
         // Magazines route to their own handler with no Grimmory borrow (the tool borrows + fulfils itself).
         if ("magazine".equals(normalizeTitleFormat(titleFormat)) || isMagazineFormat(preferredFormat)) {
-            return importMagazine(identity, titleId, libraryId, pathId, title, author, coverUrl, isbn);
+            return importMagazine(identity, titleId, libraryId, pathId, title, author, coverUrl, isbn,
+                    replaceBookId);
         }
         // Everything fulfilled for this import is staged on disk here and moved into the library from
         // it; nothing is buffered in heap. Deleted in the finally, by which point a successful import
@@ -2055,6 +2060,11 @@ public class OverDriveService {
         }
         String fileName = buildFileName(title, loanId, extension);
         MediaKind kind = fileType == BookFileType.AUDIOBOOK ? MediaKind.AUDIOBOOK : MediaKind.EBOOK;
+        // Replace: drop the copy being superseded only now. Everything that can realistically fail —
+        // borrow, external tool, download — has already succeeded and the new file is staged on disk,
+        // so this is the latest possible moment to delete, and it frees the target path the re-import
+        // is about to write to.
+        deleteReplacedBook(replaceBookId, loanId);
         Book book = importOrBookdrop(content, fileName, fileType, kind, metadata, libraryId, pathId, title);
 
         Long userId = currentUserId();
@@ -2088,6 +2098,43 @@ public class OverDriveService {
         } finally {
             FileUtils.deleteDirectoryQuietly(workDir);
         }
+      }
+
+      /**
+       * Delete the book a "replace" import supersedes, so the re-import takes its place rather than
+       * adding a second copy. No-op when {@code replaceBookId} is null (a plain import).
+       *
+       * <p>Callers must invoke this only <b>after</b> the replacement file is fulfilled and staged:
+       * deleting is irreversible, so it must not happen while a borrow or an external tool could still
+       * fail. Deleting also frees the library path the naming pattern resolves to, which is what lets
+       * the new file land exactly where the old one was instead of tripping the collision check.
+       *
+       * <p>The loan's book link is cleared first: if the import that follows fails anyway, the row must
+       * not be left pointing at a book that no longer exists.
+       */
+      void deleteReplacedBook(Long replaceBookId, String loanId) { // package-private for testing
+        if (replaceBookId == null) {
+            return;
+        }
+        if (!bookRepository.existsById(replaceBookId)) {
+            throw new RestClientException("The copy to replace (book " + replaceBookId + ") no longer exists. "
+                    + "Reload your loans and try importing again.");
+        }
+        loanRepository.findByUserIdAndOverdriveLoanId(currentUserId(), loanId)
+                .filter(row -> replaceBookId.equals(row.getBookId()))
+                .ifPresent(row -> {
+                    row.setBookId(null);
+                    loanRepository.save(row);
+                });
+        // deleteBooks echoes the requested ids back as "deleted" regardless of what it actually removed
+        // (it silently skips books outside the user's libraries), so confirm the deletion ourselves —
+        // otherwise the import would fail later with an opaque "a file already exists" error.
+        bookService.deleteBooks(Set.of(replaceBookId));
+        if (bookRepository.existsById(replaceBookId)) {
+            throw new RestClientException("Could not delete the existing copy (book " + replaceBookId
+                    + "), so it was not replaced. Check that you have permission to delete it.");
+        }
+        log.info("OverDrive replace: deleted book {} before re-importing loan {}", replaceBookId, loanId);
       }
 
       /** A scratch directory for one import's fulfilled files; the caller must delete it when done. */
@@ -2230,7 +2277,7 @@ public class OverDriveService {
        * Loans tab links the imported book.
        */
       public Book importMagazine(String identity, String titleId, Long libraryId, Long pathId,
-                                 String title, String author, String coverUrl, String isbn) {
+                                 String title, String author, String coverUrl, String isbn, Long replaceBookId) {
         // As with borrow-and-import: the tool's output is staged here and moved into the library, never
         // buffered in heap. Deleted in the finally, after any successful import has moved its files out.
         Path workDir = createWorkDir("overdrive-magazine-import-");
@@ -2268,6 +2315,8 @@ public class OverDriveService {
                         fileTypeFromExtension(f.extension())));
             }
             String extension = ordered.getFirst().extension();
+            // See doBorrowAndImport: replace as late as possible, once the files are safely on disk.
+            deleteReplacedBook(replaceBookId, titleId);
             Book book = importOrBookdrop(files, MediaKind.MAGAZINE, metadata, libraryId, pathId, title);
 
             Long userId = currentUserId();

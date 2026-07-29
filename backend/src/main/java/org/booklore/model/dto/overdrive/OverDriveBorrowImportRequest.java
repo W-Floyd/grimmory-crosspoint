@@ -33,4 +33,10 @@ public class OverDriveBorrowImportRequest {
      * {@code title_format} matches the title (audiobooks must borrow as "audiobook"). Defaults to ebook.
      */
     private String titleFormat;
+    /**
+     * Optional id of an already-imported book this import <b>replaces</b>: it is deleted (row + file)
+     * once the new file has been fulfilled, so the re-import lands in its place instead of adding a
+     * second copy. Omit to import alongside any existing copy.
+     */
+    private Long replaceBookId;
 }

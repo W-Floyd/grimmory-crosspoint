@@ -18,12 +18,14 @@ import { CheckboxModule } from '@openng/optimus-ui/checkbox';
 import { DialogModule } from '@openng/optimus-ui/dialog';
 import { RxStompService } from '../../shared/websocket/rx-stomp.service';
 import { ToastModule } from '@openng/optimus-ui/toast';
-import { MessageService } from '@openng/optimus-ui/api';
+import { ConfirmationService, MenuItem, MessageService } from '@openng/optimus-ui/api';
 import { TooltipModule } from '@openng/optimus-ui/tooltip';
 import { InputTextModule } from '@openng/optimus-ui/inputtext';
 import { TabsModule } from '@openng/optimus-ui/tabs';
 import { LibraryService } from '../../features/book/service/library.service';
 import { ProgressBar } from '@openng/optimus-ui/progressbar';
+import { SplitButton } from '@openng/optimus-ui/splitbutton';
+import { ConfirmDialog } from '@openng/optimus-ui/confirmdialog';
 import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
 import { OverdriveCoverComponent } from './overdrive-cover.component';
 
@@ -64,17 +66,22 @@ export function toolProgressPct(e: { pct?: number; current?: number; total?: num
     TooltipModule,
     InputTextModule,
     TabsModule,
-    ProgressBar
+    ProgressBar,
+    SplitButton,
+    ConfirmDialog
 ],
   templateUrl: './overdrive-catalog.component.html',
   styleUrl: './overdrive-catalog.component.scss',
-  providers: [MessageService]
+  providers: [MessageService, ConfirmationService]
 })
 export class OverdriveCatalogComponent {
   private readonly overdriveService = inject(OverDriveService);
   private readonly messageService = inject(MessageService);
   private readonly libraryService = inject(LibraryService);
   private readonly transloco = inject(TranslocoService);
+  private readonly confirmationService = inject(ConfirmationService);
+  // Split-button menus for already-imported loans, keyed by loan id (see importMenuItems).
+  private readonly importMenuCache = new Map<string, MenuItem[]>();
 
   /** The user's active language (2-letter code), used to flag foreign-language search results. */
   private readonly userLanguage = toSignal(this.transloco.langChanges$, { initialValue: this.transloco.getActiveLang() });
@@ -1446,12 +1453,56 @@ export class OverdriveCatalogComponent {
      }
 
    /**
+    * Dropdown actions for a loan that is already in the library. Memoised per loan id so the binding
+    * doesn't hand the split button a fresh array on every change-detection pass; the command resolves
+    * the row from the signal at click time rather than closing over a possibly-resynced object.
+    */
+   importMenuItems(loan: OverDriveLoan): MenuItem[] {
+     const loanId = loan.id;
+     const cached = this.importMenuCache.get(loanId);
+     if (cached) return cached;
+     const items: MenuItem[] = [{
+       label: 'Replace',
+       icon: 'pi pi-sync',
+       command: () => {
+         const current = this.loans().find((l) => l.id === loanId);
+         if (current) this.onReplaceLoan(current);
+       }
+     }];
+     this.importMenuCache.set(loanId, items);
+     return items;
+   }
+
+   /**
+    * Delete the imported copy and import a fresh one in its place, rather than adding a second copy.
+    * Confirmed first: it discards everything local to the existing book. The server deletes only after
+    * the replacement has downloaded, so a failed fulfillment leaves the current copy untouched.
+    */
+   onReplaceLoan(loan: OverDriveLoan): void {
+     if (loan.bookId == null) return;
+     this.confirmationService.confirm({
+       header: 'Replace this book?',
+       message: `"${loan.title}" will be deleted from your library and imported again from OverDrive. `
+         + `Reading progress, shelf membership and any metadata edits on the existing copy are lost. `
+         + `The current file is removed only once the replacement has downloaded, and lands in Bookdrop `
+         + `if no destination library is set in Search & Borrow.`,
+       icon: 'pi pi-exclamation-triangle',
+       acceptIcon: 'pi pi-sync',
+       rejectIcon: 'pi pi-times',
+       acceptButtonStyleClass: 'p-button-danger',
+       accept: () => this.onImportLoan(loan, { replace: true })
+     });
+   }
+
+   /**
     * Import an already-borrowed loan into grimmory server-side (borrow-and-import resumes the existing
     * loan). Uses the destination chosen in Search & Borrow, or drops into Bookdrop when none is set.
     */
-   onImportLoan(loan: OverDriveLoan): void {
+   onImportLoan(loan: OverDriveLoan, opts?: { replace?: boolean }): void {
      const cardId = loan.cardId;
      if (!cardId) return;
+     // Replacing only means anything when there is an existing copy to supersede.
+     const replacingBookId = opts?.replace ? (loan.bookId ?? null) : null;
      this.importingTitleId.set(loan.id);
      this.error.set(null);
      this.overdriveService.borrowAndImport(cardId, {
@@ -1462,13 +1513,21 @@ export class OverdriveCatalogComponent {
        author: this.creatorName(loan) || undefined,
        coverUrl: loan.coverUrl || undefined,
        formatId: loan.formatId,
-       titleFormat: this.titleFormatOf(loan)
+       titleFormat: this.titleFormatOf(loan),
+       replaceBookId: replacingBookId
      }).subscribe({
        next: (book) => {
+         const replaced = replacingBookId != null;
          const detail = book?.id != null
-           ? `"${loan.title}" imported (book #${book.id})`
+           ? (replaced
+               ? `"${loan.title}" replaced (book #${book.id})`
+               : `"${loan.title}" imported (book #${book.id})`)
            : `"${loan.title}" dropped into Bookdrop for review`;
-         this.messageService.add({ severity: 'success', summary: book?.id != null ? 'Imported' : 'Sent to Bookdrop', detail });
+         this.messageService.add({
+           severity: 'success',
+           summary: book?.id != null ? (replaced ? 'Replaced' : 'Imported') : 'Sent to Bookdrop',
+           detail
+         });
          if (book?.id != null) {
            // Stamp the new book id onto the loan so the title cell shows the "In your library"
            // link and the Import button flips to "Import again".

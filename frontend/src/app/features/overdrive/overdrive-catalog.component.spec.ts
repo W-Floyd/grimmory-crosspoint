@@ -2,7 +2,7 @@ import {TestBed} from '@angular/core/testing';
 import {beforeEach, afterEach, describe, expect, it, vi} from 'vitest';
 import {of} from 'rxjs';
 
-import {MessageService} from '@openng/optimus-ui/api';
+import {ConfirmationService, MessageService} from '@openng/optimus-ui/api';
 import {OverdriveCatalogComponent, toolProgressPct} from './overdrive-catalog.component';
 import {OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
 import {LibraryService} from '../../features/book/service/library.service';
@@ -44,6 +44,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
   const libraryService = {libraries: () => []};
 
   let component: OverdriveCatalogComponent;
+  let confirmationService: {confirm: ReturnType<typeof vi.fn>};
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -51,11 +52,13 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     overdriveService.capabilities.mockReturnValue(of({acsmHandlerConfigured: false, credentialStorageEnabled: false, audiobookHandlerConfigured: false, magazineHandlerConfigured: false, ebookHandlerConfigured: false}));
 
     TestBed.resetTestingModule();
+    confirmationService = {confirm: vi.fn()};
     TestBed.configureTestingModule({
       providers: [
         {provide: OverDriveService, useValue: overdriveService},
         {provide: LibraryService, useValue: libraryService},
         {provide: MessageService, useValue: {add: vi.fn()}},
+        {provide: ConfirmationService, useValue: confirmationService},
         {provide: TranslocoService, useValue: {langChanges$: of('en'), getActiveLang: () => 'en'}},
         {provide: RxStompService, useValue: {watch: () => of()}},
       ],
@@ -669,6 +672,61 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       component.onSortHolds({field: 'wait', order: 1});
       // ready 'h2' first, then wait 3 ('h3'), then wait 9 ('h1').
       expect(component.filteredHolds().map(h => h.id)).toEqual(['h2', 'h3', 'h1']);
+    });
+  });
+
+  describe('replace an imported loan', () => {
+    const imported = {id: 'title-1', title: 'Dune', expireDate: '2026-08-08', cardId: 'c1', bookId: 42};
+
+    it('a plain import sends no replaceBookId, so the existing copy is kept', () => {
+      overdriveService.borrowAndImport.mockReturnValue(of({id: 99}));
+
+      component.onImportLoan(imported);
+
+      expect(overdriveService.borrowAndImport).toHaveBeenCalledWith('c1',
+        expect.objectContaining({titleId: 'title-1', replaceBookId: null}));
+    });
+
+    it('replacing asks for confirmation before deleting anything', () => {
+      component.onReplaceLoan(imported);
+
+      expect(confirmationService.confirm).toHaveBeenCalledTimes(1);
+      // Nothing is sent until the user accepts.
+      expect(overdriveService.borrowAndImport).not.toHaveBeenCalled();
+    });
+
+    it('accepting the confirmation imports with the book id to replace', () => {
+      overdriveService.borrowAndImport.mockReturnValue(of({id: 99}));
+
+      component.onReplaceLoan(imported);
+      confirmationService.confirm.mock.calls[0][0].accept();
+
+      expect(overdriveService.borrowAndImport).toHaveBeenCalledWith('c1',
+        expect.objectContaining({titleId: 'title-1', replaceBookId: 42}));
+    });
+
+    it('does nothing for a loan that was never imported', () => {
+      component.onReplaceLoan({id: 'title-2', title: 'Nope', expireDate: '2026-08-08', cardId: 'c1'});
+
+      expect(confirmationService.confirm).not.toHaveBeenCalled();
+    });
+
+    it('the menu action resolves the row from the signal, not a stale closure', () => {
+      overdriveService.borrowAndImport.mockReturnValue(of({id: 99}));
+      component.loans.set([imported]);
+      const items = component.importMenuItems(imported);
+      // A resync replaces the row object with a new one carrying a different book id.
+      component.loans.set([{...imported, bookId: 77}]);
+
+      items[0].command!({});
+      confirmationService.confirm.mock.calls[0][0].accept();
+
+      expect(overdriveService.borrowAndImport).toHaveBeenCalledWith('c1',
+        expect.objectContaining({replaceBookId: 77}));
+    });
+
+    it('memoises the menu per loan id', () => {
+      expect(component.importMenuItems(imported)).toBe(component.importMenuItems(imported));
     });
   });
 

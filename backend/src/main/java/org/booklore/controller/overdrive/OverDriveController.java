@@ -456,7 +456,8 @@ public class OverDriveController {
                     request.getLibraryId(), request.getPathId(),
                     request.getTitle(), request.getAuthor(),
                     request.getCoverUrl(), request.getIsbn(),
-                    request.getFormatId(), request.getTitleFormat());
+                    request.getFormatId(), request.getTitleFormat(),
+                    request.getReplaceBookId());
             return ResponseEntity.ok(book);
         } catch (APIException e) {
             throw e; // already a clean, user-facing error (e.g. duplicate file, bad library)
