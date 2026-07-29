@@ -537,23 +537,6 @@ class OpdsBookServiceTest {
     }
 
     @Test
-    void validateBookContentAccess_throwsForbidden_whenUserLacksOpdsPermission() {
-        // A credential whose owner lost the OPDS-access permission must stop serving content, even
-        // for a book in a library still assigned to them (the book lookup must never be reached).
-        BookLoreUserEntity entity = mock(BookLoreUserEntity.class);
-        var permissionsEntity = mock(UserPermissionsEntity.class);
-        when(permissionsEntity.isPermissionAccessOpds()).thenReturn(false);
-        when(permissionsEntity.isPermissionAdmin()).thenReturn(false);
-        when(entity.getPermissions()).thenReturn(permissionsEntity);
-        when(userRepository.findByIdWithDetails(2L)).thenReturn(Optional.of(entity));
-
-        assertThatThrownBy(() ->
-                opdsBookService.validateBookContentAccess(1L, 2L)
-        ).hasMessageContaining("not allowed to access this resource");
-        verify(bookRepository, never()).findById(anyLong());
-    }
-
-    @Test
     void validateBookContentAccess_allowsAdmin() {
         BookLoreUserEntity entity = mock(BookLoreUserEntity.class);
         var permissionsEntity = mock(UserPermissionsEntity.class);

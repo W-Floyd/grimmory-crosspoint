@@ -496,31 +496,18 @@ public class OpdsBookService {
         }
     }
 
-    /**
-     * Enforce that the user exists and currently holds the OPDS-access permission (admins always
-     * pass). The single gate for every OPDS entry point — content downloads/covers
-     * ({@link #validateBookContentAccess}), book listings ({@link #getBooksPage}) and feeds
-     * (via {@code OpdsFeedService.getUserId}) — so a credential whose owner later lost the
-     * permission stops working everywhere, not just on the paged listing. Returns the loaded user
-     * entity so callers that need it (library scope, admin short-circuit) can reuse it.
-     */
-    public BookLoreUserEntity requireOpdsAccess(Long userId) {
+    public void validateBookContentAccess(Long bookId, Long userId) {
         if (userId == null) {
             throw ApiError.FORBIDDEN.createException("Authentication required");
         }
+
         BookLoreUserEntity entity = userRepository.findByIdWithDetails(userId)
                 .orElseThrow(() -> ApiError.USER_NOT_FOUND.createException(userId));
-        if (entity.getPermissions() == null
-                || (!entity.getPermissions().isPermissionAccessOpds() && !entity.getPermissions().isPermissionAdmin())) {
-            throw ApiError.FORBIDDEN.createException("You are not allowed to access this resource");
-        }
-        return entity;
-    }
 
-    public void validateBookContentAccess(Long bookId, Long userId) {
-        BookLoreUserEntity entity = requireOpdsAccess(userId);
-
-        if (entity.getPermissions().isPermissionAdmin()) {
+        // The OPDS-access permission itself is enforced at authentication, in
+        // OpdsUserDetails.isEnabled() — a user without it cannot authenticate on the OPDS chain at all,
+        // so there is nothing left to re-check here. Only the per-library scope below is our concern.
+        if (entity.getPermissions() != null && entity.getPermissions().isPermissionAdmin()) {
             return;
         }
 
