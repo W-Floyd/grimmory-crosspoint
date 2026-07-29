@@ -2,6 +2,7 @@ import {Component, EventEmitter, HostListener, inject, Input, Output} from '@ang
 import {TranslocoDirective} from '@jsverse/transloco';
 import {ReaderViewManagerService} from '../../core/view-manager.service';
 import {ReaderIconComponent} from '../../shared/icon.component';
+import {ReaderReadalongService} from '../../features/readalong/readalong.service';
 import {RelocateProgressData} from '../../state/progress.service';
 
 @Component({
@@ -26,6 +27,7 @@ export class ReaderNavbarComponent {
   @Output() hoverChange = new EventEmitter<boolean>();
 
   private managerService = inject(ReaderViewManagerService);
+  readonly readalong = inject(ReaderReadalongService);
   showLocationPopover = false;
 
   @HostListener('document:click', ['$event'])

@@ -75,7 +75,10 @@
         "goToPercentage": "パーセンテージに移動",
         "firstSection": "最初のセクション",
         "lastSection": "最後のセクション",
-        "jumpTo": "ジャンプ先..."
+        "jumpTo": "ジャンプ先...",
+        "readalongPlay": "",
+        "readalongPause": "",
+        "readalongSpeed": ""
     },
     "header": {
         "chapters": "チャプター",

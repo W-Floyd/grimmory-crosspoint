@@ -48,7 +48,10 @@
         "goToPercentage": "Pojdi na odstotek",
         "firstSection": "Prvi razdelek",
         "lastSection": "Zadnji razdelek",
-        "jumpTo": "Skoči na..."
+        "jumpTo": "Skoči na...",
+        "readalongPlay": "",
+        "readalongPause": "",
+        "readalongSpeed": ""
     },
     "header": {
         "addBookmark": "Dodaj zaznamek",

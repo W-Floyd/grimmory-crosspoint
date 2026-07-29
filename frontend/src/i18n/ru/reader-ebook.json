@@ -75,7 +75,10 @@
         "goToPercentage": "Перейти к проценту",
         "firstSection": "Первый раздел",
         "lastSection": "Последний раздел",
-        "jumpTo": "Перейти к..."
+        "jumpTo": "Перейти к...",
+        "readalongPlay": "",
+        "readalongPause": "",
+        "readalongSpeed": ""
     },
     "header": {
         "chapters": "Главы",

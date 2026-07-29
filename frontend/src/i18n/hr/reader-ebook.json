@@ -75,7 +75,10 @@
         "goToPercentage": "Idi na postotak",
         "firstSection": "Prvi odjeljak",
         "lastSection": "Zadnji odjeljak",
-        "jumpTo": "Skoči na..."
+        "jumpTo": "Skoči na...",
+        "readalongPlay": "",
+        "readalongPause": "",
+        "readalongSpeed": ""
     },
     "header": {
         "chapters": "Poglavlja",

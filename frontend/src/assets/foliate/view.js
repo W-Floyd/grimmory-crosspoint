@@ -316,32 +316,47 @@ export class View extends HTMLElement {
     this.#root.append(this.renderer)
 
     if (book.sections.some(section => section.mediaOverlay)) {
-      const activeClass = book.media.activeClass
-      const playbackActiveClass = book.media.playbackActiveClass
+      // Books that declare no active class still need one, or the highlight is invisible.
+      // 'media-active' is what the reader stylesheet targets.
+      const activeClass = book.media?.activeClass || 'media-active'
+      const playbackActiveClass = book.media?.playbackActiveClass
       this.mediaOverlay = book.getMediaOverlay()
       let lastActive
+      const unhighlight = () => {
+        const el = lastActive?.deref()
+        if (!el) return
+        el.classList.remove(activeClass)
+        if (playbackActiveClass) el.ownerDocument
+          .documentElement.classList.remove(playbackActiveClass)
+        lastActive = null
+      }
       this.mediaOverlay.addEventListener('highlight', e => {
         const resolved = this.resolveNavigation(e.detail.text)
         this.renderer.goTo(resolved)
           .then(() => {
-            const {doc} = this.renderer.getContents()
-              .find(x => x.index = resolved.index)
-            const el = resolved.anchor(doc)
+            const content = this.renderer.getContents()
+              .find(x => x.index === resolved.index)
+            const el = content?.doc ? resolved.anchor(content.doc) : null
+            // The SMIL fragment may not resolve to an element in the rendered
+            // document; skip the highlight rather than breaking playback.
+            if (!el?.classList) return
             el.classList.add(activeClass)
             if (playbackActiveClass) el.ownerDocument
               .documentElement.classList.add(playbackActiveClass)
             lastActive = new WeakRef(el)
           })
+          .catch(err => console.warn('Failed to highlight media overlay target', err))
       })
-      this.mediaOverlay.addEventListener('unhighlight', () => {
-        const el = lastActive?.deref()
-        if (el) {
-          el.classList.remove(activeClass)
-          if (playbackActiveClass) el.ownerDocument
-            .documentElement.classList.remove(playbackActiveClass)
-        }
+      this.mediaOverlay.addEventListener('unhighlight', unhighlight)
+      this.mediaOverlay.addEventListener('error', e => {
+        unhighlight()
+        this.#emit('media-overlay-error', e.detail)
       })
     }
+  }
+
+  get hasMediaOverlay() {
+    return this.mediaOverlay != null
   }
 
   close() {
@@ -354,6 +369,9 @@ export class View extends HTMLElement {
     this.lastLocation = null
     this.history.clear()
     this.tts = null
+    // The audio element is not in the document, so dropping the reference alone
+    // would leave narration playing.
+    this.mediaOverlay?.stop()
     this.mediaOverlay = null
   }
 

@@ -75,7 +75,10 @@
         "goToPercentage": "跳转到百分比",
         "firstSection": "第一节",
         "lastSection": "最后一节",
-        "jumpTo": "跳转到..."
+        "jumpTo": "跳转到...",
+        "readalongPlay": "",
+        "readalongPause": "",
+        "readalongSpeed": ""
     },
     "header": {
         "chapters": "章节",

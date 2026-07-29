@@ -75,7 +75,10 @@
     "goToPercentage": "",
     "firstSection": "",
     "lastSection": "",
-    "jumpTo": ""
+    "jumpTo": "",
+    "readalongPlay": "",
+    "readalongPause": "",
+    "readalongSpeed": ""
   },
   "header": {
     "chapters": "",

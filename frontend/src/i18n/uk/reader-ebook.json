@@ -75,7 +75,10 @@
         "goToPercentage": "Перейти до відсотка",
         "firstSection": "Перша секція",
         "lastSection": "Остання секція",
-        "jumpTo": "Стрибок до..."
+        "jumpTo": "Стрибок до...",
+        "readalongPlay": "",
+        "readalongPause": "",
+        "readalongSpeed": ""
     },
     "header": {
         "chapters": "Розділи",

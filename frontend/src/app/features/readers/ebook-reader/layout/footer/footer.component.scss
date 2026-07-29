@@ -30,6 +30,38 @@
   }
 }
 
+.readalong-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding-left: 8px;
+  border-left: 1px solid var(--reader-chrome-border);
+}
+
+.rate-btn {
+  background: none;
+  border: none;
+  color: var(--reader-chrome-fg-secondary);
+  cursor: pointer;
+  padding: 8px 6px;
+  border-radius: 8px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+
+  &:hover:not(:disabled) {
+    background: var(--reader-chrome-hover);
+    color: var(--reader-chrome-fg);
+  }
+
+  &:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+}
+
 .icon-btn {
   background: none;
   border: none;

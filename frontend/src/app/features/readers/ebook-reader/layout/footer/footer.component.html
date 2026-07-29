@@ -30,6 +30,19 @@
   <button class="icon-btn" [title]="t('nextSection')" [disabled]="!canGoNext" (click)="onNextSection()">
     <app-reader-icon name="chevron-right"></app-reader-icon>
   </button>
+
+  @if (readalong.available()) {
+    <div class="readalong-controls">
+      <button class="icon-btn" [title]="readalong.isPlaying() ? t('readalongPause') : t('readalongPlay')"
+        (click)="readalong.toggle()">
+        <app-reader-icon [name]="readalong.isPlaying() ? 'pause' : 'play'"></app-reader-icon>
+      </button>
+      <button class="rate-btn" [title]="t('readalongSpeed')" [disabled]="readalong.state() === 'stopped'"
+        (click)="readalong.cycleRate()">
+        {{ readalong.rate() }}&times;
+      </button>
+    </div>
+  }
 </div>
 
 @if (showLocationPopover) {

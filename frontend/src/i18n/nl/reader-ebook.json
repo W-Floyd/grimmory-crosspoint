@@ -95,7 +95,10 @@
         "location": "",
         "lastSection": "",
         "firstSection": "",
-        "goToPercentage": ""
+        "goToPercentage": "",
+        "readalongPlay": "",
+        "readalongPause": "",
+        "readalongSpeed": ""
     },
     "settingsDialog": {
         "layout": "",

@@ -59,6 +59,7 @@ export type ViewEvent =
   | { type: 'load'; detail?: LoadEventDetail }
   | { type: 'relocate'; detail: RelocateEventDetail }
   | { type: 'error'; detail?: unknown }
+  | { type: 'media-overlay-error'; detail?: unknown }
   | { type: 'middle-single-tap' }
   | { type: 'draw-annotation'; detail: DrawAnnotationEventDetail }
   | { type: 'show-annotation'; detail?: unknown }
@@ -181,6 +182,11 @@ export class ReaderEventService {
     this.view.addEventListener('error', (event: Event) => {
       const e = event as CustomEvent<unknown>;
       this.eventSubject.next({type: 'error', detail: e.detail});
+    });
+
+    this.view.addEventListener('media-overlay-error', (event: Event) => {
+      const e = event as CustomEvent<unknown>;
+      this.eventSubject.next({type: 'media-overlay-error', detail: e.detail});
     });
 
     this.view.addEventListener('draw-annotation', (event: Event) => {

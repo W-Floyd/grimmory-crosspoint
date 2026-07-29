@@ -75,7 +75,10 @@
     "goToPercentage": "Go to percentage",
     "firstSection": "First Section",
     "lastSection": "Last Section",
-    "jumpTo": "Jump To..."
+    "jumpTo": "Jump To...",
+    "readalongPlay": "Play Readalong",
+    "readalongPause": "Pause Readalong",
+    "readalongSpeed": "Readalong Speed"
   },
   "header": {
     "chapters": "Chapters",

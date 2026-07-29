@@ -111,6 +111,16 @@ export class ReaderStyleService {
           white-space: pre-wrap !important;
           tab-size: 2;
       }
+      /*
+       * Readalong highlight. The themed rules below replace this where they apply, but a
+       * light theme on a white background has none, and a book that declares no
+       * media:active-class of its own falls back to this class name — so without a
+       * theme-independent rule the narrated phrase would be invisible.
+       */
+      .${mediaActiveClass}, .${mediaActiveClass} * {
+          background: color-mix(in srgb, currentColor 18%, transparent);
+          border-radius: 2px;
+      }
       @media screen and (prefers-color-scheme: light) {
           ${(theme.bg || theme.light.bg) !== '#ffffff' ? `
           html, body {

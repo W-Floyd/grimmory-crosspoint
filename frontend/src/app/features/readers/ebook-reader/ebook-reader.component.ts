@@ -28,6 +28,7 @@ import {ReaderQuickSettingsComponent} from './layout/header/quick-settings.compo
 import {ReaderBookMetadataDialogComponent} from './dialogs/metadata-dialog.component';
 import {ReaderHeaderFooterVisibilityManager} from './shared/visibility.util';
 import {EpubCustomFontService} from './features/fonts/custom-font.service';
+import {ReaderReadalongService} from './features/readalong/readalong.service';
 import {TextSelectionAction, TextSelectionPopupComponent} from './shared/selection-popup.component';
 import {NoteDialogResult, ReaderNoteDialogComponent} from './dialogs/note-dialog.component';
 import {EbookShortcutsHelpComponent} from './dialogs/shortcuts-help.component';
@@ -72,7 +73,8 @@ interface PendingInitialChapterRestore {
     ReaderSidebarService,
     ReaderLeftSidebarService,
     ReaderHeaderService,
-    ReaderNoteService
+    ReaderNoteService,
+    ReaderReadalongService
   ],
   templateUrl: './ebook-reader.component.html',
   styleUrls: ['./ebook-reader.component.scss'],
@@ -96,6 +98,7 @@ export class EbookReaderComponent implements OnInit {
   private noteService = inject(ReaderNoteService);
   private wakeLockService = inject(WakeLockService);
   private messageService = inject(MessageService);
+  private readalongService = inject(ReaderReadalongService);
 
   public sidebarService = inject(ReaderSidebarService);
   public leftSidebarService = inject(ReaderLeftSidebarService);
@@ -136,6 +139,9 @@ export class EbookReaderComponent implements OnInit {
   constructor() {
     this.destroyRef.onDestroy(() => {
       this.wakeLockService.disable();
+      // Before the view goes: the audio element lives outside the DOM, so removing the
+      // view element would leave narration playing.
+      this.readalongService.reset();
       this.viewManager.destroy();
       this.annotationService.reset();
       this.progressService.endSession();
@@ -262,6 +268,8 @@ export class EbookReaderComponent implements OnInit {
             this.sidebarService.initialize(this.bookId, book);
             this.leftSidebarService.initialize(this.bookId);
             this.noteService.initialize(this.bookId);
+            // Only knowable once the package document is parsed, i.e. after the book opens.
+            this.readalongService.detectAvailability();
           }),
           switchMap(() => this.viewManager.getMetadata()),
           switchMap(() => {
@@ -333,6 +341,10 @@ export class EbookReaderComponent implements OnInit {
             this.sectionFractionsTimeout = setTimeout(() => {
               this.updateSectionFractions();
             }, 500);
+            break;
+          case 'media-overlay-error':
+            // Also how the player reports running past the last overlay in the book.
+            this.readalongService.handlePlaybackError();
             break;
           case 'middle-single-tap':
             if (this.immersiveMode()) {

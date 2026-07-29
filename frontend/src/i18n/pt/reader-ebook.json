@@ -75,7 +75,10 @@
         "goToPercentage": "Ir para porcentagem",
         "firstSection": "Primeira Seção",
         "lastSection": "Última Seção",
-        "jumpTo": "Ir Para..."
+        "jumpTo": "Ir Para...",
+        "readalongPlay": "",
+        "readalongPause": "",
+        "readalongSpeed": ""
     },
     "header": {
         "chapters": "Capítulos",

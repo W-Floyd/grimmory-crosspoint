@@ -73,9 +73,26 @@ interface FoliateSearchSectionResult {
 
 type FoliateSearchResult = FoliateSearchProgress | FoliateSearchSectionResult | 'done';
 
+/**
+ * Foliate's SMIL media overlay player: the EPUB3 readalong engine that drives narration
+ * audio and keeps the highlighted text in step with it.
+ */
+interface FoliateMediaOverlay {
+  pause(): void;
+  resume(): void;
+  stop(): void;
+  prev(): void;
+  next(): void;
+  setVolume(volume: number): void;
+  setRate(rate: number): void;
+}
+
 interface FoliateViewElement extends HTMLElement {
   renderer?: FoliateRenderer | null;
   book?: FoliateBook;
+  mediaOverlay?: FoliateMediaOverlay | null;
+  hasMediaOverlay?: boolean;
+  startMediaOverlay?(): Promise<void>;
   open(target: File | object): Promise<void>;
   goTo(target: string | number): Promise<void>;
   goToFraction(fraction: number): Promise<void>;
@@ -325,6 +342,52 @@ export class ReaderViewManagerService {
     return this.getCover().pipe(
       map(blob => blob ? URL.createObjectURL(blob) : null)
     );
+  }
+
+  /**
+   * Whether the open book ships SMIL media overlays. Only meaningful once the book is open:
+   * the player is built during `view.open`.
+   */
+  hasMediaOverlay(): boolean {
+    return this.view?.hasMediaOverlay === true;
+  }
+
+  /** Starts readalong playback at the section currently on screen. */
+  startMediaOverlay(): Observable<void> {
+    const view = this.view;
+    if (!view?.startMediaOverlay) {
+      return throwError(() => new Error('Media overlay not available'));
+    }
+    return defer(() => from(view.startMediaOverlay!())).pipe(map(() => undefined));
+  }
+
+  pauseMediaOverlay(): void {
+    this.view?.mediaOverlay?.pause();
+  }
+
+  resumeMediaOverlay(): void {
+    this.view?.mediaOverlay?.resume();
+  }
+
+  stopMediaOverlay(): void {
+    this.view?.mediaOverlay?.stop();
+  }
+
+  /** Steps to the previous SMIL phrase, not the previous page. */
+  prevMediaOverlayPhrase(): void {
+    this.view?.mediaOverlay?.prev();
+  }
+
+  nextMediaOverlayPhrase(): void {
+    this.view?.mediaOverlay?.next();
+  }
+
+  setMediaOverlayRate(rate: number): void {
+    this.view?.mediaOverlay?.setRate(rate);
+  }
+
+  setMediaOverlayVolume(volume: number): void {
+    this.view?.mediaOverlay?.setVolume(volume);
   }
 
   async* search(opts: { query: string; matchCase?: boolean; matchWholeWords?: boolean }): AsyncGenerator<FoliateSearchResult> {

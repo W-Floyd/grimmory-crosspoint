@@ -75,7 +75,10 @@
         "goToPercentage": "Gå till procent",
         "firstSection": "Första avsnittet",
         "lastSection": "Sista avsnittet",
-        "jumpTo": "Hoppa till..."
+        "jumpTo": "Hoppa till...",
+        "readalongPlay": "",
+        "readalongPause": "",
+        "readalongSpeed": ""
     },
     "header": {
         "chapters": "Kapitel",

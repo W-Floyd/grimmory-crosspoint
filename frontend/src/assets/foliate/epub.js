@@ -398,6 +398,7 @@ class MediaOverlay extends EventTarget {
     #audioIndex
     #itemIndex
     #audio
+    #audioSrc
     #volume = 1
     #rate = 1
     #state
@@ -444,21 +445,45 @@ class MediaOverlay extends EventTarget {
         this.dispatchEvent(new CustomEvent('unhighlight', { detail: this.#activeItem }))
     }
     async #play(audioIndex, itemIndex) {
-        this.#stop()
+        // A chapter's audio is shared by many SMIL documents: a reflowable book splits one
+        // chapter mp3 across ~9-13 content documents that each seek into a different slice
+        // of it. Keeping the element alive makes those transitions a seek rather than a
+        // fresh load of the same file.
+        const reused = this.#audio && this.#audioSrc === this.#entries[audioIndex]?.src
+            ? this.#audio : null
+        if (reused) this.#unhighlight()
+        else this.#stop()
+
         this.#audioIndex = audioIndex
         this.#itemIndex = itemIndex
         const src = this.#activeAudio?.src
-        if (!src || !this.#activeItem) return this.start(this.#sectionIndex + 1)
+        if (!src || !this.#activeItem) {
+            if (reused) this.#stop()
+            return this.start(this.#sectionIndex + 1)
+        }
 
-        // Prefer a URL the browser can range-request: media overlay audio is one file per
-        // chapter, so buffering the whole blob before the first word delays playback by
-        // megabytes and keeps every played chapter resident in memory.
+        if (reused) {
+            reused.volume = this.#volume
+            reused.playbackRate = this.#rate
+            reused.currentTime = this.#activeItem.begin ?? 0
+            if (this.#state === 'paused') this.#highlight()
+            else {
+                this.#state = 'playing'
+                reused.play().catch(e => this.#error(e))
+            }
+            return
+        }
+
+        // Prefer a URL the browser can range-request. On the blob path the whole chapter
+        // file has to be fetched before the first word highlights, and it is fetched again
+        // for every document that seeks into it.
         const directUrl = this.book.getDirectUrl?.(src) ?? null
         const url = directUrl ?? URL.createObjectURL(await this.book.loadBlob(src))
         const audio = new Audio()
         audio.preload = 'metadata'
         audio.src = url
         this.#audio = audio
+        this.#audioSrc = src
         audio.volume = this.#volume
         audio.playbackRate = this.#rate
         audio.addEventListener('timeupdate', () => {
@@ -483,7 +508,10 @@ class MediaOverlay extends EventTarget {
             this.#unhighlight()
             if (!directUrl) URL.revokeObjectURL(url)
             this.#audio = null
-            this.#play(audioIndex + 1, 0).catch(e => this.#error(e))
+            this.#audioSrc = null
+            // Advance from whatever is playing now, not from the index captured when this
+            // element was created: the element outlives a section transition when reused.
+            this.#play(this.#audioIndex + 1, 0).catch(e => this.#error(e))
         })
         if (this.#state === 'paused') {
             this.#highlight()
@@ -531,8 +559,10 @@ class MediaOverlay extends EventTarget {
     #stop() {
         if (this.#audio) {
             this.#audio.pause()
+            // A no-op for the streamed URLs; only blob URLs need reclaiming.
             URL.revokeObjectURL(this.#audio.src)
             this.#audio = null
+            this.#audioSrc = null
             this.#unhighlight()
         }
     }
