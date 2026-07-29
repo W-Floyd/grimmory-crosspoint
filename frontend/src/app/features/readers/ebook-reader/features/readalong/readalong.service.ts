@@ -108,6 +108,27 @@ export class ReaderReadalongService {
       .subscribe();
   }
 
+  /**
+   * Jumps narration to the phrase covering a clicked point, starting playback if it was
+   * stopped. A click on text the overlay doesn't narrate leaves playback as it was.
+   */
+  seekToPhraseAt(doc: Document, ids: string[]): void {
+    if (!this._available() || ids.length === 0) return;
+    const wasPaused = this._state() === 'paused';
+    // The player will not play a paused element; it would seek and highlight in silence.
+    if (wasPaused) this.viewManager.resumeMediaOverlay();
+
+    this.viewManager.startMediaOverlayAt(doc, ids)
+      .pipe(catchError((error: unknown) => {
+        console.error('Readalong failed to seek to the clicked phrase', error);
+        return of(false);
+      }))
+      .subscribe(matched => {
+        if (matched) this._state.set('playing');
+        else if (wasPaused) this.viewManager.pauseMediaOverlay();
+      });
+  }
+
   pause(): void {
     if (this._state() !== 'playing') return;
     this.viewManager.pauseMediaOverlay();

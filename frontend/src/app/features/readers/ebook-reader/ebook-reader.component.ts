@@ -349,6 +349,15 @@ export class EbookReaderComponent implements OnInit {
             // Also how the player reports running past the last overlay in the book.
             this.readalongService.handlePlaybackError();
             break;
+          case 'readalong-seek':
+            if (this.readalongService.available()) {
+              // In a narrated book a double-click means "read from here", so suppress the
+              // word selection the same gesture produced. Dragging still selects text.
+              this.selectionService.hidePopup();
+              this.viewManager.clearSelection();
+              this.readalongService.seekToPhraseAt(event.detail.doc, event.detail.ids);
+            }
+            break;
           // The service ignores these for a book without narration, or while stopped.
           case 'toggle-readalong':
             this.readalongService.toggle();

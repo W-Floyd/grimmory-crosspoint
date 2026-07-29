@@ -729,6 +729,20 @@ export class View extends HTMLElement {
     const index = this.renderer.getContents()?.[0]?.index ?? this.renderer.index ?? 0
     return this.mediaOverlay.start(index)
   }
+
+  /**
+   * Starts playback at the phrase whose SMIL target is one of `ids`, in the given document.
+   * `ids` is the chain of element ids at a clicked point, innermost first, since the
+   * narrated element may be an ancestor of whatever was actually under the cursor.
+   * Resolves to whether a phrase matched — a click on unnarrated text matches nothing.
+   */
+  startMediaOverlayAt(doc, ids) {
+    const content = this.renderer.getContents().find(x => x.doc === doc)
+    if (!content || !this.mediaOverlay) return Promise.resolve(false)
+    const wanted = new Set(ids)
+    return this.mediaOverlay.start(content.index,
+      item => wanted.has(item.text.split('#')[1]))
+  }
 }
 
 customElements.define('foliate-view', View)

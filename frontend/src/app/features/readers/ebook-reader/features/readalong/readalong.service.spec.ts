@@ -8,10 +8,12 @@ import {READALONG_RATES, ReaderReadalongService} from './readalong.service';
 describe('ReaderReadalongService', () => {
   let service: ReaderReadalongService;
   let navigation$: Subject<void>;
+  const doc = document.implementation.createHTMLDocument('book section');
   const viewManager = {
     navigation$: null as unknown as Subject<void>,
     hasMediaOverlay: vi.fn(),
     startMediaOverlay: vi.fn(),
+    startMediaOverlayAt: vi.fn(),
     pauseMediaOverlay: vi.fn(),
     resumeMediaOverlay: vi.fn(),
     stopMediaOverlay: vi.fn(),
@@ -31,6 +33,7 @@ describe('ReaderReadalongService', () => {
     viewManager.navigation$ = navigation$;
     viewManager.hasMediaOverlay.mockReturnValue(true);
     viewManager.startMediaOverlay.mockReturnValue(of(undefined));
+    viewManager.startMediaOverlayAt.mockReturnValue(of(true));
 
     TestBed.configureTestingModule({
       providers: [
@@ -157,6 +160,60 @@ describe('ReaderReadalongService', () => {
 
     expect(revived.rate()).toBe(1.75);
     expect(revived.volume()).toBe(0.25);
+  });
+
+  it('starts playback at a clicked phrase when stopped', () => {
+    service.detectAvailability();
+    viewManager.startMediaOverlayAt.mockReturnValue(of(true));
+
+    service.seekToPhraseAt(doc, ['word12', 'p3']);
+
+    expect(viewManager.startMediaOverlayAt).toHaveBeenCalledWith(doc, ['word12', 'p3']);
+    expect(service.state()).toBe('playing');
+  });
+
+  it('resumes a paused book when seeking to a clicked phrase', () => {
+    service.detectAvailability();
+    service.start();
+    service.pause();
+    viewManager.startMediaOverlayAt.mockReturnValue(of(true));
+
+    service.seekToPhraseAt(doc, ['word12']);
+
+    // The player will not play a paused element, so it has to be resumed first
+    expect(viewManager.resumeMediaOverlay).toHaveBeenCalledTimes(1);
+    expect(service.state()).toBe('playing');
+  });
+
+  it('leaves playback alone when the clicked text is not narrated', () => {
+    service.detectAvailability();
+    service.start();
+    service.pause();
+    viewManager.resumeMediaOverlay.mockClear();
+    viewManager.pauseMediaOverlay.mockClear();
+    viewManager.startMediaOverlayAt.mockReturnValue(of(false));
+
+    service.seekToPhraseAt(doc, ['not-narrated']);
+
+    expect(service.state()).toBe('paused');
+    expect(viewManager.pauseMediaOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores clicks in a book without narration', () => {
+    viewManager.hasMediaOverlay.mockReturnValue(false);
+    service.detectAvailability();
+
+    service.seekToPhraseAt(doc, ['word12']);
+
+    expect(viewManager.startMediaOverlayAt).not.toHaveBeenCalled();
+  });
+
+  it('ignores a click that carries no element ids', () => {
+    service.detectAvailability();
+
+    service.seekToPhraseAt(doc, []);
+
+    expect(viewManager.startMediaOverlayAt).not.toHaveBeenCalled();
   });
 
   it('pauses immediately when the reader navigates during playback', () => {

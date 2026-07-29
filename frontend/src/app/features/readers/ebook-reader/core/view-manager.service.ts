@@ -93,6 +93,7 @@ interface FoliateViewElement extends HTMLElement {
   mediaOverlay?: FoliateMediaOverlay | null;
   hasMediaOverlay?: boolean;
   startMediaOverlay?(): Promise<void>;
+  startMediaOverlayAt?(doc: Document, ids: string[]): Promise<boolean>;
   open(target: File | object): Promise<void>;
   goTo(target: string | number): Promise<void>;
   goToFraction(fraction: number): Promise<void>;
@@ -374,6 +375,18 @@ export class ReaderViewManagerService {
       return throwError(() => new Error('Media overlay not available'));
     }
     return defer(() => from(view.startMediaOverlay!())).pipe(map(() => undefined));
+  }
+
+  /**
+   * Starts readalong playback at the phrase covering a clicked point.
+   * Emits whether a phrase matched: text outside the narration matches nothing.
+   */
+  startMediaOverlayAt(doc: Document, ids: string[]): Observable<boolean> {
+    const view = this.view;
+    if (!view?.startMediaOverlayAt) {
+      return of(false);
+    }
+    return defer(() => from(view.startMediaOverlayAt!(doc, ids)));
   }
 
   pauseMediaOverlay(): void {

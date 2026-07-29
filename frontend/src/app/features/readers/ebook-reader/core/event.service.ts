@@ -60,6 +60,7 @@ export type ViewEvent =
   | { type: 'relocate'; detail: RelocateEventDetail }
   | { type: 'error'; detail?: unknown }
   | { type: 'media-overlay-error'; detail?: unknown }
+  | { type: 'readalong-seek'; detail: { doc: Document; ids: string[] } }
   | { type: 'toggle-readalong' }
   | { type: 'readalong-previous-phrase' }
   | { type: 'readalong-next-phrase' }
@@ -93,6 +94,7 @@ export class ReaderEventService {
   private readonly LEFT_ZONE_PERCENT = 0.3;
   private readonly RIGHT_ZONE_PERCENT = 0.7;
   private readonly SWIPE_THRESHOLD_PX = 50;
+  private readonly MAX_ID_ANCESTORS = 5;
 
   private annotationService = inject(ReaderAnnotationService);
 
@@ -328,6 +330,12 @@ export class ReaderEventService {
       }, '*');
     }) as EventListener, {capture: true});
 
+    track(doc, 'dblclick', ((event: MouseEvent) => {
+      const ids = this.collectElementIds(event.target as HTMLElement | null);
+      if (!ids.length) return;
+      this.eventSubject.next({type: 'readalong-seek', detail: {doc, ids}});
+    }) as EventListener);
+
     track(doc, 'touchstart', ((event: TouchEvent) => {
       this.handleTouchStart(event, doc);
     }) as EventListener, {passive: true});
@@ -345,6 +353,21 @@ export class ReaderEventService {
     });
 
     this.injectMobileSelectionStyles(doc);
+  }
+
+  /**
+   * Element ids at a point, innermost first. A narrated phrase wraps its words in a span
+   * carrying the id the media overlay targets, but a click can land on a nested element —
+   * a link or emphasis inside it — so the ancestors are collected too.
+   */
+  private collectElementIds(start: HTMLElement | null): string[] {
+    const ids: string[] = [];
+    let element: HTMLElement | null = start;
+    for (let depth = 0; element && depth < this.MAX_ID_ANCESTORS; depth++) {
+      if (element.id) ids.push(element.id);
+      element = element.parentElement;
+    }
+    return ids;
   }
 
   private handleSelectionChange(doc: Document): void {

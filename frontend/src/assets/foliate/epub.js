@@ -558,34 +558,46 @@ class MediaOverlay extends EventTarget {
             audio.play().catch(e => this.#error(e))
         }, { once: true })
     }
-    async start(sectionIndex, filter = () => true) {
+    /**
+     * Begins playback in `sectionIndex`, at its first phrase or at the first one `filter`
+     * accepts. A filter narrows the search to a phrase the caller already has in mind — a
+     * clicked word — so a miss means "that isn't narrated", not a broken book: it neither
+     * searches on into the next section nor reports an error. Resolves to whether playback
+     * started.
+     */
+    async start(sectionIndex, filter = null) {
         this.#audio?.pause()
         const section = this.book.sections[sectionIndex]
         const href = section?.id
         if (!href) {
             // Walked off the end of the spine looking for a section with an overlay.
-            if (sectionIndex > 0) console.warn(
+            if (sectionIndex > 0 && !filter) console.warn(
                 `No media overlay found from section ${this.#sectionIndex ?? 0} onwards`)
-            return
+            return false
         }
 
         const { mediaOverlay } = section
-        if (!mediaOverlay) return this.start(sectionIndex + 1)
+        if (!mediaOverlay) return filter ? false : this.start(sectionIndex + 1)
         this.#sectionIndex = sectionIndex
         await this.#loadSMIL(mediaOverlay)
 
         for (let i = 0; i < this.#entries.length; i++) {
             const { items } = this.#entries[i]
             for (let j = 0; j < items.length; j++) {
-                if (items[j].text.split('#')[0] === href && filter(items[j], j, items))
-                    return this.#play(i, j).catch(e => this.#error(e))
+                if (items[j].text.split('#')[0] === href
+                    && (!filter || filter(items[j], j, items))) {
+                    await this.#play(i, j).catch(e => this.#error(e))
+                    return true
+                }
             }
         }
 
         // The SMIL parsed, but none of its <text> targets name this section's document.
         // Silently doing nothing here is indistinguishable from broken playback.
-        this.#error(new Error(`Media overlay ${mediaOverlay.href} has no phrase for ${href}`
-            + ` (${this.#entries.length} audio groups parsed)`))
+        if (!filter) this.#error(
+            new Error(`Media overlay ${mediaOverlay.href} has no phrase for ${href}`
+                + ` (${this.#entries.length} audio groups parsed)`))
+        return false
     }
     pause() {
         this.#state = 'paused'
