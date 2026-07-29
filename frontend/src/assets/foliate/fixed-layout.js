@@ -252,12 +252,25 @@ export class FixedLayout extends HTMLElement {
     // Same shape as the paginator's, so callers that need the rendered document — media
     // overlay highlighting, text selection — work for fixed-layout books too. A spread
     // shows two documents at once; the current side comes first.
+    //
+    // The index is derived from the spread rather than read back off the frame: the frame
+    // is bookkeeping that only holds while the spread is untouched, and a wrong index here
+    // fails silently at the call site rather than loudly.
     getContents() {
-        const frames = this.#center ? [this.#center]
-            : this.#side === 'right' ? [this.#right, this.#left] : [this.#left, this.#right]
-        return frames
-            .filter(frame => frame && !frame.blank && frame.iframe?.contentDocument)
-            .map(({ index, iframe }) => ({ index, doc: iframe.contentDocument }))
+        const spread = this.#spreads?.[this.#index]
+        if (!spread) return []
+        const sides = spread.center
+            ? [[spread.center, this.#center]]
+            : this.#side === 'right'
+                ? [[spread.right, this.#right], [spread.left, this.#left]]
+                : [[spread.left, this.#left], [spread.right, this.#right]]
+        return sides
+            .filter(([section, frame]) =>
+                section && frame && !frame.blank && frame.iframe?.contentDocument)
+            .map(([section, frame]) => ({
+                index: this.book.sections.indexOf(section),
+                doc: frame.iframe.contentDocument,
+            }))
     }
     #reportLocation(reason) {
         this.dispatchEvent(new CustomEvent('relocate', { detail:

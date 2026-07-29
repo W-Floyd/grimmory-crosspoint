@@ -356,12 +356,20 @@ export class View extends HTMLElement {
         const resolved = this.resolveNavigation(e.detail.text)
         this.renderer.goTo(resolved)
           .then(() => {
-            const content = this.renderer.getContents()
-              .find(x => x.index === resolved.index)
-            const el = content?.doc ? resolved.anchor(content.doc) : null
+            const contents = this.renderer.getContents()
+            const content = contents.find(x => x.index === resolved.index)
+            if (!content?.doc) {
+              console.warn('Media overlay: no rendered document for section'
+                + ` ${resolved.index} (showing ${contents.map(x => x.index).join(', ')})`)
+              return
+            }
             // The SMIL fragment may not resolve to an element in the rendered
             // document; skip the highlight rather than breaking playback.
-            if (!el?.classList) return
+            const el = resolved.anchor(content.doc)
+            if (!el?.classList) {
+              console.warn(`Media overlay: ${e.detail.text} matched no element`)
+              return
+            }
             ensureHighlightStyle(content.doc, activeClass)
             el.classList.add(activeClass)
             if (playbackActiveClass) el.ownerDocument
