@@ -36,6 +36,7 @@ import {TranslocoPipe} from '@jsverse/transloco';
 import {RelocateProgressData} from './state/progress.service';
 import {WakeLockService} from '../../../shared/service/wake-lock.service';
 import {ViewEvent} from './core/view-manager.service';
+import {PageTitleService} from '../../../shared/service/page-title.service';
 
 interface PendingInitialChapterRestore {
   href: string;
@@ -99,6 +100,7 @@ export class EbookReaderComponent implements OnInit {
   private wakeLockService = inject(WakeLockService);
   private messageService = inject(MessageService);
   private readalongService = inject(ReaderReadalongService);
+  private pageTitle = inject(PageTitleService);
 
   /** Exposed for the template: gates the readalong section of the shortcuts dialog. */
   public readonly readalong = this.readalongService;
@@ -226,6 +228,7 @@ export class EbookReaderComponent implements OnInit {
     ]).pipe(
       switchMap(([, book]) => {
         this.book.set(book);
+        this.pageTitle.setBookPageTitle(book);
         const bookType = (this.altBookType as BookType | undefined) ?? book.primaryFile?.bookType;
         if (!bookType) {
           return throwError(() => new Error('Book type not found'));

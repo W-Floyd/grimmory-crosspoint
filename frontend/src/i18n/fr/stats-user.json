@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "Statistiques de lecture de {{ name }}",
+        "titleBarTitle": "Statistiques de lecture",
         "customizeLayout": "Personnaliser la disposition",
         "chartConfig": "Configuration des graphiques",
         "resetLayout": "Réinitialiser la disposition",

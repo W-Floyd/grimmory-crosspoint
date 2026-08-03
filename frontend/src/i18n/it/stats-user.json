@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "Statistiche di lettura di {{ name }}",
+        "titleBarTitle": "Statistiche di lettura",
         "customizeLayout": "Personalizza layout",
         "chartConfig": "Configurazione grafici",
         "resetLayout": "Ripristina layout",

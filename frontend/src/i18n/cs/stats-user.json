@@ -1,6 +1,7 @@
 {
   "main": {
     "title": "",
+    "titleBarTitle": "",
     "customizeLayout": "",
     "chartConfig": "",
     "resetLayout": "",

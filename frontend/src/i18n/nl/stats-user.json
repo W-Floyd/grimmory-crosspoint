@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "{{ name }}'s Lees Statistieken",
+        "titleBarTitle": "Lees Statistieken",
         "customizeLayout": "Lay-out aanpassen",
         "resetLayout": "Lay-out opnieuw instellen",
         "hideAll": "Alles verbergen",

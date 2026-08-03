@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "Štatistiky čítania používateľa {{ name }}",
+        "titleBarTitle": "Štatistiky čítania",
         "customizeLayout": "Uprav rozloženie",
         "chartConfig": "",
         "resetLayout": "",

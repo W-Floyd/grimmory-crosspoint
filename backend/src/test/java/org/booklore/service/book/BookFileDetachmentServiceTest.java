@@ -9,6 +9,7 @@ import org.booklore.model.dto.response.DetachBookFileResponse;
 import org.booklore.model.entity.*;
 import org.booklore.model.enums.AuditAction;
 import org.booklore.model.enums.BookFileType;
+import org.booklore.repository.BookFileRepository;
 import org.booklore.repository.BookRepository;
 import org.booklore.repository.UserBookProgressRepository;
 import org.booklore.service.audit.AuditService;
@@ -17,6 +18,8 @@ import org.booklore.service.progress.ReadingProgressService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -32,6 +35,7 @@ import static org.mockito.Mockito.*;
 class BookFileDetachmentServiceTest {
 
     @Mock private BookRepository bookRepository;
+    @Mock private BookFileRepository bookFileRepository;
     @Mock private UserBookProgressRepository userBookProgressRepository;
     @Mock private AuthenticationService authenticationService;
     @Mock private ReadingProgressService readingProgressService;
@@ -42,6 +46,9 @@ class BookFileDetachmentServiceTest {
 
     @InjectMocks
     private BookFileDetachmentService service;
+
+    @Captor
+    ArgumentCaptor<BookEntity> bookEntityCaptor;
 
     private LibraryEntity library;
     private LibraryPathEntity libraryPath;
@@ -124,7 +131,7 @@ class BookFileDetachmentServiceTest {
         assertThat(book.getBookFiles()).hasSize(1);
         assertThat(book.getBookFiles().getFirst().getId()).isEqualTo(10L);
         verify(auditService).log(eq(AuditAction.BOOK_FILE_DETACHED), anyString(), eq(1L), anyString());
-        verify(bookRepository).saveAndFlush(argThat(newBook -> {
+        verify(bookRepository, times(2)).saveAndFlush(argThat(newBook -> {
             assertThat(newBook.getMetadata().getTitle()).isEqualTo("Test Book 1");
             return true;
         }));
@@ -148,10 +155,10 @@ class BookFileDetachmentServiceTest {
 
         service.detachBookFile(1L, 11L, false);
 
-        verify(bookRepository).saveAndFlush(argThat(newBook -> {
-            assertThat(newBook.getMetadata().getTitle()).isEqualTo("file-11");
-            return true;
-        }));
+        verify(bookRepository, times(2)).saveAndFlush(bookEntityCaptor.capture());
+
+        var allTitles = bookEntityCaptor.getAllValues().stream().map(e -> e.getMetadata().getTitle());
+        assertThat(allTitles).contains("file-11");
     }
 
     @Test
@@ -176,7 +183,8 @@ class BookFileDetachmentServiceTest {
         assertThat(book.getBookFiles()).hasSize(1);
         assertThat(suppFile.getBook()).isNotSameAs(book);
         assertThat(suppFile.getFileName()).isEqualTo("notes.txt");
-        verify(bookRepository).saveAndFlush(any(BookEntity.class));
+        verify(bookRepository, times(2)).saveAndFlush(any(BookEntity.class));
+        verify(bookFileRepository).saveAndFlush(any(BookFileEntity.class));
     }
 
     @Test
@@ -278,10 +286,10 @@ class BookFileDetachmentServiceTest {
 
         service.detachBookFile(1L, 11L, false);
 
-        verify(bookRepository).saveAndFlush(argThat(newBook -> {
-            assertThat(newBook.getLibraryPath().getId()).isEqualTo(2L);
-            return true;
-        }));
+        verify(bookRepository, times(2)).saveAndFlush(bookEntityCaptor.capture());
+
+        var allLibraryPathIds = bookEntityCaptor.getAllValues().stream().map(e -> e.getLibraryPath().getId());
+        assertThat(allLibraryPathIds).contains(2L);
         assertThat(altFile.getFileSubPath()).isEmpty();
     }
 }

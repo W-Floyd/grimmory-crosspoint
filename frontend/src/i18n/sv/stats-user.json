@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "{{ name }}s lasstatistik",
+        "titleBarTitle": "Lässtatistik",
         "customizeLayout": "Anpassa layout",
         "chartConfig": "Diagramkonfiguration",
         "resetLayout": "Aterstall layout",

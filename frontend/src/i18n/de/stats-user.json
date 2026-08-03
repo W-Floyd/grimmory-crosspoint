@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "{{ name }}s Lesestatistiken",
+        "titleBarTitle": "Lesestatistiken",
         "customizeLayout": "Layout anpassen",
         "chartConfig": "Diagrammkonfiguration",
         "resetLayout": "Layout zurücksetzen",

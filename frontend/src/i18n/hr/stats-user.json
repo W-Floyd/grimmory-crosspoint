@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "Statistika čitanja korisnika {{ name }}",
+        "titleBarTitle": "Statistika čitanja",
         "customizeLayout": "Prilagodi raspored",
         "chartConfig": "Konfiguracija grafikona",
         "resetLayout": "Vrati raspored",

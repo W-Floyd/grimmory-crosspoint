@@ -1,4 +1,4 @@
-import {Component, computed, inject} from '@angular/core';
+import {Component, computed, inject, OnInit} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {CdkDragDrop, DragDropModule, moveItemInArray} from '@angular/cdk/drag-drop';
 import {Select} from '@openng/optimus-ui/select';
@@ -18,6 +18,7 @@ import {TranslocoDirective, TranslocoService} from '@jsverse/transloco';
 import {BookService} from '../../../book/service/book.service';
 import {LibraryService} from '../../../book/service/library.service';
 import {StatsChartThemeService} from '../shared/stats-chart-theme.service';
+import {PageTitleService} from '../../../../shared/service/page-title.service';
 
 interface ChartConfig {
   id: string;
@@ -51,13 +52,14 @@ import {provideCharts, withDefaultRegisterables} from 'ng2-charts';
   templateUrl: './library-stats.component.html',
   styleUrls: ['./library-stats.component.scss']
 })
-export class LibraryStatsComponent {
+export class LibraryStatsComponent implements OnInit {
   private readonly libraryFilterService = inject(LibraryFilterService);
   private readonly librariesSummaryService = inject(LibrariesSummaryService);
   private readonly bookService = inject(BookService);
   private readonly libraryService = inject(LibraryService);
   private readonly t = inject(TranslocoService);
   private readonly chartTheme = inject(StatsChartThemeService);
+  private readonly pageTitle = inject(PageTitleService);
 
   public readonly isLoading = computed(() =>
     this.bookService.isBooksLoading() || this.libraryService.isLibrariesLoading()
@@ -81,6 +83,10 @@ export class LibraryStatsComponent {
 
   constructor() {
     this.chartTheme.activate();
+  }
+
+  ngOnInit(): void {
+    this.pageTitle.setPageTitle(this.t.translate('statsLibrary.main.title'));
   }
 
   onLibraryChange(selectedLibrary: LibraryOption | null): void {

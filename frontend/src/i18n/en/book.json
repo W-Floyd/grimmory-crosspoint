@@ -300,6 +300,7 @@
       "magicShelfDeletedDetail": "Magic shelf was deleted",
       "magicShelfDeleteFailedDetail": "Failed to delete shelf",
       "magicShelfJsonCopiedDetail": "Magic shelf JSON copied to clipboard",
+      "magicShelfJsonCopyFailedDetail": "Failed to copy magic shelf JSON",
       "failedSummary": "Failed",
       "dialogLoadFailedDetail": "An error occurred while loading the dialog. Please try again."
     },

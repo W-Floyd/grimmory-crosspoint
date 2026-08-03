@@ -1,6 +1,7 @@
 {
   "main": {
     "title": "{{ name }}'s Reading Statistics",
+    "titleBarTitle": "Reading Statistics",
     "customizeLayout": "Customize Layout",
     "chartConfig": "Chart Configuration",
     "resetLayout": "Reset Layout",

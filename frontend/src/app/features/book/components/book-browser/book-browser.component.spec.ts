@@ -8,7 +8,6 @@ import {ConfirmationService, MessageService} from '@openng/optimus-ui/api';
 import {PageTitleService} from '../../../../shared/service/page-title.service';
 import {BookService} from '../../service/book.service';
 import {BookMetadataManageService} from '../../service/book-metadata-manage.service';
-import {LibraryShelfMenuService} from '../../service/library-shelf-menu.service';
 import {Book} from '../../model/book.model';
 import {SortDirection, SortOption} from '../../model/sort.model';
 import {UserService} from '../../../settings/user-management/user.service';
@@ -292,14 +291,6 @@ function createHarness(options?: {
         useValue: {
           getMoreActionsMenu: vi.fn(() => []),
           getMetadataMenuItems: vi.fn(() => []),
-        },
-      },
-      {
-        provide: LibraryShelfMenuService,
-        useValue: {
-          initializeLibraryMenuItems: vi.fn(() => []),
-          initializeMagicShelfMenuItems: vi.fn(() => []),
-          initializeShelfMenuItems: vi.fn(() => []),
         },
       },
       {provide: PageTitleService, useValue: {setPageTitle: vi.fn()}},

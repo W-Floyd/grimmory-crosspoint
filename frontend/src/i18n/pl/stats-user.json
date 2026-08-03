@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "Statystyki czytania {{ name }}",
+        "titleBarTitle": "Statystyki czytania",
         "customizeLayout": "Dostosuj układ",
         "chartConfig": "Konfiguracja wykresów",
         "resetLayout": "Resetuj układ",

@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "Statistik Bacaan {{ name }}",
+        "titleBarTitle": "Statistik Bacaan",
         "chartConfig": "Konfigurasi Bagan",
         "close": "Tutup",
         "resetLayout": "",

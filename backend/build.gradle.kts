@@ -10,7 +10,7 @@ plugins {
     id("org.springframework.boot") version "4.1.0"
     id("io.spring.dependency-management") version "1.1.7"
     id("org.hibernate.orm") version "7.4.5.Final"
-    id("com.github.ben-manes.versions") version "0.54.0"
+    id("com.github.ben-manes.versions") version "0.56.0"
     jacoco
 }
 
@@ -187,11 +187,11 @@ dependencies {
     implementation("com.twelvemonkeys.imageio:imageio-bmp:3.14.0")
 
     // epub4j-grimmory fork publishes as org.grimmory:epub4j-core
-    val epub4jCoords = if (useLocalLibs) "org.grimmory:epub4j-core:+" else "org.grimmory:epub4j-core:1.4.0"
+    val epub4jCoords = if (useLocalLibs) "org.grimmory:epub4j-core:+" else "org.grimmory:epub4j-core:1.5.0"
     implementation(epub4jCoords)
 
     // epub4j-native for native archive parsing
-    val epub4jNativeVersion = "1.4.0"
+    val epub4jNativeVersion = "1.5.0"
     val epub4jNativeCoords = if (useLocalLibs) "org.grimmory:epub4j-native:+" else "org.grimmory:epub4j-native:$epub4jNativeVersion"
     implementation(epub4jNativeCoords)
     runtimeOnly("$epub4jNativeCoords:${epub4jNativesClassifier()}")
@@ -200,7 +200,7 @@ dependencies {
     implementation("com.github.RouHim:jaudiotagger:2.0.27")
 
     // --- Archive Support ---
-    implementation("com.github.gotson.nightcompress:nightcompress:1.1.1")
+    implementation("com.github.junrar:junrar:8.0.0")
 
     // --- JSON & Web Scraping ---
     implementation("org.jsoup:jsoup:1.22.2")

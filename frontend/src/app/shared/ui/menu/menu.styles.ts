@@ -19,7 +19,7 @@ export const appMenuSheetPanelClass =
   'rounded-t-xl rounded-b-none border-x-0 border-b-0 ' +
   'pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]';
 
-export const appMenuScrollRegionClass = 'flex min-h-0 flex-col overflow-y-auto overscroll-contain';
+export const appMenuScrollRegionClass = 'flex min-h-0 flex-col overflow-x-hidden overflow-y-auto overscroll-contain';
 
 export const appMenuSheetPaneClass = 'will-change-transform animate-in-sheet slide-in-from-bottom-full';
 

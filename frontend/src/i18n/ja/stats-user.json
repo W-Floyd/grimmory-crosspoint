@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "{{ name }}さんの読書統計",
+        "titleBarTitle": "統計情報の読み方",
         "customizeLayout": "レイアウトをカスタマイズ",
         "chartConfig": "チャート設定",
         "resetLayout": "レイアウトをリセット",

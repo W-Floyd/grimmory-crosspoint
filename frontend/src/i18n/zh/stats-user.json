@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "{{ name }} 的阅读统计",
+        "titleBarTitle": "的阅读统计",
         "customizeLayout": "自定义布局",
         "chartConfig": "图表配置",
         "resetLayout": "重置布局",

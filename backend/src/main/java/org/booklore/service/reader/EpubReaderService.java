@@ -11,12 +11,12 @@ import org.booklore.model.entity.BookEntity;
 import org.booklore.model.entity.BookFileEntity;
 import org.booklore.model.enums.BookFileType;
 import org.booklore.repository.BookRepository;
+import org.booklore.service.ArchiveService;
 import org.booklore.service.ByteRangeSource;
 import org.booklore.util.FileUtils;
 import org.grimmory.epub4j.domain.*;
 import org.grimmory.epub4j.epub.CoverDetector;
 import org.grimmory.epub4j.epub.EpubReader;
-import org.grimmory.epub4j.native_parsing.NativeArchive;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
@@ -75,6 +75,7 @@ public class EpubReaderService {
             .maximumSize(MAX_CACHE_ENTRIES)
             .expireAfterAccess(Duration.ofMinutes(30))
             .build();
+    private final ArchiveService archiveService;
 
     private record CachedEpubMetadata(EpubBookInfo bookInfo, long lastModified,
                                       Set<String> validPaths,
@@ -421,9 +422,7 @@ public class EpubReaderService {
     }
 
     private void streamEntryFromZip(Path epubPath, String entryName, OutputStream outputStream) throws IOException {
-        try (NativeArchive archive = NativeArchive.open(epubPath)) {
-            archive.streamEntry(entryName, outputStream);
-        }
+        archiveService.transferEntryTo(epubPath, entryName, outputStream);
     }
 
     private String guessContentType(String path) {

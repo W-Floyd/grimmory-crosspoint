@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "Bralna statistika uporabnika {{ name }}",
+        "titleBarTitle": "Bralna statistika",
         "customizeLayout": "Prilagodi postavitev",
         "chartConfig": "Konfiguracija grafov",
         "resetLayout": "Ponastavi postavitev",

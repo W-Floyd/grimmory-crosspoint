@@ -1,11 +1,11 @@
 package org.booklore.service;
 
-import com.github.gotson.nightcompress.Archive;
-import com.github.gotson.nightcompress.ArchiveEntry;
-import com.github.gotson.nightcompress.LibArchiveException;
+import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry;
+import org.apache.commons.compress.archivers.sevenz.SevenZFile;
+import com.github.junrar.exception.RarException;
 import lombok.extern.slf4j.Slf4j;
 import org.booklore.exception.ApiError;
-import org.booklore.nativelib.NativeLibraries;
+import org.booklore.util.ArchiveUtils;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
+import java.util.zip.ZipFile;
 
 @Slf4j
 @Service
@@ -29,42 +31,61 @@ public class ArchiveService {
             .mapToObj(_ -> new ReentrantLock())
             .toArray(ReentrantLock[]::new);
 
-    // Route through the JVM-wide serialized native loader.
-    private final boolean available = NativeLibraries.get().isLibArchiveAvailable();
-
     private ReentrantLock getFileLock(Path path) {
         int hash = path.toAbsolutePath().normalize().toString().hashCode();
         return lockStripes[Math.floorMod(hash, LOCK_STRIPE_COUNT)];
     }
 
-    private void requireAvailable() throws IOException {
-        if (!available) {
-            throw new IOException("LibArchive is not available – cannot process archive");
-        }
-    }
-
-    public static boolean isAvailable() {
-        return NativeLibraries.get().isLibArchiveAvailable();
-    }
-
     public record Entry(String name, long size) {}
-
-    private Entry getEntryFromArchiveEntry(ArchiveEntry archiveEntry) {
-        return new Entry(archiveEntry.getName(), archiveEntry.getSize());
-    }
 
     public List<Entry> getEntries(Path path) throws IOException {
         return streamEntries(path).toList();
     }
 
+    private Stream<Entry> streamEntriesFromZip(Path path) throws IOException {
+        try (ZipFile file = new ZipFile(path.toFile())) {
+            // Stream to list so we enumerate all of them before the zipfile closes.
+            return file.stream()
+                    .toList()
+                    .stream()
+                    .map(e -> new Entry(e.getName(), e.getSize()));
+        }
+    }
+
+    private Stream<Entry> streamEntriesFromRar(Path path) throws IOException {
+        try (var archive = new com.github.junrar.Archive(path.toFile())) {
+            return archive.getFileHeaders()
+                    .stream()
+                    .filter(h -> !h.isDirectory())
+                    .map(h -> new Entry(h.getFileName(), h.getFullUnpackSize()))
+                    .toList()
+                    .stream();
+        } catch (RarException rarException) {
+            throw new IOException(rarException);
+        }
+    }
+
+    private Stream<Entry> streamEntriesFrom7z(Path path) throws IOException {
+        try (var sevenZFile = new SevenZFile.Builder().setPath(path).get()) {
+            return StreamSupport.stream(sevenZFile.getEntries().spliterator(), false)
+                    .map(entry -> new Entry(entry.getName(), entry.getSize()))
+                    .toList()
+                    .stream();
+        }
+    }
+
     public Stream<Entry> streamEntries(Path path) throws IOException {
-        requireAvailable();
         ReentrantLock lock = getFileLock(path);
-        lock.lock();
         try {
-            List<ArchiveEntry> entries = Archive.getEntries(path);
-            return entries.stream().map(this::getEntryFromArchiveEntry);
-        } catch (LibArchiveException e) {
+            lock.lock();
+
+            return switch(ArchiveUtils.detectArchiveType(path)) {
+                case ZIP -> streamEntriesFromZip(path);
+                case RAR -> streamEntriesFromRar(path);
+                case SEVEN_ZIP -> streamEntriesFrom7z(path);
+                case UNKNOWN -> throw new IOException("Unknown Archive Type");
+            };
+        } catch (IOException e) {
             throw new IOException("Failed to read archive", e);
         } finally {
             lock.unlock();
@@ -76,43 +97,78 @@ public class ArchiveService {
     }
 
     public Stream<String> streamEntryNames(Path path) throws IOException {
-        requireAvailable();
-        ReentrantLock lock = getFileLock(path);
-        lock.lock();
-        try {
-            List<ArchiveEntry> entries = Archive.getEntries(path);
-            return entries.stream().map(ArchiveEntry::getName);
-        } catch (LibArchiveException e) {
-            throw new IOException("Failed to read archive", e);
-        } finally {
-            lock.unlock();
+        return streamEntries(path).map(Entry::name);
+    }
+
+    private long transferZipEntryTo(Path path, String entryName, OutputStream outputStream) throws IOException {
+        try (ZipFile zipFile = new ZipFile(path.toFile())) {
+            var entry = zipFile.getEntry(entryName);
+
+            if (entry == null || entry.isDirectory()) {
+                throw new IOException("Entry not found in archive");
+            }
+
+            try (InputStream is = zipFile.getInputStream(entry)) {
+                return is.transferTo(outputStream);
+            }
+        }
+    }
+
+    private long transferRarEntryTo(Path path, String entryName, OutputStream outputStream) throws IOException {
+        try (var archive = new com.github.junrar.Archive(path.toFile())) {
+            var fileHeader = archive.getFileHeaders()
+                    .stream()
+                    .filter(h -> !h.isDirectory())
+                    .filter(h -> entryName.equals(h.getFileName()))
+                    .findFirst()
+                    .orElse(null);
+
+            if (fileHeader == null) {
+                throw new IOException("Entry not found in archive");
+            }
+
+            try (InputStream is = archive.getInputStream(fileHeader)) {
+                return is.transferTo(outputStream);
+            }
+        } catch (RarException rarException) {
+            throw new IOException(rarException);
+        }
+    }
+
+    private long transfer7zEntryTo(Path path, String entryName, OutputStream outputStream) throws IOException {
+        try (var sevenZFile = new SevenZFile.Builder().setPath(path).get()) {
+            var entry = StreamSupport.stream(sevenZFile.getEntries().spliterator(), false)
+                    .filter(e -> entryName.equals(e.getName()))
+                    .filter(SevenZArchiveEntry::hasStream)
+                    .findFirst()
+                    .orElse(null);
+
+            if (entry == null) {
+                throw new IOException("Entry not found in archive");
+            }
+
+            try (InputStream is = sevenZFile.getInputStream(entry)) {
+                return is.transferTo(outputStream);
+            }
         }
     }
 
     public long transferEntryTo(Path path, String entryName, OutputStream outputStream) throws IOException {
-        requireAvailable();
-        // We cannot directly use the NightCompress `InputStream` as it is limited
-        // in its implementation and will cause fatal errors.  Instead, we can use
-        // the `transferTo` on an output stream to copy data around.
         ReentrantLock lock = getFileLock(path);
-        lock.lock();
-        try (InputStream inputStream = Archive.getInputStream(path, entryName)) {
-            if (inputStream != null) {
-                try {
-                    return inputStream.transferTo(outputStream);
-                } finally {
-                    // NightCompress fails with a SIGSEGV if you do not read the
-                    // entirety of the input stream from the zip.
-                    inputStream.transferTo(OutputStream.nullOutputStream());
-                }
-            }
+        try {
+            lock.lock();
+
+            return switch(ArchiveUtils.detectArchiveType(path)) {
+                case ZIP -> transferZipEntryTo(path, entryName, outputStream);
+                case RAR -> transferRarEntryTo(path, entryName, outputStream);
+                case SEVEN_ZIP -> transfer7zEntryTo(path, entryName, outputStream);
+                case UNKNOWN -> throw new IOException("Unknown Archive Type");
+            };
         } catch (Exception e) {
             throw new IOException("Failed to extract from archive: " + e.getMessage(), e);
         } finally {
             lock.unlock();
         }
-
-        throw new IOException("Entry not found in archive");
     }
 
     public byte[] getEntryBytes(Path path, String entryName) throws IOException {
@@ -189,7 +245,6 @@ public class ArchiveService {
     }
 
     public long extractEntryToPath(Path path, String entryName, Path outputPath) throws IOException {
-        requireAvailable();
         ReentrantLock lock = getFileLock(path);
         lock.lock();
 

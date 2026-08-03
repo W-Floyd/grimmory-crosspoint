@@ -1,6 +1,7 @@
 {
     "main": {
         "title": "Статистика читання {{ name }}",
+        "titleBarTitle": "Статистика читання",
         "customizeLayout": "Налаштувати макет",
         "chartConfig": "Налаштування графіків",
         "resetLayout": "Скинути макет",
