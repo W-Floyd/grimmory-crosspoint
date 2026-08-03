@@ -48,7 +48,7 @@
   // On short/mobile viewports the flex column can squeeze the active tab's table to zero height
   // (scrollHeight="flex" resolves to 0), leaving only the paginator visible. Give the panel a floor
   // so rows always render; the page itself scrolls (.overdrive-container is overflow-y:auto).
-  @media (max-height: 820px) {
+  @media (height <= 820px) {
     ::ng-deep .p-tabpanel {
       min-height: 26rem;
     }
@@ -67,7 +67,7 @@
 
   // On narrow widths the paginator's report + controls ragged-wrap. Force a clean two-line break:
   // the "N–M of X" report on its own centered line, the page controls centered below it.
-  @media (max-width: 640px) {
+  @media (width <= 640px) {
     ::ng-deep .p-paginator {
       flex-wrap: wrap;
       justify-content: center;
@@ -166,6 +166,7 @@
   .capacity-row {
     display: flex;
     align-items: center;
+
     // Tight vertical gap so the Loans/Holds bars sit close together when they wrap onto their own
     // lines (mobile), while keeping a comfortable horizontal gap when they fit on one line.
     gap: 0.25rem 1rem;
@@ -364,7 +365,7 @@
     position: absolute;
     right: 0.75rem;
     bottom: 0.75rem;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
   }
 
   .tool-console {
@@ -372,7 +373,7 @@
     max-height: 60vh;
     overflow: auto;
     white-space: pre-wrap;
-    word-break: break-word;
+    overflow-wrap: break-word;
     font-family: var(--font-family-monospace, ui-monospace, SFMono-Regular, Menlo, monospace);
     font-size: 0.8rem;
     line-height: 1.35;
@@ -419,11 +420,14 @@
     .filter-divider {
       width: 1px;
       align-self: stretch;
-      margin: 0.1rem 0.1rem;
+      margin: 0.1rem;
       background: var(--surface-border, rgb(255 255 255 / 15%));
     }
 
-    :global(.format-filter) {
+    // .format-filter is a styleClass on the p-select, so it lands on the child component's host —
+    // ::ng-deep is what reaches it (as everywhere else in this file). It was written as :global(),
+    // a CSS-Modules idiom Angular doesn't implement, so the browser dropped the selector entirely.
+    ::ng-deep .format-filter {
       min-width: 150px;
     }
   }

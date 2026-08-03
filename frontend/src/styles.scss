@@ -27,10 +27,12 @@
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
 }
+
 .p-icon-spin {
   animation: p-icon-spin 2s infinite linear;
 }
