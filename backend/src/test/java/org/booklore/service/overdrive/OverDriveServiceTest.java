@@ -573,6 +573,34 @@ class OverDriveServiceTest {
                 List.of("ebook-epub-open", "ebook-pdf-open"), pref, true)).isEqualTo("ebook-pdf-open");
     }
 
+    // ── Chip recovery ────────────────────────────────────────────────────
+
+    @Test
+    void isMissingChip_detectsSentrysForbiddenBody() {
+        var forbidden = org.springframework.web.client.HttpClientErrorException.create(
+                org.springframework.http.HttpStatus.FORBIDDEN, "Forbidden", new org.springframework.http.HttpHeaders(),
+                "{\"result\":\"missing_chip\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8), null);
+        assertThat(OverDriveService.isMissingChip(forbidden)).isTrue();
+    }
+
+    @Test
+    void isMissingChip_detectsItThroughTheCallSitesWrapper() {
+        // sync()/borrow() wrap their failures; the 403 body survives in the message (and the cause).
+        var wrapped = new org.springframework.web.client.RestClientException(
+                "OverDrive sync failed: 403 Forbidden: \"{\"result\":\"missing_chip\"}\"");
+        assertThat(OverDriveService.isMissingChip(wrapped)).isTrue();
+    }
+
+    @Test
+    void isMissingChip_ignoresOtherFailures() {
+        var whoa = org.springframework.web.client.HttpClientErrorException.create(
+                org.springframework.http.HttpStatus.FORBIDDEN, "Forbidden", new org.springframework.http.HttpHeaders(),
+                "{\"result\":\"whoa\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8), null);
+        assertThat(OverDriveService.isMissingChip(whoa)).isFalse();
+        assertThat(OverDriveService.isMissingChip(new IllegalStateException("boom"))).isFalse();
+        assertThat(OverDriveService.isMissingChip(new IllegalStateException((String) null))).isFalse();
+    }
+
     @Test
     void borrowAndImport_failsWithoutImportingWhenBorrowFails() {
         // Stored token for the current user's card → borrow proceeds to the (mocked) RestClient and
@@ -615,6 +643,59 @@ class OverDriveServiceTest {
         assertThat(cards.get(0).owned()).isTrue();
         assertThat(cards.get(1).owned()).isFalse();
         assertThat(cards.get(1).ownerName()).isEqualTo("Alice A");
+    }
+
+    @Test
+    void refreshCard_renewsTheOwnersRowForASharee() {
+        // A sharee's card can only keep working if renewal writes the OWNER's token row (the row the
+        // share points at). Proof that it resolved that row and used its credentials: it got as far as
+        // minting a chip. The (mocked) RestClient then fails, so the renewal itself reports failure —
+        // with the old owner-only lookup it would have bailed out before touching the network at all.
+        OverDriveCredentialCipher cipher = enabledCipher();
+        OverDriveService shared = serviceWith(cipher);
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "shared")).thenReturn(Optional.empty());
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of(
+                org.booklore.model.entity.OverDriveCardShareEntity.builder().tokenId(2L).sharedWithUserId(7L).build()));
+        when(tokenRepository.findById(2L)).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().id(2L).userId(3L).identity("shared").token("owner-token")
+                        .credCard(cipher.encrypt("2999900011")).credPin(cipher.encrypt("1234"))
+                        .websiteId("123").ilsName("lapl").build()));
+
+        assertThatThrownBy(() -> shared.refreshCard("shared")).isInstanceOf(RuntimeException.class);
+
+        verify(restClient).post(); // reached requestChip() → the owner's row and credentials were resolved
+        verify(tokenRepository, never()).save(any()); // nothing persisted when the re-link fails
+    }
+
+    @Test
+    void refreshCard_leavesTheNetworkAloneWhenTheCardHasNoStoredCredentials() {
+        // Setup-code / pasted-token links have no card+PIN, so there is nothing to renew from.
+        OverDriveService shared = serviceWith(enabledCipher());
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().id(1L).userId(7L).identity("card").token("t").build()));
+
+        assertThatThrownBy(() -> shared.refreshCard("card"))
+                .hasMessageContaining("no stored card+PIN");
+        verifyNoInteractions(restClient);
+    }
+
+    /** A credential cipher with a real key, so credential storage / the re-link path is enabled. */
+    private OverDriveCredentialCipher enabledCipher() {
+        OverDriveCredentialCipher cipher = new OverDriveCredentialCipher(
+                java.util.Base64.getEncoder().encodeToString(new byte[16]));
+        assertThat(cipher.isEnabled()).isTrue();
+        return cipher;
+    }
+
+    /** A service built on the given cipher (the default one in {@link #setUp} has no key). */
+    private OverDriveService serviceWith(OverDriveCredentialCipher cipher) {
+        return new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
+                ebookHandler, bookService,
+                restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
+                importDestinationRepository, userRepository, authenticationService, appSettingService, cipher,
+                notificationService, bookFileAttachmentService);
     }
 
     @Test

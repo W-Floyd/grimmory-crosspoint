@@ -692,6 +692,8 @@ public class OverDriveController {
     /**
      * POST /api/overdrive/{identity}/refresh — re-link a card from its stored (encrypted) card+PIN
      * credentials to mint a fresh token. Only works for card+PIN links with a credential key set.
+     * Accepts any card the caller can use, including one shared with them: the re-link updates the
+     * owner's token row, which is the row the share points at, so it revives the card for everyone.
      */
     @Operation(summary = "Refresh a card's token",
                description = "Re-links a card from its stored encrypted card+PIN credentials to obtain a fresh token (for expired/blocked tokens). Fails if the card has no stored credentials.")

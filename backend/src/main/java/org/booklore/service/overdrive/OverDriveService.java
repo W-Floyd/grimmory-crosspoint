@@ -792,14 +792,11 @@ public class OverDriveService {
       }
 
       /**
-       * Silently re-link a card from its stored (encrypted) credentials to mint a fresh primary token,
-       * updating the stored row. Returns the new token, or null when no usable credentials are stored
-       * (no credential key configured, or card linked via setup code). Never throws.
-       */
-      /**
-       * Refresh a card's stored token by re-linking from its stored credentials (card+PIN). Throws a
-       * clear error when the card has no usable stored credentials (setup-code / pasted-token links, or
-       * no credential key configured) — those should be cleared and re-linked instead.
+       * Refresh a card's stored token by re-linking from its stored credentials (card+PIN). Works on any
+       * card the user can use, including one shared with them — sharing grants access to the owner's token
+       * row, so renewing it is what keeps the share working (see {@link #relinkCard}). Throws a clear
+       * error when the card has no usable stored credentials (setup-code / pasted-token links, or no
+       * credential key configured) — those should be cleared and re-linked instead.
        */
       public void refreshCard(String identity) {
         if (relinkCard(identity) == null) {
@@ -810,11 +807,23 @@ public class OverDriveService {
         recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null, "Token refreshed from stored credentials");
       }
 
+      /**
+       * Silently re-link a card from its stored (encrypted) credentials to mint a fresh primary token,
+       * updating the stored row. Returns the new token, or null when no usable credentials are stored
+       * (no credential key configured, or card linked via setup code). Never throws.
+       *
+       * <p>Resolves the row through {@link #accessibleTokenRow}, so a <b>sharee</b> renews the <b>owner's</b>
+       * row — the very row sharing hands them (never a copy). Without that, a shared card whose token died
+       * could only be revived by its owner, and every sharee's borrow/return would 403 until they noticed.
+       * The owner's credentials are decrypted server-side for the re-link only and never leave the server,
+       * and the renewed token grants the sharee nothing they weren't already sharing — the same reasoning
+       * as {@link #handlerCard}, which already hands a shared card's credentials to the download tools.
+       */
       private String relinkCard(String cardId) {
         if (!credentialCipher.isEnabled()) {
             return null;
         }
-        var row = tokenRepository.findByUserIdAndIdentity(currentUserId(), cardId).orElse(null);
+        var row = accessibleTokenRow(currentUserId(), cardId).orElse(null);
         if (row == null || row.getCredCard() == null || row.getWebsiteId() == null || row.getIlsName() == null) {
             return null;
         }
@@ -830,7 +839,8 @@ public class OverDriveService {
             row.setToken(token);
             row.setExpiresAt(tokenExpiryEpoch(token));
             tokenRepository.save(row);
-            log.info("OverDrive: re-linked card {} from stored credentials", cardId);
+            log.info("OverDrive: re-linked card {} from stored credentials (owner user {}, renewed by user {})",
+                    cardId, row.getUserId(), currentUserId());
             return token;
         } catch (Exception e) {
             log.warn("OverDrive: auto-relink failed for card {}: {}", cardId, e.getMessage());
@@ -859,6 +869,93 @@ public class OverDriveService {
         } catch (Exception e) {
             log.debug("OverDrive: could not persist re-minted token for card {}: {}", identity, e.getMessage());
         }
+      }
+
+      /**
+       * Whether a failure is Sentry's {@code 403 {"result":"missing_chip"}} — the identity we called with
+       * is no longer a registered chip, so the call can only succeed with a re-minted or re-linked one.
+       */
+      static boolean isMissingChip(Throwable e) { // package-private for testing
+        for (Throwable t = e; t != null && t != t.getCause(); t = t.getCause()) {
+            if (t instanceof org.springframework.web.client.RestClientResponseException r
+                    && "missing_chip".equals(firstMatch(RESULT_PATTERN, r.getResponseBodyAsString()))) {
+                return true;
+            }
+            // The Libby call sites wrap their failures in a RestClientException whose message carries the
+            // original 403 body, so match on that too rather than relying on the cause chain surviving.
+            if (t.getMessage() != null && t.getMessage().contains("missing_chip")) {
+                return true;
+            }
+        }
+        return false;
+      }
+
+      /**
+       * Run a Libby call for a card, healing a dead chip the way {@link #fetchFulfillment} does — so every
+       * endpoint (sync, borrow, hold, return) recovers on its own instead of surfacing a bare 403:
+       * <ol>
+       *   <li>Re-link up front from the stored card + PIN when the stored token has already expired.</li>
+       *   <li>On a {@code 403 {"result":"missing_chip"}}, re-mint the identity ({@link #refreshIdentity}),
+       *       persist it, and retry once.</li>
+       *   <li>If that still returns {@code missing_chip} the chip itself is gone: silently re-link from the
+       *       stored credentials ({@link #relinkCard}) and retry once more.</li>
+       * </ol>
+       * Cards that can't re-link (setup-code / pasted-token links, or no credential key configured) surface
+       * a message saying so rather than the raw 403. A card shared with the caller renews too — the re-link
+       * writes the owner's row, which is the row the share points at.
+       */
+      private <T> T withChipRecovery(String identity, java.util.function.Function<String, T> call) {
+        String token = tokenRenewedIfExpired(identity);
+        try {
+            return call.apply(token);
+        } catch (RuntimeException first) {
+            if (!isMissingChip(first)) {
+                throw first;
+            }
+            log.info("OverDrive: card {} returned missing_chip — re-minting its identity and retrying", identity);
+            String refreshed = refreshIdentity(token);
+            if (refreshed != null && !refreshed.equals(token)) {
+                persistReMintedToken(identity, refreshed);
+                try {
+                    return call.apply(refreshed);
+                } catch (RuntimeException second) {
+                    if (!isMissingChip(second)) {
+                        throw second;
+                    }
+                }
+            }
+            String relinked = relinkCard(identity);
+            if (relinked == null) {
+                throw new RestClientException("OverDrive rejected this card's saved sign-in (missing_chip) and it "
+                        + "couldn't be renewed automatically — it has no stored card + PIN credentials (set "
+                        + "OVERDRIVE_CREDENTIAL_KEY and link by card + PIN), or the re-link failed. Unlink the "
+                        + "card and link it again. Original error: " + first.getMessage(), first);
+            }
+            return call.apply(relinked);
+        }
+      }
+
+      /**
+       * The token to call Libby with for a card: the stored one, or — when it has already expired and the
+       * card has card + PIN on file — a freshly re-linked one. This is the proactive half of
+       * {@link #withChipRecovery}; a token that dies before its stated expiry is handled reactively there.
+       */
+      private String tokenRenewedIfExpired(String identity) {
+        OverDriveTokenEntity row = accessibleTokenRow(currentUserId(), identity).orElse(null);
+        String token = row != null ? row.getToken() : null;
+        if (token == null || token.isBlank()) {
+            // Same failure resolveToken raises, so callers see one consistent "connect your account" error.
+            return resolveToken(identity);
+        }
+        Long expiresAt = row.getExpiresAt();
+        if (expiresAt != null && expiresAt <= Instant.now().getEpochSecond()) {
+            String relinked = relinkCard(identity);
+            if (relinked != null) {
+                log.info("OverDrive: stored token for card {} had expired — renewed from stored credentials", identity);
+                return relinked;
+            }
+        }
+        return token;
       }
 
       /** Read all library cards from a sync as {@link OverDriveCard}s (id + best-effort display name). */
@@ -924,7 +1021,10 @@ public class OverDriveService {
        * Persists loan state to the database.
        */
       public OverDriveSyncResponse sync(String identity) {
-        String authToken = resolveToken(identity);
+        return withChipRecovery(identity, token -> syncWith(identity, token));
+      }
+
+      private OverDriveSyncResponse syncWith(String identity, String authToken) {
         String url = sentryBaseUrl + "/chip/sync";
         HttpHeaders headers = libbyHeaders(authToken);
 
@@ -954,7 +1054,7 @@ public class OverDriveService {
             throw ApiError.OVERDRIVE_UNREACHABLE.createException(e.getMessage());
          } catch (Exception e) {
             log.error("OverDrive sync failed: {}", e.getMessage());
-            throw new RestClientException("OverDrive sync failed: " + e.getMessage());
+            throw new RestClientException("OverDrive sync failed: " + e.getMessage(), e);
          }
       }
 
@@ -1013,7 +1113,7 @@ public class OverDriveService {
         // Fulfill with the stored identity as-is. Don't pre-mint: the web client fulfills with its
         // stored identity and re-mints only reactively when the endpoint returns missing_chip, which
         // fetchFulfillment already handles. Minting up front adds needless chip churn.
-        String authToken = resolveToken(identity);
+        String authToken = tokenRenewedIfExpired(identity);
         byte[] body;
         try {
             body = fetchFulfillment(identity, authToken, loanId, FORMAT_EPUB_ADOBE);
@@ -1047,7 +1147,8 @@ public class OverDriveService {
        */
       public String borrow(String identity, String titleId, String titleFormat) {
         try {
-            Map<String, Object> loan = borrowLoan(identity, resolveToken(identity), titleId, titleFormat);
+            Map<String, Object> loan = withChipRecovery(identity,
+                    token -> borrowLoan(identity, token, titleId, titleFormat));
             Object id = loan.get("id");
             String loanId = id != null ? id.toString() : null;
             recordAudit(OverDriveAuditAction.BORROW, identity, titleId, loanId, null,
@@ -1122,7 +1223,7 @@ public class OverDriveService {
             return bodyMap;
          } catch (Exception e) {
             log.error("OverDrive borrow failed: {}", e.getMessage());
-            throw new RestClientException("OverDrive borrow failed: " + e.getMessage());
+            throw new RestClientException("OverDrive borrow failed: " + e.getMessage(), e);
          }
       }
 
@@ -1965,7 +2066,6 @@ public class OverDriveService {
         // Borrow and fulfill with the stored identity as-is, mirroring the web client: it does not
         // pre-mint, and fetchFulfillment re-mints reactively on missing_chip. Pre-minting here only
         // added chip churn without avoiding the missing_chip round-trip.
-        String authToken = resolveToken(identity);
 
         // Resume an already-borrowed title rather than borrowing again: a prior attempt may have
         // borrowed the title but failed at fulfill/import, leaving the loan (and a consumed checkout
@@ -1979,9 +2079,13 @@ public class OverDriveService {
         } else {
             // Prefer an explicit media-type hint; fall back to deriving it from the requested format id.
             String hint = (titleFormat != null && !titleFormat.isBlank()) ? titleFormat : preferredFormat;
-            Map<String, Object> borrowed = borrowLoan(identity, authToken, titleId, hint);
+            Map<String, Object> borrowed = withChipRecovery(identity,
+                    token -> borrowLoan(identity, token, titleId, hint));
             loan = new LoanRef(borrowed.get("id").toString(), loanFormatIds(borrowed));
         }
+        // Resolved after the borrow so a token renewed by the borrow's chip recovery is the one we
+        // fulfill with (fetchFulfillment can still re-mint reactively on top of it).
+        String authToken = resolveToken(identity);
         String loanId = loan.loanId();
         List<String> formats = loan.formatIds();
 
@@ -2631,16 +2735,14 @@ public class OverDriveService {
        * DELETE /card/{cardId}/loan/{loanId} — return a book.
        */
       public void returnBook(String identity, String loanId) {
-        String authToken = resolveToken(identity);
         String url = sentryBaseUrl + "/card/" + identity + "/loan/" + loanId;
-        HttpHeaders headers = libbyHeaders(authToken);
 
         try {
-            restClient.delete()
+            withChipRecovery(identity, authToken -> restClient.delete()
                     .uri(url)
-                    .headers(h -> h.addAll(headers))
+                    .headers(h -> h.addAll(libbyHeaders(authToken)))
                     .retrieve()
-                    .toBodilessEntity();
+                    .toBodilessEntity());
 
              // Mark loan as returned on the current user's cached row. Scope by user (not just identity):
              // a shared card caches the same loan under both the owner and each sharee, so an
@@ -2669,16 +2771,14 @@ public class OverDriveService {
        * GET /card/{cardId}/hold/{formatId} — place a hold.
        */
       public void placeHold(String identity, String titleId) {
-        String authToken = resolveToken(identity);
         String url = sentryBaseUrl + "/card/" + identity + "/hold/" + titleId;
-        HttpHeaders headers = libbyHeaders(authToken);
 
         try {
-            restClient.post()
+            withChipRecovery(identity, authToken -> restClient.post()
                     .uri(url)
-                    .headers(h -> h.addAll(headers))
+                    .headers(h -> h.addAll(libbyHeaders(authToken)))
                     .retrieve()
-                    .toBodilessEntity();
+                    .toBodilessEntity());
 
             recordAudit(OverDriveAuditAction.HOLD_PLACED, identity, titleId, null, null, null, null);
             log.info("OverDrive hold placed for title {}", titleId);
@@ -2693,16 +2793,14 @@ public class OverDriveService {
        * Cancel a hold on a title.
        */
       public void cancelHold(String identity, String titleId) {
-        String authToken = resolveToken(identity);
         String url = sentryBaseUrl + "/card/" + identity + "/hold/" + titleId;
-        HttpHeaders headers = libbyHeaders(authToken);
 
         try {
-            restClient.delete()
+            withChipRecovery(identity, authToken -> restClient.delete()
                     .uri(url)
-                    .headers(h -> h.addAll(headers))
+                    .headers(h -> h.addAll(libbyHeaders(authToken)))
                     .retrieve()
-                    .toBodilessEntity();
+                    .toBodilessEntity());
 
             recordAudit(OverDriveAuditAction.HOLD_CANCELLED, identity, titleId, null, null, null, null);
             log.info("OverDrive hold cancelled for title {}", titleId);
@@ -2868,19 +2966,19 @@ public class OverDriveService {
                             owned && t.getCredCard() != null, t.getDefaultLibraryId(), t.getDefaultPathId(),
                             owned, owned ? null : ownerName(t.getUserId()),
                             owned ? cardShareRepository.countByTokenId(t.getId()) : 0,
-                            canAutoRenew(owned, t), t.getExpiresAt());
+                            canAutoRenew(t), t.getExpiresAt());
                 })
                 .toList();
       }
 
       /**
-       * Whether a card can silently re-link its token when it expires: it must be owned, have card+PIN
-       * on file, retain the library sign-in details, and credential storage must currently be enabled
-       * (a disabled/changed key can't decrypt the stored credentials). Same requirement as an audiobook
-       * download.
+       * Whether a card can silently re-link its token when it expires: it must have card+PIN on file,
+       * retain the library sign-in details, and credential storage must currently be enabled (a
+       * disabled/changed key can't decrypt the stored credentials). Same requirement as an audiobook
+       * download. Ownership is not part of it — a sharee renews the owner's row (see {@link #relinkCard}).
        */
-      private boolean canAutoRenew(boolean owned, OverDriveTokenEntity t) {
-        return owned && credentialCipher.isEnabled() && t.getCredCard() != null
+      private boolean canAutoRenew(OverDriveTokenEntity t) {
+        return credentialCipher.isEnabled() && t.getCredCard() != null
                 && t.getWebsiteId() != null && t.getIlsName() != null;
       }
 
