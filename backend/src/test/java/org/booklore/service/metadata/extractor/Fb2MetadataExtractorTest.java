@@ -499,6 +499,23 @@ class Fb2MetadataExtractorTest {
     }
 
     @Test
+    void extractCover_binaryWithNewLines() throws IOException {
+        byte[] imageData = {(byte) 0x89, 0x50, 0x4E, 0x47};
+        File file = writeFb2("""
+                <description><title-info/></description>
+                <binary id="cover.jpg" content-type="image/jpeg">
+                iVB
+                ORw==
+                </binary>
+                """
+        );
+
+        byte[] cover = extractor.extractCover(file);
+
+        assertThat(cover).isEqualTo(imageData);
+    }
+
+    @Test
     void extractCover_fallbackToCoverpageReference() throws IOException {
         byte[] imageData = {0x01, 0x02, 0x03, 0x04};
         String base64 = Base64.getEncoder().encodeToString(imageData);

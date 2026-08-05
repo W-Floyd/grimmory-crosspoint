@@ -51,7 +51,7 @@ public class Fb2MetadataExtractor implements FileMetadataExtractor {
                     String contentType = binary.getAttribute("content-type");
                     if (contentType != null && contentType.startsWith("image/")) {
                         String base64Data = binary.getTextContent().trim();
-                        return Base64.getDecoder().decode(base64Data);
+                        return Base64.getMimeDecoder().decode(base64Data);
                     }
                 }
             }
@@ -73,7 +73,7 @@ public class Fb2MetadataExtractor implements FileMetadataExtractor {
                                 Element binary = (Element) binaries.item(i);
                                 if (imageId.equals(binary.getAttribute("id"))) {
                                     String base64Data = binary.getTextContent().trim();
-                                    return Base64.getDecoder().decode(base64Data);
+                                    return Base64.getMimeDecoder().decode(base64Data);
                                 }
                             }
                         }

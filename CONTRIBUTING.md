@@ -25,10 +25,10 @@ code.
 
 Grimmory uses a two-stage workflow designed to keep everyone's time well spent.
 
-**Discussions first.** Ideas, bug reports, and support questions all start in
+**Discussions first.** Ideas and support questions all start in
 [GitHub Discussions](https://github.com/orgs/grimmory-tools/discussions). This is where problems get
 understood, ideas get shaped, and the community weighs in. Nothing is off the table at this stage.
-Discussions are where we figure out what's actually worth building or fixing.
+Discussions are where we figure out what's actually worth building.
 
 **Issues mean it's ready.** When a discussion produces something clear and actionable, a maintainer
 will promote it to an issue. That's the signal that the work is agreed, scoped, and ready to be
@@ -102,19 +102,19 @@ may already have been reported or fixed.
 > upvote button on the discussion or an emoji reaction on the relevant post instead. This shows
 > your support without notifying every participant by email.
 
-If it hasn't been reported, open an [**Issue Triage**][bug] discussion and fill in the
+If it hasn't been reported, open a [**Bug Report Issue**][bug] and fill in the
 template completely. The information it asks for is what contributors need to investigate. Skipping
 fields slows things down for everyone.
 
 > [!WARNING]
 > A common mistake is to post a bug in the wrong category. If you're experiencing unexpected
-> behaviour, use [**Issue Triage**][bug] and not [**Q&A**][qa] or [**Feature Requests & Ideas**][request]. 
+> behaviour, use [**a Bug Report**][bug] and not [**Q&A**][qa] or [**Feature Requests & Ideas**][request]. 
 > Posting in the wrong place means maintainers or contributors have to ask for information all
 > over again, or ask you to repost entirely.
 
 [discussions]: https://github.com/orgs/grimmory-tools/discussions
 [closed-issues]: https://github.com/grimmory-tools/grimmory/issues?q=is%3Aissue%20state%3Aclosed
-[bug]: https://github.com/orgs/grimmory-tools/discussions/new?category=issue-triage
+[bug]: https://github.com/grimmory-tools/grimmory/issues/new?template=bug-report.yml
 [request]: https://github.com/orgs/grimmory-tools/discussions/new?category=feature-requests-ideas
 [qa]: https://github.com/orgs/grimmory-tools/discussions/new?category=q-a
 
