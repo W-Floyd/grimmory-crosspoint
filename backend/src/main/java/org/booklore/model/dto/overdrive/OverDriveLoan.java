@@ -12,6 +12,12 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class OverDriveLoan {
     private String id;
+    /**
+     * The card this loan sits on. Libby's {@code /chip/sync} is chip-scoped, not card-scoped: it returns
+     * every card on the chip and tags each loan with its owning card, so this is what attributes a loan
+     * rather than "which card we happened to ask for".
+     */
+    private String cardId;
     private String title;
     /** OverDrive often puts the real book name here (title is the series/franchise, e.g. "Star Wars"). */
     private String subtitle;
@@ -33,4 +39,16 @@ public class OverDriveLoan {
     private Double starRating;
     private List<OverDriveIdentifier> identifiers;
     private List<OverDriveFormat> formats;
+
+    // Copy/queue counts at the loan's own library. The sync feed already carries these, so the
+    // "holding up the queue" view doesn't need a second round-trip to Thunder to learn them.
+
+    /** Copies of this title borrowable right now at the loan's own library. */
+    private Integer availableCopies;
+    /** Copies of this title the loan's own library owns in total. */
+    private Integer ownedCopies;
+    /** How many holders are queued for this title at the loan's own library. */
+    private Integer holdsCount;
+    /** "Lucky Day" copies at the loan's own library, borrowable without a hold. */
+    private Integer luckyDayAvailableCopies;
 }

@@ -27,6 +27,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * REST endpoints for OverDrive/Libby integration.
@@ -283,7 +286,76 @@ public class OverDriveController {
     ) {
         requireEnabled();
         OverDriveSyncResponse sync = overDriveService.sync(identity);
-        return ResponseEntity.ok(convertSync(identity, sync));
+        return ResponseEntity.ok(convertSync(identity, sync, mediaExtrasFor(List.of(sync), List.of(identity))));
+    }
+
+    /**
+     * GET /api/overdrive/sync-all — sync several cards at once.
+     *
+     * <p>Preferred over calling {@code /sync} per card: Libby's chip sync already covers every card on a
+     * chip, so this collapses cards sharing a chip into one upstream call and enriches all their titles
+     * with a single catalog lookup.
+     */
+    @Operation(summary = "Sync OverDrive loans and holds for several cards",
+               description = "One GET /chip/sync per distinct chip, split back out per card.")
+    @ApiResponse(responseCode = "200", description = "Sync successful")
+    @GetMapping("/sync-all")
+    public ResponseEntity<Map<String, OverDriveSyncResult>> syncAll(
+            @Parameter(description = "Library identities (card IDs)") @RequestParam List<String> identities
+    ) {
+        requireEnabled();
+        Map<String, OverDriveSyncResponse> syncs = overDriveService.syncAll(identities);
+
+        // Distinct chip responses only — cards sharing a chip share one response object, and enriching the
+        // union of their titles costs a single catalog call for the whole set.
+        List<OverDriveSyncResponse> distinct = syncs.values().stream()
+                .collect(Collectors.toCollection(() -> Collections.newSetFromMap(new IdentityHashMap<>())))
+                .stream()
+                .toList();
+        Map<String, OverDriveService.MediaExtras> extras = mediaExtrasFor(distinct, syncs.keySet());
+
+        Map<String, OverDriveSyncResult> out = new LinkedHashMap<>();
+        for (Map.Entry<String, OverDriveSyncResponse> entry : syncs.entrySet()) {
+            out.put(entry.getKey(), convertSync(entry.getKey(), entry.getValue(), extras));
+        }
+        return ResponseEntity.ok(out);
+    }
+
+    /**
+     * Enrich every loan/hold title across the given syncs in one {@code /media/bulk} call, scoped to the
+     * cards actually asked for so a chip's unselected cards don't drag extra titles into the lookup.
+     */
+    private Map<String, OverDriveService.MediaExtras> mediaExtrasFor(
+            Collection<OverDriveSyncResponse> syncs, Collection<String> identities) {
+        Set<String> wanted = new HashSet<>(identities);
+        List<String> titleIds = syncs.stream()
+                .flatMap(sync -> Stream.concat(
+                        cardScoped(sync.getLoans(), OverDriveLoan::getCardId, wanted).stream()
+                                .map(OverDriveLoan::getId),
+                        cardScoped(sync.getHolds(), OverDriveHold::getCardId, wanted).stream()
+                                .map(OverDriveHold::getId)))
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        return overDriveService.mediaExtras(titleIds);
+    }
+
+    /**
+     * Narrow a chip-wide loan/hold list to the cards we care about. The sync feed tags each entry with
+     * its owning card, so a chip carrying several cards can be split correctly instead of every card
+     * being handed the whole chip's contents. When the feed omits the tag (older/edge responses), the
+     * entry is kept rather than dropped — better to over-report than to lose a loan.
+     */
+    private static <T> List<T> cardScoped(List<T> items, Function<T, String> cardId, Set<String> wanted) {
+        if (items == null || items.isEmpty()) {
+            return List.of();
+        }
+        return items.stream()
+                .filter(item -> {
+                    String card = cardId.apply(item);
+                    return card == null || card.isBlank() || wanted.contains(card);
+                })
+                .toList();
     }
 
     // ── Loans ────────────────────────────────────────────────────────────
@@ -726,20 +798,17 @@ public class OverDriveController {
 
     // ── DTO Converters ───────────────────────────────────────────────────
 
-    private OverDriveSyncResult convertSync(String identity, OverDriveSyncResponse sync) {
-        List<OverDriveLoan> loans = sync.getLoans() != null ? sync.getLoans() : List.of();
-        List<OverDriveHold> holds = sync.getHolds() != null ? sync.getHolds() : List.of();
+    /**
+     * Build one card's view of a chip sync. The response is chip-wide, so loans and holds are first
+     * narrowed to the ones actually sitting on {@code identity}; {@code extras} is the shared catalog
+     * enrichment for every card in the batch.
+     */
+    private OverDriveSyncResult convertSync(String identity, OverDriveSyncResponse sync,
+                                            Map<String, OverDriveService.MediaExtras> extras) {
+        Set<String> wanted = Set.of(identity);
+        List<OverDriveLoan> loans = cardScoped(sync.getLoans(), OverDriveLoan::getCardId, wanted);
+        List<OverDriveHold> holds = cardScoped(sync.getHolds(), OverDriveHold::getCardId, wanted);
         List<OverDriveLibrary> libraries = sync.getLibraries() != null ? sync.getLibraries() : List.of();
-
-        // Enrich loans/holds with narrator/edition/duration in one catalog call — the sync feed carries
-        // these only sparsely, if at all.
-        List<String> titleIds = java.util.stream.Stream.concat(
-                        loans.stream().map(OverDriveLoan::getId),
-                        holds.stream().map(OverDriveHold::getId))
-                .filter(id -> id != null && !id.isBlank())
-                .distinct()
-                .toList();
-        Map<String, OverDriveService.MediaExtras> extras = overDriveService.mediaExtras(titleIds);
 
         List<OverDriveLoanDto> loanDtos = loans.stream()
                 .map(loan -> loanToDto(loan, extras.get(loan.getId())))
@@ -778,6 +847,7 @@ public class OverDriveController {
     private OverDriveLoanDto loanToDto(OverDriveLoan loan, OverDriveService.MediaExtras extras) {
         return new OverDriveLoanDto(
                 loan.getId(),
+                loan.getCardId(),
                 loan.getTitle(),
                 loan.getSubtitle(),
                 loan.getExpireDate(),
@@ -792,7 +862,11 @@ public class OverDriveController {
                 extras != null ? extras.edition() : null,
                 extras != null ? extras.duration() : null,
                 extras != null && extras.audiobook(),
-                extras != null && extras.magazine()
+                extras != null && extras.magazine(),
+                loan.getAvailableCopies(),
+                loan.getOwnedCopies(),
+                loan.getHoldsCount(),
+                loan.getLuckyDayAvailableCopies()
         );
     }
 
@@ -876,6 +950,7 @@ public class OverDriveController {
     private OverDriveHoldDto holdToDto(OverDriveHold hold, OverDriveService.MediaExtras extras) {
         return new OverDriveHoldDto(
                 hold.getId(),
+                hold.getCardId(),
                 hold.getTitle(),
                 hold.getSubtitle(),
                 hold.getFirstCreatorName(),
@@ -889,7 +964,13 @@ public class OverDriveController {
                 extras != null ? extras.edition() : null,
                 extras != null ? extras.duration() : null,
                 extras != null && extras.audiobook(),
-                extras != null && extras.magazine()
+                extras != null && extras.magazine(),
+                hold.getHoldListPosition(),
+                hold.getHoldsCount(),
+                hold.getAvailableCopies(),
+                hold.getOwnedCopies(),
+                hold.getLuckyDayAvailableCopies(),
+                hold.getHoldable()
         );
     }
 
@@ -912,8 +993,14 @@ public class OverDriveController {
             boolean canPlaceHolds
     ) {}
 
+    /**
+     * A loan as the UI sees it. {@code cardId} comes from the sync feed itself, so a loan stays attributed
+     * to its own card even when several cards share a chip. The copy/queue counts are likewise already in
+     * the feed — surfacing them saves the client a Thunder round-trip to learn its own library's state.
+     */
     record OverDriveLoanDto(
             String id,
+            String cardId,
             String title,
             String subtitle,
             String expireDate,
@@ -928,11 +1015,17 @@ public class OverDriveController {
             String edition,
             String duration,
             boolean audiobook,
-            boolean magazine
+            boolean magazine,
+            Integer availableCopies,
+            Integer ownedCopies,
+            Integer holdsCount,
+            Integer luckyDayAvailableCopies
     ) {}
 
+    /** A hold as the UI sees it — see {@link OverDriveLoanDto} on {@code cardId} and the copy counts. */
     record OverDriveHoldDto(
             String id,
+            String cardId,
             String title,
             String subtitle,
             String firstCreatorName,
@@ -946,7 +1039,13 @@ public class OverDriveController {
             String edition,
             String duration,
             boolean audiobook,
-            boolean magazine
+            boolean magazine,
+            Integer holdListPosition,
+            Integer holdsCount,
+            Integer availableCopies,
+            Integer ownedCopies,
+            Integer luckyDayAvailableCopies,
+            Boolean holdable
     ) {}
 
     record OverDriveBorrowResult(String loanId) {}

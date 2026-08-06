@@ -2,6 +2,8 @@ package org.booklore.service.overdrive;
 
 import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.model.dto.BookLoreUser;
+import org.booklore.model.dto.overdrive.OverDriveLoan;
+import org.booklore.model.dto.overdrive.OverDriveSyncResponse;
 import org.booklore.model.entity.OverDriveLoanEntity;
 import org.booklore.model.entity.OverDriveTokenEntity;
 import org.booklore.repository.OverDriveLoanRepository;
@@ -1123,5 +1125,121 @@ class OverDriveServiceTest {
                     service.borrowAndImport("card-1", "title-9", null, null, "T", "A", null, null, null, null, null))
                     .hasMessageContaining("No OverDrive token available");
         }
+    }
+
+    // ── syncAll: one upstream call per chip ──────────────────────────────
+
+    /** A card row the current user owns, authenticated by {@code token}. */
+    private void stubCard(long userId, String identity, String token) {
+        when(tokenRepository.findByUserIdAndIdentity(userId, identity)).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(userId).identity(identity).token(token).build()));
+    }
+
+    /**
+     * A service whose Libby calls hit a deep-stubbed RestClient returning {@code body}, plus a counter of
+     * how many chip syncs actually went upstream.
+     */
+    private record SyncHarness(OverDriveService service, java.util.concurrent.atomic.AtomicInteger calls) {}
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private SyncHarness syncHarness(OverDriveSyncResponse body) {
+        RestClient client = org.mockito.Mockito.mock(RestClient.class);
+        // RestClient's fluent spec types are self-referentially generic, which deep stubs can't follow —
+        // wire the chain explicitly instead.
+        RestClient.RequestHeadersUriSpec spec = org.mockito.Mockito.mock(RestClient.RequestHeadersUriSpec.class);
+        RestClient.ResponseSpec responseSpec = org.mockito.Mockito.mock(RestClient.ResponseSpec.class);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        when(client.get()).thenReturn(spec);
+        when(spec.uri(org.mockito.ArgumentMatchers.anyString())).thenReturn(spec);
+        when(spec.headers(any())).thenReturn(spec);
+        when(spec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.toEntity(OverDriveSyncResponse.class))
+                .thenAnswer(inv -> {
+                    calls.incrementAndGet();
+                    return org.springframework.http.ResponseEntity.ok(body);
+                });
+        OverDriveService svc = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler,
+                magazineHandler, ebookHandler, bookService,
+                client, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
+                importDestinationRepository, userRepository, authenticationService, appSettingService,
+                new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService);
+        return new SyncHarness(svc, calls);
+    }
+
+    @Test
+    void syncAll_collapsesCardsSharingAChipIntoOneUpstreamCall() {
+        authAs(7L);
+        // Three cards linked by one setup code share a token — i.e. one chip — and a fourth is its own.
+        stubCard(7L, "card-a", "chip-1");
+        stubCard(7L, "card-b", "chip-1");
+        stubCard(7L, "card-c", "chip-1");
+        stubCard(7L, "card-d", "chip-2");
+        SyncHarness h = syncHarness(new OverDriveSyncResponse());
+
+        var result = h.service().syncAll(List.of("card-a", "card-b", "card-c", "card-d"));
+
+        // Two chips → two calls, not four. Every requested card still gets its chip's response.
+        assertThat(h.calls()).hasValue(2);
+        assertThat(result).containsOnlyKeys("card-a", "card-b", "card-c", "card-d");
+        // The three cards on chip-1 are handed the very same response object — one fetch, shared.
+        assertThat(result.get("card-a")).isSameAs(result.get("card-b")).isSameAs(result.get("card-c"));
+    }
+
+    @Test
+    void syncAll_deduplicatesRepeatedIdentities() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        SyncHarness h = syncHarness(new OverDriveSyncResponse());
+
+        assertThat(h.service().syncAll(List.of("card-a", "card-a"))).containsOnlyKeys("card-a");
+        assertThat(h.calls()).hasValue(1);
+    }
+
+    @Test
+    void syncAll_skipsCardsWithNoStoredToken() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-gone")).thenReturn(Optional.empty());
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        SyncHarness h = syncHarness(new OverDriveSyncResponse());
+
+        // An unlinked card is simply absent rather than failing the whole batch.
+        assertThat(h.service().syncAll(List.of("card-a", "card-gone"))).containsOnlyKeys("card-a");
+        assertThat(h.calls()).hasValue(1);
+    }
+
+    @Test
+    void syncAll_returnsNothingForNoIdentities() {
+        assertThat(service.syncAll(List.of())).isEmpty();
+        assertThat(service.syncAll(null)).isEmpty();
+        verifyNoInteractions(restClient);
+    }
+
+    @Test
+    void syncAll_persistsEachLoanUnderItsOwnCard() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        stubCard(7L, "card-b", "chip-1");
+
+        // A chip sync carries both cards' loans; each must be stored against the card it sits on, not
+        // against whichever card the call happened to be made with.
+        OverDriveSyncResponse body = new OverDriveSyncResponse();
+        OverDriveLoan onA = new OverDriveLoan();
+        onA.setId("loan-1");
+        onA.setCardId("card-a");
+        OverDriveLoan onB = new OverDriveLoan();
+        onB.setId("loan-2");
+        onB.setCardId("card-b");
+        body.setLoans(List.of(onA, onB));
+        when(loanRepository.findByUserIdAndOverdriveLoanId(any(), any())).thenReturn(Optional.empty());
+
+        syncHarness(body).service().syncAll(List.of("card-a", "card-b"));
+
+        ArgumentCaptor<OverDriveLoanEntity> saved = ArgumentCaptor.forClass(OverDriveLoanEntity.class);
+        verify(loanRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+        assertThat(saved.getAllValues())
+                .extracting(OverDriveLoanEntity::getOverdriveLoanId, OverDriveLoanEntity::getIdentity)
+                .contains(org.assertj.core.groups.Tuple.tuple("loan-1", "card-a"),
+                          org.assertj.core.groups.Tuple.tuple("loan-2", "card-b"));
     }
 }

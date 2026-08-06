@@ -4,8 +4,6 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
-import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
 import { OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
 
 import { ButtonModule } from '@openng/optimus-ui/button';
@@ -267,10 +265,16 @@ export class OverdriveCatalogComponent {
 
   /**
    * True when this loan's title has zero copies available at its own library — i.e. holding this loan
-   * would hold up the queue: returning it frees a copy for the next borrower. Requires availability to
-   * have been fetched (see {@link fetchLoanAvailability}); returns false until then.
+   * would hold up the queue: returning it frees a copy for the next borrower.
+   *
+   * The sync feed already reports the loan's own-library copy count, so this normally answers without
+   * any extra request. Only loans whose sync omitted the count fall back to fetched availability (see
+   * {@link fetchLoanAvailability}), and those return false until it arrives.
    */
   loanHoldingUpQueue(loan: OverDriveLoan): boolean {
+    if (loan.availableCopies != null) {
+      return loan.availableCopies === 0;
+    }
     const ownKey = this.cardLibraryKey(loan.cardId);
     const entry = (this.loanAvailability()[loan.id] ?? []).find(a => a.libraryKey === ownKey);
     if (!entry) return false;
@@ -316,15 +320,17 @@ export class OverdriveCatalogComponent {
   }
 
   /**
-   * Fetch availability (copies + hold queue) for any loan title that isn't already cached, at the
-   * selected cards' libraries, merging results in by loan id. Only the uncached titles are requested,
-   * so returning one loan (which re-syncs) doesn't re-check the loans that are still on the shelf. One
-   * batched request covers all missing titles per library. Best-effort: a failure just leaves those
-   * titles unfiltered rather than erroring the whole tab.
+   * Fetch availability (copies + hold queue) for any loan title the sync feed didn't already report a
+   * copy count for and that isn't already cached, at the selected cards' libraries, merging results in
+   * by loan id. Loans carrying their own count need nothing fetched at all, so with a normal sync this
+   * is usually a no-op. Only uncached titles are requested, so returning one loan (which re-syncs)
+   * doesn't re-check the loans still on the shelf. Best-effort: a failure just leaves those titles
+   * unfiltered rather than erroring the whole tab.
    */
   fetchLoanAvailability(): void {
     const cached = this.loanAvailability();
-    const titleIds = [...new Set(this.loans().map(l => l.id))].filter(id => !(id in cached));
+    const titleIds = [...new Set(this.loans().filter(l => l.availableCopies == null).map(l => l.id))]
+      .filter(id => !(id in cached));
     const cardIds = this.selectedCards().map(c => c.cardId);
     if (titleIds.length === 0 || cardIds.length === 0) {
       return;
@@ -742,7 +748,11 @@ export class OverdriveCatalogComponent {
      this.syncSelectedCards();
    }
 
-   /** Sync every selected card (upfront) so per-card counts, loans and holds are ready. */
+   /**
+    * Sync every selected card (upfront) so per-card counts, loans and holds are ready. One request for
+    * the whole set: Libby's sync is chip-scoped, so cards sharing a chip cost a single upstream call
+    * rather than one apiece.
+    */
    syncSelectedCards(): void {
      const cards = this.selectedCards();
      if (cards.length === 0) {
@@ -754,17 +764,13 @@ export class OverdriveCatalogComponent {
      }
      this.loading.set(true);
      this.error.set(null);
-     forkJoin(
-       cards.map(card => this.overdriveService.sync(card.cardId).pipe(
-         catchError(() => of(null))
-       ))
-     ).subscribe({
-       next: (syncs) => {
+     this.overdriveService.syncAll(cards.map(c => c.cardId)).subscribe({
+       next: (byCard) => {
          const map = new Map<string, OverDriveSyncResult>();
-         cards.forEach((card, i) => {
-           const s = syncs[i];
+         for (const card of cards) {
+           const s = byCard?.[card.cardId];
            if (s) map.set(card.cardId, s);
-         });
+         }
          this.cardSyncs.set(map);
          this.rebuildAggregates();
          this.lastSynced.set(new Date());
@@ -789,8 +795,9 @@ export class OverdriveCatalogComponent {
      for (const card of this.selectedCards()) {
        const s = map.get(card.cardId);
        if (!s) continue;
-       for (const l of s.loans ?? []) loans.push({ ...l, cardId: card.cardId });
-       for (const h of s.holds ?? []) holds.push({ ...h, cardId: card.cardId });
+       // Trust the sync feed's own card tag; fall back to the card we asked for only if it's missing.
+       for (const l of s.loans ?? []) loans.push({ ...l, cardId: l.cardId ?? card.cardId });
+       for (const h of s.holds ?? []) holds.push({ ...h, cardId: h.cardId ?? card.cardId });
        for (const lib of s.libraries ?? []) libraries.set(lib.preferredKey, lib);
      }
      this.loans.set(loans);

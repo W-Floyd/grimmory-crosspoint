@@ -1024,6 +1024,82 @@ public class OverDriveService {
         return withChipRecovery(identity, token -> syncWith(identity, token));
       }
 
+      /**
+       * Sync many cards with one upstream call per <em>chip</em>, not per card.
+       *
+       * <p>Libby's {@code /chip/sync} takes no card parameter: it is scoped to the chip the bearer token
+       * authenticates, and returns every card on that chip with each loan and hold tagged by its owning
+       * {@code cardId}. Cards linked together — via a setup code or a pasted identity token — therefore
+       * share one token, and syncing them one at a time re-fetches the identical payload once per card.
+       * Grouping by token collapses that to a single call per chip, which is what the Libby web client
+       * itself does.
+       *
+       * @return each requested identity mapped to its chip's sync response; cards whose sync failed (or
+       *         that have no stored token) are absent, so one dead card can't fail the whole set.
+       */
+      public Map<String, OverDriveSyncResponse> syncAll(List<String> identities) {
+        if (identities == null || identities.isEmpty()) {
+            return Map.of();
+        }
+        Long userId = currentUserId();
+
+        // Group the requested cards by the token that authenticates them — one group per chip.
+        Map<String, List<String>> cardsByToken = new LinkedHashMap<>();
+        for (String identity : identities.stream().filter(Objects::nonNull).distinct().toList()) {
+            String token = accessibleTokenRow(userId, identity)
+                    .map(OverDriveTokenEntity::getToken)
+                    .filter(t -> !t.isBlank())
+                    .orElse(null);
+            if (token == null) {
+                log.debug("OverDrive syncAll: no stored token for card {}; skipping", identity);
+                continue;
+            }
+            cardsByToken.computeIfAbsent(token, t -> new ArrayList<>()).add(identity);
+        }
+
+        Map<String, OverDriveSyncResponse> out = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> entry : cardsByToken.entrySet()) {
+            List<String> group = entry.getValue();
+            // Any card in the group can stand in for the chip; recovery/re-mint is keyed off it.
+            String representative = group.getFirst();
+            OverDriveSyncResponse resp;
+            try {
+                resp = sync(representative);
+            } catch (RuntimeException e) {
+                log.warn("OverDrive syncAll: chip sync via card {} failed ({}); its {} card(s) will be absent",
+                        representative, e.getMessage(), group.size());
+                continue;
+            }
+            propagateReMintedToken(userId, entry.getKey(), group);
+            for (String identity : group) {
+                out.put(identity, resp);
+            }
+        }
+        log.info("OverDrive syncAll: {} card(s) covered by {} chip sync call(s)", out.size(), cardsByToken.size());
+        return out;
+      }
+
+      /**
+       * After a grouped sync, copy a re-minted token to the chip's other cards. {@link #withChipRecovery}
+       * persists a refreshed identity only against the card it was called with; the siblings share the
+       * same chip, so leaving them on the dead token would make each of them re-mint in turn.
+       */
+      private void propagateReMintedToken(Long userId, String originalToken, List<String> group) {
+        if (group.size() < 2) {
+            return;
+        }
+        String current = accessibleTokenRow(userId, group.getFirst())
+                .map(OverDriveTokenEntity::getToken)
+                .orElse(null);
+        if (current == null || current.isBlank() || current.equals(originalToken)) {
+            return;
+        }
+        for (String identity : group.subList(1, group.size())) {
+            persistReMintedToken(identity, current);
+        }
+        log.info("OverDrive: propagated re-minted chip token to {} sibling card(s)", group.size() - 1);
+      }
+
       private OverDriveSyncResponse syncWith(String identity, String authToken) {
         String url = sentryBaseUrl + "/chip/sync";
         HttpHeaders headers = libbyHeaders(authToken);
@@ -1039,7 +1115,13 @@ public class OverDriveService {
             if (syncResp != null && syncResp.getLoans() != null) {
                  Long userId = currentUserId();
                  for (OverDriveLoan loan : syncResp.getLoans()) {
-                    persistLoan(userId, identity, loan);
+                    // The sync is chip-scoped, so it can carry loans belonging to sibling cards. Attribute
+                    // each to the card it actually sits on, falling back to the card we called with only
+                    // when the feed omits the tag.
+                    String loanCard = loan.getCardId() != null && !loan.getCardId().isBlank()
+                            ? loan.getCardId()
+                            : identity;
+                    persistLoan(userId, loanCard, loan);
                  }
              }
 
@@ -3025,9 +3107,9 @@ public class OverDriveService {
 
       /**
        * Per-library availability for many titles at once, keyed by title id. Issues a single batched
-       * {@code /media/availability?titleIds=…} call per library (one per library, all titles), rather
-       * than a full media fetch per title × library — so checking a whole tab of holds against the
-       * user's other libraries costs one lightweight call per library instead of dozens.
+       * {@code /media/availability} call per library — all titles in one body, all libraries in
+       * parallel — rather than a full media fetch per title × library. Checking a whole tab of holds
+       * against the user's other libraries therefore costs one lightweight round-trip, not dozens.
        */
       public Map<String, List<OverDriveLibraryAvailability>> availabilityForTitles(List<String> titleIds, List<String> cardIds) {
         if (titleIds == null || titleIds.isEmpty() || cardIds == null || cardIds.isEmpty()) {
@@ -3041,10 +3123,13 @@ public class OverDriveService {
                     .filter(k -> k != null && !k.isBlank())
                     .ifPresent(libraryKeys::add);
         }
+        // One concurrent fan-out across the libraries rather than a call per library in series.
+        Map<String, Map<String, OverDriveApiResponse.Item>> byLibrary =
+                overDriveParser.fetchAvailabilityBulk(libraryKeys, titleIds);
         Map<String, List<OverDriveLibraryAvailability>> result = new LinkedHashMap<>();
         for (String libraryKey : libraryKeys) {
-            Map<String, OverDriveApiResponse.Item> byId = overDriveParser.fetchAvailability(libraryKey, titleIds);
-            for (Map.Entry<String, OverDriveApiResponse.Item> entry : byId.entrySet()) {
+            for (Map.Entry<String, OverDriveApiResponse.Item> entry
+                    : byLibrary.getOrDefault(libraryKey, Map.of()).entrySet()) {
                 result.computeIfAbsent(entry.getKey(), k -> new ArrayList<>())
                         .add(toLibraryAvailability(libraryKey, entry.getValue()));
             }

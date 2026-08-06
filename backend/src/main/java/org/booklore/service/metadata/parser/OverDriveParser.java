@@ -19,6 +19,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -28,6 +29,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 
@@ -50,6 +54,8 @@ public class OverDriveParser implements BookParser {
     private static final String THUNDER_MEDIA_URL = "https://thunder.api.overdrive.com/v2/media";
     /** Libby's public, library-agnostic share link for a title id (e.g. .../title/618973). */
     private static final String LIBBY_TITLE_URL = "https://share.libbyapp.com/title/";
+    /** Client id the Libby web client tags its Thunder calls with. */
+    private static final String THUNDER_CLIENT_ID = "dewey";
     /** Thunder caps a single page at 100 items; larger perPage silently returns none. */
     private static final int RESULTS_PER_PAGE = 100;
     /** Hard cap on total search results collected across pages (bounds how far a broad query paginates). */
@@ -475,20 +481,61 @@ public class OverDriveParser implements BookParser {
     }
 
     /**
-     * Batch per-library availability for many titles in one call via
-     * {@code /v2/libraries/{key}/media/availability?titleIds=…}. No auth required. Returns availability
-     * items keyed by title id (empty on failure/blank input). Far cheaper than fetching each title's full
-     * media object per library when all we need is copy counts / hold state.
+     * Batch per-library availability for many titles in one call. Convenience wrapper over
+     * {@link #fetchAvailabilityBulk} for a single library.
      */
     public Map<String, OverDriveApiResponse.Item> fetchAvailability(String libraryKey, List<String> titleIds) {
-        if (libraryKey == null || libraryKey.isBlank() || titleIds == null || titleIds.isEmpty()) {
+        if (libraryKey == null || libraryKey.isBlank()) {
             return Map.of();
         }
+        return fetchAvailabilityBulk(List.of(libraryKey), titleIds).getOrDefault(libraryKey, Map.of());
+    }
+
+    /**
+     * Per-library availability for many titles, fetched for all libraries <em>concurrently</em> —
+     * {@code POST /v2/libraries/{key}/media/availability} with the title ids in the body, mirroring the
+     * Libby web client (which fires one such request per library in parallel). No auth required.
+     *
+     * <p>POST rather than a {@code ?titleIds=…} query string: the id list grows with the user's holds and
+     * would otherwise run into URL length limits. Concurrent rather than sequential: the per-request
+     * throttle would otherwise add a full second of latency for every extra library, and a handful of
+     * parallel requests is exactly the shape of traffic the real client produces. The throttle is applied
+     * once for the batch, so successive batches stay spaced apart.
+     *
+     * @return library key → (title id → availability item). Libraries whose call failed map to an empty
+     *         map rather than failing the batch.
+     */
+    public Map<String, Map<String, OverDriveApiResponse.Item>> fetchAvailabilityBulk(
+            Collection<String> libraryKeys, List<String> titleIds) {
+        if (libraryKeys == null || libraryKeys.isEmpty() || titleIds == null || titleIds.isEmpty()) {
+            return Map.of();
+        }
+        List<String> keys = libraryKeys.stream()
+                .filter(k -> k != null && !k.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
+        List<String> ids = titleIds.stream().filter(id -> id != null && !id.isBlank()).distinct().toList();
+        if (keys.isEmpty() || ids.isEmpty()) {
+            return Map.of();
+        }
+
+        String body;
         try {
-            waitForRateLimit();
+            body = objectMapper.writeValueAsString(Map.of("ids", ids));
+        } catch (Exception e) {
+            log.warn("OverDrive: could not encode availability request body: {}", e.getMessage());
+            return Map.of();
+        }
+
+        // One throttle wait for the whole fan-out, not one per library.
+        waitForRateLimit();
+
+        Map<String, CompletableFuture<HttpResponse<String>>> inFlight = new LinkedHashMap<>();
+        for (String libraryKey : keys) {
             URI uri = UriComponentsBuilder.fromUriString(THUNDER_BASE_URL)
                     .pathSegment(libraryKey, "media", "availability")
-                    .queryParam("titleIds", String.join(",", titleIds))
+                    .queryParam("x-client-id", THUNDER_CLIENT_ID)
                     .build()
                     .encode()
                     .toUri();
@@ -496,25 +543,31 @@ public class OverDriveParser implements BookParser {
                     .uri(uri)
                     .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
                     .header("Accept", "application/json")
-                    .GET()
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                     .build();
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            Map<String, OverDriveApiResponse.Item> byId = new LinkedHashMap<>();
-            for (OverDriveApiResponse.Item item : parseItems(response)) {
-                // Thunder can return null placeholders in the items array (e.g. titles not carried at this
-                // library), so guard before dereferencing.
-                if (item != null && item.getId() != null) {
-                    byId.put(item.getId(), item);
-                }
-            }
-            return byId;
-        } catch (IOException e) {
-            log.warn("OverDrive: failed to fetch availability at {}: {}", libraryKey, e.getMessage());
-            return Map.of();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return Map.of();
+            inFlight.put(libraryKey, httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString()));
         }
+
+        Map<String, Map<String, OverDriveApiResponse.Item>> out = new LinkedHashMap<>();
+        for (Map.Entry<String, CompletableFuture<HttpResponse<String>>> entry : inFlight.entrySet()) {
+            String libraryKey = entry.getKey();
+            try {
+                Map<String, OverDriveApiResponse.Item> byId = new LinkedHashMap<>();
+                for (OverDriveApiResponse.Item item : parseItems(entry.getValue().join())) {
+                    // Thunder can return null placeholders in the items array (e.g. titles not carried at
+                    // this library), so guard before dereferencing.
+                    if (item != null && item.getId() != null) {
+                        byId.put(item.getId(), item);
+                    }
+                }
+                out.put(libraryKey, byId);
+            } catch (CompletionException | CancellationException e) {
+                log.warn("OverDrive: failed to fetch availability at {}: {}", libraryKey, e.getMessage());
+                out.put(libraryKey, Map.of());
+            }
+        }
+        return out;
     }
 
     private List<OverDriveApiResponse.Item> parseItems(HttpResponse<String> response) {

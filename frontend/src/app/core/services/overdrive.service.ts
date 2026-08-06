@@ -78,7 +78,10 @@ export interface OverDriveLoan {
   formats?: OverDriveFormat[];
   /** Id of the existing library book this loan is linked to (by prior import or ISBN), if any. */
   bookId?: number | null;
-  /** Client-side tag: the card this loan belongs to (set when aggregating across selected cards). */
+  /**
+   * The card this loan sits on, as reported by the sync feed itself — chip syncs cover every card on the
+   * chip, so this (not "which card we asked for") is what attributes a loan.
+   */
   cardId?: string;
   /** Catalog-enriched: narrator name(s), raw edition label, audiobook duration ("HH:MM:SS"), and media type. */
   narrator?: string | null;
@@ -86,6 +89,11 @@ export interface OverDriveLoan {
   duration?: string | null;
   audiobook?: boolean;
   magazine?: boolean;
+  /** Copy/queue counts at the loan's own library, carried by the sync feed — no extra lookup needed. */
+  availableCopies?: number | null;
+  ownedCopies?: number | null;
+  holdsCount?: number | null;
+  luckyDayAvailableCopies?: number | null;
 }
 
 export interface OverDriveHold {
@@ -105,7 +113,10 @@ export interface OverDriveHold {
   expireDate?: string;
   /** When the hold was placed (ISO-8601 from Libby sync). */
   placedDate?: string | null;
-  /** Client-side tag: the card this hold belongs to (set when aggregating across selected cards). */
+  /**
+   * The card this hold sits on, as reported by the sync feed itself — chip syncs cover every card on the
+   * chip, so this (not "which card we asked for") is what attributes a hold.
+   */
   cardId?: string;
   /** Catalog-enriched: narrator name(s), raw edition label, audiobook duration ("HH:MM:SS"), and media type. */
   narrator?: string | null;
@@ -113,6 +124,16 @@ export interface OverDriveHold {
   duration?: string | null;
   audiobook?: boolean;
   magazine?: boolean;
+  /**
+   * Queue position and copy counts at the hold's own library, carried by the sync feed. The Holds tab
+   * therefore only needs to call out for the user's *other* libraries.
+   */
+  holdListPosition?: number | null;
+  holdsCount?: number | null;
+  availableCopies?: number | null;
+  ownedCopies?: number | null;
+  luckyDayAvailableCopies?: number | null;
+  holdable?: boolean | null;
 }
 
 export interface OverDriveCreator {
@@ -465,6 +486,17 @@ export class OverDriveService {
   sync(cardId: string): Observable<OverDriveSyncResult> {
     return this.http.get<OverDriveSyncResult>(`${this.baseUrl}/sync`, {
       params: { identity: cardId }
+    });
+  }
+
+  /**
+   * Sync several cards in one request, keyed by card id. Libby's sync is chip-scoped, so the backend
+   * collapses cards sharing a chip into a single upstream call — always prefer this over looping
+   * {@link sync} per card. Cards whose sync failed are simply absent from the result.
+   */
+  syncAll(cardIds: string[]): Observable<Record<string, OverDriveSyncResult>> {
+    return this.http.get<Record<string, OverDriveSyncResult>>(`${this.baseUrl}/sync-all`, {
+      params: { identities: cardIds.join(',') }
     });
   }
 
