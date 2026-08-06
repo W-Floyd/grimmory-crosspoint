@@ -53,6 +53,14 @@ public class AmazonBookParser implements BookParser, DetailedMetadataProvider {
     private static final Pattern ASIN_PATH_PATTERN = Pattern.compile("/dp/([A-Z0-9]{10})");
     private static final Pattern REVIEWED_IN_ON_PATTERN = Pattern.compile("(?i)(?:Reviewed in|Rezension aus|Beoordeeld in|Recensie uit|Commenté en|Recensito in|Revisado en)\\s+(.+?)\\s+(?:on|vom|op|le|il|el)\\s+(.+)");
     private static final Pattern JAPANESE_REVIEW_DATE_PATTERN = Pattern.compile("(\\d{4}年\\d{1,2}月\\d{1,2}日).+");
+    private static final String PAGE_COUNT_SELECTOR = """
+            #rpi-attribute-book_details-fiona_pages .rpi-attribute-value span,
+            #rpi-attribute-book_details-ebook_pages .rpi-attribute-value span
+            """;
+    private static final String REVIEW_SELECTOR = """
+            div#averageCustomerReviews_feature_div,
+            div#averageCustomerReviews
+            """;
     private static final String[] TITLE_SELECTORS = {"#productTitle", "#ebooksProductTitle", "h1#title", "span#productTitle"};
     private static final String[] DATE_PATTERNS = {
             "MMMM d, yyyy", "d MMMM yyyy", "d. MMMM yyyy", "MMM d, yyyy",
@@ -609,7 +617,7 @@ public class AmazonBookParser implements BookParser, DetailedMetadataProvider {
 
     private Double getRating(Document doc) {
         try {
-            Element reviewDiv = doc.selectFirst("div#averageCustomerReviews_feature_div");
+            Element reviewDiv = doc.selectFirst(REVIEW_SELECTOR);
             if (reviewDiv != null) {
                 Element ratingSpan = reviewDiv.selectFirst("span#acrPopover span.a-size-base.a-color-base");
                 if (ratingSpan == null) {
@@ -739,7 +747,7 @@ public class AmazonBookParser implements BookParser, DetailedMetadataProvider {
 
     private Integer getReviewCount(Document doc) {
         try {
-            Element reviewDiv = doc.select("div#averageCustomerReviews_feature_div").first();
+            Element reviewDiv = doc.selectFirst(REVIEW_SELECTOR);
             if (reviewDiv != null) {
                 Element reviewCountElement = reviewDiv.getElementById("acrCustomerReviewText");
                 if (reviewCountElement != null) {
@@ -777,7 +785,8 @@ public class AmazonBookParser implements BookParser, DetailedMetadataProvider {
     }
 
     private Integer getPageCount(Document doc) {
-        Elements pageCountElements = doc.select("#rpi-attribute-book_details-fiona_pages .rpi-attribute-value span");
+        Elements pageCountElements = doc.select(PAGE_COUNT_SELECTOR);
+
         if (!pageCountElements.isEmpty()) {
             String pageCountText = pageCountElements.first().text();
             if (!pageCountText.isEmpty()) {

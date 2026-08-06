@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import java.util.Set;
+import java.util.UUID;
 
 @Slf4j
 @Component
@@ -80,6 +81,7 @@ public class JwtUtils {
 
             JWTClaimsSet claimsSet = new JWTClaimsSet.Builder()
                     .issuer(JWT_ISSUER)
+                    .jwtID(UUID.randomUUID().toString())
                     .subject(user.getUsername())
                     .claim("userId", user.getId())
                     .claim("isDefaultPassword", user.isDefaultPassword())

@@ -22,8 +22,11 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -36,6 +39,16 @@ public class AmazonBookParserTest {
     private AmazonBookParser amazonBookParser;
 
     private MockedStatic<Jsoup> mockJsoup;
+
+    private String readFixture(String fixtureName) throws IOException {
+        String filename = "amazon/" + fixtureName + ".fixture";
+
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream(filename)) {
+            assert is != null;
+
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
 
     private AppSettings getAppSettings(String domain) {
         MetadataProviderSettings.Amazon amazonSettings = new MetadataProviderSettings.Amazon();
@@ -116,6 +129,159 @@ public class AmazonBookParserTest {
     @AfterEach
     void tearDown() {
         mockJsoup.close();
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesBasic_USEbook() throws Exception {
+        mockJsoupConnect("https://www.amazon.com/dp/B007978P18", readFixture("ebook-us.html"));
+
+        Book book = getBook("B007978P18");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.com/dp/B007978P18"));
+
+        assertThat(result.getAsin()).isEqualTo("B007978P18");
+        assertThat(result.getTitle()).isEqualTo("The Return Of The King");
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesBasic_DEPaperback() throws Exception {
+        when(mockAppSettingService.getAppSettings()).thenReturn(getAppSettings( "de"));
+
+        mockJsoupConnect("https://www.amazon.de/dp/3608989420", readFixture("book-de.html"));
+
+        Book book = getBook("3608989420");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.de/dp/3608989420"));
+
+        assertThat(result.getAsin()).isEqualTo("3608989420");
+        assertThat(result.getTitle()).isEqualTo("Der Herr der Ringe. Bd. 3 - Die Rückkehr des Königs (Der Herr der Ringe. Ausgabe in neuer Übersetzung und Rechtschreibung, Bd. 3)");
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesBasic_DEEbook() throws Exception {
+        when(mockAppSettingService.getAppSettings()).thenReturn(getAppSettings( "de"));
+
+        mockJsoupConnect("https://www.amazon.de/dp/B01BLSRIX6", readFixture("ebook-de.html"));
+
+        Book book = getBook("B01BLSRIX6");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.de/dp/B01BLSRIX6"));
+
+        assertThat(result.getAsin()).isEqualTo("B01BLSRIX6");
+        assertThat(result.getTitle()).isEqualTo("EchtzeiT - Wer die Wahrheit quält");
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesRatings_USEbook() throws Exception {
+        mockJsoupConnect("https://www.amazon.com/dp/B007978P18", readFixture("ebook-us.html"));
+
+        Book book = getBook("B007978P18");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.com/dp/B007978P18"));
+
+        assertThat(result.getAmazonRating()).isNotNull();
+        assertThat(result.getAmazonRating()).isEqualTo(4.9);
+        assertThat(result.getAmazonReviewCount()).isNotNull();
+        assertThat(result.getAmazonReviewCount()).isEqualTo(14906);
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesRatings_DEPaperback() throws Exception {
+        when(mockAppSettingService.getAppSettings()).thenReturn(getAppSettings( "de"));
+
+        mockJsoupConnect("https://www.amazon.de/dp/3608989420", readFixture("book-de.html"));
+
+        Book book = getBook("3608989420");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.de/dp/3608989420"));
+
+        assertThat(result.getAmazonRating()).isNotNull();
+        assertThat(result.getAmazonRating()).isEqualTo(4.7);
+        assertThat(result.getAmazonReviewCount()).isNotNull();
+        assertThat(result.getAmazonReviewCount()).isEqualTo(463);
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesRatings_DEEbook() throws Exception {
+        when(mockAppSettingService.getAppSettings()).thenReturn(getAppSettings( "de"));
+
+        mockJsoupConnect("https://www.amazon.de/dp/B01BLSRIX6", readFixture("ebook-de.html"));
+
+        Book book = getBook("B01BLSRIX6");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.de/dp/B01BLSRIX6"));
+
+        assertThat(result.getAmazonRating()).isNotNull();
+        assertThat(result.getAmazonRating()).isEqualTo(4.5);
+        assertThat(result.getAmazonReviewCount()).isNotNull();
+        assertThat(result.getAmazonReviewCount()).isEqualTo(2423);
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesPageCount_USEbook() throws Exception {
+        mockJsoupConnect("https://www.amazon.com/dp/B007978P18", readFixture("ebook-us.html"));
+
+        Book book = getBook("B007978P18");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.com/dp/B007978P18"));
+
+        assertThat(result.getPageCount()).isNotNull();
+        assertThat(result.getPageCount()).isEqualTo(432);
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesPageCount_DEPaperback() throws Exception {
+        when(mockAppSettingService.getAppSettings()).thenReturn(getAppSettings( "de"));
+
+        mockJsoupConnect("https://www.amazon.de/dp/3608989420", readFixture("book-de.html"));
+
+        Book book = getBook("3608989420");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.de/dp/3608989420"));
+
+        assertThat(result.getPageCount()).isNotNull();
+        assertThat(result.getPageCount()).isEqualTo(448);
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesPageCount_DEEbook() throws Exception {
+        when(mockAppSettingService.getAppSettings()).thenReturn(getAppSettings( "de"));
+
+        mockJsoupConnect("https://www.amazon.de/dp/B01BLSRIX6", readFixture("ebook-de.html"));
+
+        Book book = getBook("B01BLSRIX6");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.de/dp/B01BLSRIX6"));
+
+        assertThat(result.getPageCount()).isNotNull();
+        assertThat(result.getPageCount()).isEqualTo(414);
     }
 
     @Test

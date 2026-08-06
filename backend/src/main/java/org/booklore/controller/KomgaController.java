@@ -130,6 +130,9 @@ public class KomgaController {
         
         Long firstBookId = Long.parseLong(books.getContent().getFirst().getId());
         Resource coverImage = bookService.getBookThumbnail(firstBookId);
+        if (coverImage == null) {
+            return ResponseEntity.notFound().build();
+        }
         return ResponseEntity.ok()
                 .header("Content-Type", "image/jpeg")
                 .body(coverImage);
@@ -200,6 +203,9 @@ public class KomgaController {
         validateBookContentAccess(bookId);
 
         Resource coverImage = bookService.getBookThumbnail(bookId);
+        if (coverImage == null) {
+            return ResponseEntity.notFound().build();
+        }
         return ResponseEntity.ok()
                 .header("Content-Type", "image/jpeg")
                 .body(coverImage);

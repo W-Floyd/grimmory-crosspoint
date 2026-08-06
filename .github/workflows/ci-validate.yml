@@ -67,7 +67,6 @@ jobs:
     with:
       checkout_ref: ${{ github.sha }}
       publish_test_results: false
-      save_gradle_cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
 
   packaging-smoke-test:
     name: Packaging Smoke Test

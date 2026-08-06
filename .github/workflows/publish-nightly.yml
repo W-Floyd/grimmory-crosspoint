@@ -221,4 +221,3 @@ jobs:
       checks: write
     with:
       checkout_ref: ${{ needs.resolve_ref.outputs.commit_sha }}
-      save_gradle_cache: true

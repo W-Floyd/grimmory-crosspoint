@@ -285,7 +285,7 @@ public class BookService {
     }
 
     public Resource getBookThumbnail(long bookId) {
-        return getBookThumbnailIfPresent(bookId).orElseGet(this::getMissingCoverResource);
+        return getBookThumbnailIfPresent(bookId).orElse(null);
     }
 
     public Optional<Resource> getBookCoverIfPresent(long bookId) {
@@ -293,7 +293,7 @@ public class BookService {
     }
 
     public Resource getBookCover(long bookId) {
-        return getBookCoverIfPresent(bookId).orElseGet(this::getMissingCoverResource);
+        return getBookCoverIfPresent(bookId).orElse(null);
     }
 
     public Resource getBookCover(String coverHash) {
@@ -305,16 +305,12 @@ public class BookService {
         return resolveImageResource(fileService.getAudiobookThumbnailFile(bookId), bookId);
     }
 
-    public Resource getAudiobookThumbnail(long bookId) {
-        return getAudiobookThumbnailIfPresent(bookId).orElseGet(this::getMissingCoverResource);
-    }
-
     public Optional<Resource> getAudiobookCoverIfPresent(long bookId) {
         return resolveImageResource(fileService.getAudiobookCoverFile(bookId), bookId);
     }
 
     public Resource getAudiobookCover(long bookId) {
-        return getAudiobookCoverIfPresent(bookId).orElseGet(this::getMissingCoverResource);
+        return getAudiobookCoverIfPresent(bookId).orElse(null);
     }
 
     private Optional<Resource> resolveImageResource(String filePath, long bookId) {
@@ -327,15 +323,6 @@ public class BookService {
         } catch (MalformedURLException e) {
             log.error("Failed to load image for bookId={} from path={}", bookId, filePath, e);
             throw ApiError.INTERNAL_SERVER_ERROR.createException("Failed to load image for bookId=" + bookId);
-        }
-    }
-
-    private Resource getMissingCoverResource() {
-        try {
-            byte[] bytes = new ClassPathResource("static/images/missing-cover.jpg").getInputStream().readAllBytes();
-            return new ByteArrayResource(bytes);
-        } catch (IOException e) {
-            throw ApiError.INTERNAL_SERVER_ERROR.createException("Failed to load missing cover image");
         }
     }
 

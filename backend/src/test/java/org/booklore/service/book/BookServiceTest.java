@@ -310,10 +310,10 @@ class BookServiceTest {
     }
 
     @Test
-    void getBookCover_fileMissing_returnsByteArrayResource() {
+    void getBookCover_fileMissing_returnsNull() {
         when(fileService.getCoverFile(1L)).thenReturn("/tmp/nonexistent2.jpg");
         Resource res = bookService.getBookCover(1L);
-        assertTrue(res instanceof ByteArrayResource);
+        assertNull(res);
     }
 
     @Test

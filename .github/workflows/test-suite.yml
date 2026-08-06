@@ -12,11 +12,6 @@ on:
         required: false
         type: boolean
         default: true
-      save_gradle_cache:
-        description: 'Whether this run should persist the shared Gradle cache'
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   backend-tests:
@@ -44,17 +39,12 @@ jobs:
         with:
           java-version: '25'
           distribution: 'temurin'
-
-      - name: Restore Gradle Cache
-        id: restore_gradle_cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('backend/**/*.gradle*', 'backend/gradle.lockfile', 'backend/settings.gradle*', 'backend/gradle.properties', 'backend/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
+          cache: gradle
+          cache-dependency-path: |
+            **/*.gradle*
+            **/gradle.lockfile
+            **/settings.gradle*
+            **/gradle/wrapper/gradle-wrapper.properties
 
       # Needed for NightCompress
       - name: Install libarchive
@@ -89,15 +79,6 @@ jobs:
             backend/build/reports/tests/
             backend/build/test-results/
           retention-days: 30
-
-      - name: Save Gradle Cache
-        if: ${{ always() && inputs.save_gradle_cache }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ steps.restore_gradle_cache.outputs.cache-primary-key }}
 
       - name: Validate Backend Test Results
         if: steps.backend_tests.outcome == 'failure'
