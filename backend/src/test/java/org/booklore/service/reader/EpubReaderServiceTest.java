@@ -10,6 +10,7 @@ import org.booklore.repository.BookRepository;
 import org.booklore.service.ArchiveService;
 import org.booklore.service.ByteRangeSource;
 import org.booklore.util.FileUtils;
+import org.booklore.util.epub.CoverDetectorService;
 import org.grimmory.epub4j.domain.*;
 import org.grimmory.epub4j.epub.EpubWriter;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,6 +51,9 @@ class EpubReaderServiceTest {
 
     @Spy
     ArchiveService archiveService = new ArchiveService();
+
+    @Mock
+    CoverDetectorService coverDetectorService;
 
     @InjectMocks
     EpubReaderService epubReaderService;
@@ -119,7 +123,6 @@ class EpubReaderServiceTest {
             assertEquals("en", bookInfo.getMetadata().get("language"));
             assertFalse(bookInfo.getManifest().isEmpty());
             assertEquals(2, bookInfo.getSpine().size());
-            assertNotNull(bookInfo.getCoverPath());
         }
     }
 

@@ -16,6 +16,7 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaTypeFactory;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
@@ -71,9 +72,18 @@ public class BookMediaController {
         return toImageResponse(bookService.getAudiobookCoverIfPresent(bookId));
     }
 
+    private MediaType getMediaType(Resource resource) {
+        return MediaTypeFactory.getMediaType(resource).orElse(MediaType.APPLICATION_OCTET_STREAM);
+    }
+
     private ResponseEntity<Resource> toImageResponse(Optional<Resource> image) {
         return image
-                .map(resource -> ResponseEntity.ok().cacheControl(IMAGE_CACHE).body(resource))
+                .map(
+                        resource -> ResponseEntity.ok()
+                                .contentType(getMediaType(resource))
+                                .cacheControl(IMAGE_CACHE)
+                                .body(resource)
+                )
                 .orElseGet(() -> ResponseEntity.notFound().cacheControl(CacheControl.noStore()).build());
     }
 

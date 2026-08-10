@@ -423,7 +423,7 @@ class HibernateRegressionTest {
 
             // Must NOT throw LazyInitializationException
             assertThat(loaded.getBookFiles()).hasSize(1);
-            assertThat(loaded.getBookFiles().get(0).getFileName()).isEqualTo("test.epub");
+            assertThat(loaded.getBookFiles().stream().toList().getFirst().getFileName()).isEqualTo("test.epub");
         }
     }
 
@@ -663,7 +663,7 @@ class HibernateRegressionTest {
                     .library(library)
                     .libraryPath(libraryPath)
                     .addedOn(Instant.now())
-                    .bookFiles(new ArrayList<>())
+                    .bookFiles(new HashSet<>())
                     .build();
 
             BookFileEntity bookFile = BookFileEntity.builder()
@@ -694,7 +694,7 @@ class HibernateRegressionTest {
             assertThat(loaded.getLibrary().getId()).isEqualTo(library.getId());
             assertThat(loaded.getLibraryPath().getId()).isEqualTo(libraryPath.getId());
             assertThat(loaded.getBookFiles()).hasSize(1);
-            assertThat(loaded.getBookFiles().get(0).getFileName()).isEqualTo("test.epub");
+            assertThat(loaded.getBookFiles().stream().toList().getFirst().getFileName()).isEqualTo("test.epub");
             assertThat(loaded.getMetadata().getTitle()).isEqualTo("Test Book Title");
             assertThat(loaded.getDeleted()).isFalse();
         }

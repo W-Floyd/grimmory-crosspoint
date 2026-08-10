@@ -285,6 +285,81 @@ public class AmazonBookParserTest {
     }
 
     @Test
+    public void fetchTopMetadata_parsesSeries_USEbook() throws Exception {
+        mockJsoupConnect("https://www.amazon.com/dp/B007978P18", readFixture("ebook-us.html"));
+
+        Book book = getBook("B007978P18");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.com/dp/B007978P18"));
+
+        assertThat(result.getSeriesName()).isEqualTo("Lord of the Rings");
+        assertThat(result.getSeriesNumber()).isNotNull();
+        assertThat(result.getSeriesNumber()).isEqualTo(3);
+        assertThat(result.getSeriesTotal()).isNotNull();
+        assertThat(result.getSeriesTotal()).isEqualTo(3);
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesSeries_DEPaperback() throws Exception {
+        when(mockAppSettingService.getAppSettings()).thenReturn(getAppSettings( "de"));
+
+        mockJsoupConnect("https://www.amazon.de/dp/3608989439", readFixture("book-de.html"));
+
+        Book book = getBook("3608989439");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.de/dp/3608989439"));
+
+        assertThat(result.getSeriesName()).isEqualTo("Der Herr der Ringe. Ausgabe in neuer Übersetzung und Rechtschreibung");
+        assertThat(result.getSeriesNumber()).isNotNull();
+        assertThat(result.getSeriesNumber()).isEqualTo(3);
+        assertThat(result.getSeriesTotal()).isNotNull();
+        assertThat(result.getSeriesTotal()).isEqualTo(3);
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesSeries_DEEbook() throws Exception {
+        mockJsoupConnect("https://www.amazon.com/dp/B01BLSRIX6", readFixture("ebook-de.html"));
+
+        Book book = getBook("B01BLSRIX6");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.com/dp/B01BLSRIX6"));
+
+        assertThat(result.getSeriesName()).isEqualTo("EchtzeiT");
+        assertThat(result.getSeriesNumber()).isNotNull();
+        assertThat(result.getSeriesNumber()).isEqualTo(2);
+        assertThat(result.getSeriesTotal()).isNotNull();
+        assertThat(result.getSeriesTotal()).isEqualTo(3);
+    }
+
+    @Test
+    public void fetchTopMetadata_parsesSeries_Empty() throws Exception {
+        mockJsoupConnect(
+                "https://www.amazon.com/dp/EXAMPLESKU",
+                "<html><body></body><html>"
+        );
+
+        Book book = getBook("EXAMPLESKU");
+        FetchMetadataRequest fetchMetadataRequest = FetchMetadataRequest.builder().build();
+
+        var result = amazonBookParser.fetchTopMetadata(book, fetchMetadataRequest);
+
+        mockJsoup.verify(() -> Jsoup.connect("https://www.amazon.com/dp/EXAMPLESKU"));
+
+        assertThat(result.getSeriesName()).isNull();
+        assertThat(result.getSeriesNumber()).isNull();
+        assertThat(result.getSeriesTotal()).isNull();
+    }
+
+    @Test
     public void fetchTopMetadata_usesAsinFromBookWhenAvailable() throws Exception {
         mockJsoupConnect("https://www.amazon.com/dp/EXAMPLESKU", "<html />");
 

@@ -239,7 +239,7 @@ class FileUploadServiceTest {
         primaryFile.setFileName("primary.epub");
         primaryFile.setFileSubPath(".");
         primaryFile.setBookType(BookFileType.EPUB);
-        book.setBookFiles(new ArrayList<>(List.of(primaryFile)));
+        book.setBookFiles(Set.of(primaryFile));
 
         when(bookRepository.findByIdWithBookFiles(bookId)).thenReturn(Optional.of(book));
 
@@ -282,7 +282,7 @@ class FileUploadServiceTest {
         primaryFile.setFileName("primary.epub");
         primaryFile.setFileSubPath(".");
         primaryFile.setBookType(BookFileType.EPUB);
-        book.setBookFiles(new ArrayList<>(List.of(primaryFile)));
+        book.setBookFiles(Set.of(primaryFile));
 
         when(bookRepository.findByIdWithBookFiles(bookId)).thenReturn(Optional.of(book));
 
@@ -357,7 +357,7 @@ class FileUploadServiceTest {
         book.setLibraryPath(libPath);
         BookFileEntity primaryFile = new BookFileEntity();
         primaryFile.setBook(book);
-        book.setBookFiles(new ArrayList<>(List.of(primaryFile)));
+        book.setBookFiles(Set.of(primaryFile));
         book.getPrimaryBookFile().setFileSubPath(".");
 
         when(bookRepository.findByIdWithBookFiles(bookId)).thenReturn(Optional.of(book));

@@ -14,8 +14,8 @@ import org.booklore.repository.BookRepository;
 import org.booklore.service.ArchiveService;
 import org.booklore.service.ByteRangeSource;
 import org.booklore.util.FileUtils;
+import org.booklore.util.epub.CoverDetectorService;
 import org.grimmory.epub4j.domain.*;
-import org.grimmory.epub4j.epub.CoverDetector;
 import org.grimmory.epub4j.epub.EpubReader;
 import org.springframework.stereotype.Service;
 
@@ -71,6 +71,7 @@ public class EpubReaderService {
 
     private final BookRepository bookRepository;
     private final ZipEntryLocator zipEntryLocator;
+    private final CoverDetectorService coverDetectorService;
     private final Cache<String, CachedEpubMetadata> metadataCache = Caffeine.newBuilder()
             .maximumSize(MAX_CACHE_ENTRIES)
             .expireAfterAccess(Duration.ofMinutes(30))
@@ -223,7 +224,7 @@ public class EpubReaderService {
             BookFileType requestedType = BookFileType.valueOf(bookType.toUpperCase());
             BookFileEntity bookFile = bookEntity.getBookFiles().stream()
                     .filter(bf -> bf.getBookType() == requestedType)
-                    .findFirst()
+                    .min(Comparator.comparingLong(BookFileEntity::getId))
                     .orElseThrow(() -> ApiError.FILE_NOT_FOUND.createException("No file of type " + bookType + " found for book"));
             return bookFile.getFullFilePath();
         }
@@ -248,37 +249,33 @@ public class EpubReaderService {
 
     private CachedEpubMetadata parseEpubMetadata(Path epubPath, long lastModified) throws IOException {
         try {
+            String coverPath = coverDetectorService.detectCoverImagePath(epubPath);
+
             Book book = new EpubReader().readEpubLazy(epubPath, "UTF-8");
-            EpubBookInfo bookInfo = mapBookToInfo(book);
+
+            Resource opfResource = book.getOpfResource();
+            String opfPath = opfResource != null ? opfResource.getHref() : "";
+            String rootPath = opfPath.contains("/") ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : "";
+
+            List<EpubManifestItem> manifest = mapManifest(book, rootPath);
+            List<EpubSpineItem> spine = mapSpine(book, rootPath);
+            Map<String, Object> metadata = mapMetadata(book);
+            EpubTocItem toc = mapToc(book.getTableOfContents(), rootPath);
+
+            EpubBookInfo bookInfo = EpubBookInfo.builder()
+                    .containerPath(opfPath)
+                    .rootPath(rootPath)
+                    .spine(spine)
+                    .manifest(manifest)
+                    .toc(toc)
+                    .metadata(metadata)
+                    .coverPath(coverPath)
+                    .build();
+
             return new CachedEpubMetadata(bookInfo, lastModified);
         } catch (Exception e) {
             throw new IOException("Unable to parse EPUB", e);
         }
-    }
-
-    private EpubBookInfo mapBookToInfo(Book book) {
-        Resource opfResource = book.getOpfResource();
-        String opfPath = opfResource != null ? opfResource.getHref() : "";
-        String rootPath = opfPath.contains("/") ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : "";
-
-        Resource coverResource = CoverDetector.detectCoverImage(book);
-        String coverHref = coverResource != null ? rootPath + coverResource.getHref() : null;
-
-        List<EpubManifestItem> manifest = mapManifest(book, rootPath);
-        List<EpubSpineItem> spine = mapSpine(book, rootPath);
-        Map<String, Object> metadata = mapMetadata(book);
-        EpubTocItem toc = mapToc(book.getTableOfContents(), rootPath);
-        String coverPath = coverHref;
-
-        return EpubBookInfo.builder()
-                .containerPath(opfPath)
-                .rootPath(rootPath)
-                .spine(spine)
-                .manifest(manifest)
-                .toc(toc)
-                .metadata(metadata)
-                .coverPath(coverPath)
-                .build();
     }
 
     private List<EpubManifestItem> mapManifest(Book book, String rootPath) {

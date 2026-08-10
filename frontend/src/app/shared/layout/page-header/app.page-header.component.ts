@@ -1,5 +1,6 @@
 import {
   afterRenderEffect,
+  booleanAttribute,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -41,8 +42,10 @@ export class AppPageHeaderComponent {
 
   readonly isMobile = computed(() => !this.layoutService.isDesktop());
   private readonly stuck = signal(false);
+  readonly isStuck = this.stuck.asReadonly();
 
   readonly pageHeader = input<PageHeader | null>(null);
+  readonly stuckHairline = input(true, {transform: booleanAttribute});
   readonly tabChange = output<string>();
 
   readonly leadMedia = contentChild<TemplateRef<unknown>>('pageHeaderLead');
@@ -89,13 +92,14 @@ export class AppPageHeaderComponent {
       case 'stacked':
         return cn('flex flex-wrap items-start gap-x-6 gap-y-4 pt-0.5 pb-5', pbForTabs, collapseWhenEmpty);
       default:
-        return cn('flex flex-wrap items-start gap-x-6 gap-y-4 pt-7', pbForTabs ?? 'pb-6', collapseWhenEmpty);
+        return cn('flex flex-wrap items-center gap-x-6 gap-y-4 pt-5', pbForTabs ?? 'pb-5', collapseWhenEmpty);
     }
   });
   readonly stickyRegionClass = computed(() =>
     cn(
-      'app-page-header-sticky-region sticky z-30 bg-page',
-      !this.hasTabs() && this.stuck() && 'border-b border-border/70',
+      'app-page-header-sticky-region sticky z-30 bg-page -mx-4 px-4 md:-mx-8 md:px-8 -mb-4 md:-mb-6',
+      !this.hasTabs() && this.stuck() && this.stuckHairline() &&
+        'shadow-[0_1px_0_0_color-mix(in_srgb,var(--color-border)_70%,transparent)]',
       this.isMobile() ? 'top-[var(--mobile-topbar-height)]' : 'top-0',
       this.barCollapsible() && 'has-[.app-page-header-controls:empty]:hidden',
     ),
