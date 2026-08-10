@@ -1,12 +1,13 @@
 import {signal} from '@angular/core';
 import {TestBed} from '@angular/core/testing';
-import {of} from 'rxjs';
+import {of, throwError} from 'rxjs';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {AppSettings} from '../../../shared/model/app-settings.model';
 import {AppSettingsService} from '../../../shared/service/app-settings.service';
 import {OverDriveService, OverDriveCard, OverDriveImportDestinations, OverDriveShareUser} from '../../../core/services/overdrive.service';
 import {LibraryService} from '../../../features/book/service/library.service';
+import {ConfirmationService} from '@openng/optimus-ui/api';
 import {OverdriveSettingsComponent} from './overdrive-settings.component';
 
 const overdriveService = {
@@ -18,6 +19,12 @@ const overdriveService = {
   linkCard: vi.fn(() => of([] as OverDriveCard[])),
   importDestinations: vi.fn(() => of({} as OverDriveImportDestinations)),
   setImportDestinations: vi.fn(() => of(void 0)),
+  refreshCard: vi.fn(() => of(void 0)),
+  removeCard: vi.fn(() => of(void 0)),
+};
+
+const confirmationService = {
+  confirm: vi.fn((options: {accept?: () => void}) => options.accept?.()),
 };
 
 const appSettingsState = signal<AppSettings | null>(null);
@@ -29,6 +36,7 @@ function setup(): OverdriveSettingsComponent {
       {provide: OverDriveService, useValue: overdriveService},
       {provide: AppSettingsService, useValue: {appSettings: () => appSettingsState(), saveSettings: () => of(void 0)}},
       {provide: LibraryService, useValue: {libraries: () => []}},
+      {provide: ConfirmationService, useValue: confirmationService},
     ],
   });
   // Render with a stub template so the suite tests component logic without PrimeNG DOM.
@@ -108,5 +116,119 @@ describe('OverdriveSettingsComponent card sharing', () => {
     const c = setup();
     expect(c.formatEpoch(null)).toBe('—');
     expect(c.formatEpoch(1785005163)).not.toBe('—');
+  });
+});
+
+describe('OverdriveSettingsComponent bulk card actions', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function withCards(c: OverdriveSettingsComponent): void {
+    c.linkedCards.set([
+      {cardId: 'a', name: 'A', owned: true, credentialsStored: true, sharedWithCount: 0},
+      {cardId: 'b', name: 'B', owned: true, credentialsStored: false, sharedWithCount: 1},
+      // Shared with you: no management actions at all, so never selectable.
+      {cardId: 'c', name: 'C', owned: false, ownerName: 'Ann'},
+    ]);
+  }
+
+  it('only offers cards you own for selection', () => {
+    const c = setup();
+    withCards(c);
+
+    expect(c.selectableCards().map(card => card.cardId)).toEqual(['a', 'b']);
+
+    c.toggleSelectAll();
+    expect(c.selectedCardIds()).toEqual(['a', 'b']);
+    expect(c.allSelected()).toBe(true);
+
+    c.toggleSelectAll();
+    expect(c.selectedCardIds()).toEqual([]);
+  });
+
+  it('toggles an individual card in and out of the selection', () => {
+    const c = setup();
+    withCards(c);
+
+    c.toggleCardSelection(c.linkedCards()[0]);
+    expect(c.isSelected(c.linkedCards()[0])).toBe(true);
+    expect(c.allSelected()).toBe(false);
+
+    c.toggleCardSelection(c.linkedCards()[0]);
+    expect(c.isSelected(c.linkedCards()[0])).toBe(false);
+  });
+
+  it('bulk refresh skips cards with no stored card+PIN', () => {
+    const c = setup();
+    withCards(c);
+    c.toggleSelectAll();
+
+    expect(c.refreshableSelectedCards().map(card => card.cardId)).toEqual(['a']);
+
+    c.onBulkRefresh();
+
+    expect(overdriveService.refreshCard).toHaveBeenCalledTimes(1);
+    expect(overdriveService.refreshCard).toHaveBeenCalledWith('a');
+    expect(c.selectedCardIds()).toEqual([]);
+  });
+
+  it('bulk unlink confirms once, removes every selected card, and reports partial failure', () => {
+    const c = setup();
+    withCards(c);
+    c.toggleSelectAll();
+    overdriveService.removeCard.mockReturnValueOnce(of(void 0));
+    overdriveService.removeCard.mockReturnValueOnce(throwError(() => new Error('boom')));
+
+    c.onBulkUnlink();
+
+    expect(confirmationService.confirm).toHaveBeenCalledTimes(1);
+    expect(overdriveService.removeCard).toHaveBeenCalledTimes(2);
+    // Only the card that actually unlinked leaves the list — 'b' failed, so it's still linked.
+    expect(c.linkedCards().map(card => card.cardId)).toEqual(['b', 'c']);
+    expect(c.setupError()).toContain('1 of 2');
+  });
+
+  it('bulk unlink does nothing when the confirmation is declined', () => {
+    const c = setup();
+    withCards(c);
+    c.toggleSelectAll();
+    confirmationService.confirm.mockImplementationOnce(() => undefined);
+
+    c.onBulkUnlink();
+
+    expect(overdriveService.removeCard).not.toHaveBeenCalled();
+    expect(c.linkedCards()).toHaveLength(3);
+  });
+
+  it('bulk share applies one user set to every selected card, replacing what they had', () => {
+    const c = setup();
+    withCards(c);
+    c.toggleSelectAll();
+    c.openBulkShareDialog();
+    // Starts empty: saving replaces sharing, so a merged set would mislead.
+    expect(c.selectedShareUserIds()).toEqual([]);
+    expect(c.bulkShare()).toBe(true);
+
+    c.selectedShareUserIds.set([8, 9]);
+    c.saveShares();
+
+    expect(overdriveService.setShares).toHaveBeenCalledWith('a', [8, 9]);
+    expect(overdriveService.setShares).toHaveBeenCalledWith('b', [8, 9]);
+    expect(c.linkedCards()[0].sharedWithCount).toBe(2);
+    expect(c.linkedCards()[1].sharedWithCount).toBe(2);
+    expect(c.shareDialogVisible()).toBe(false);
+    expect(c.selectedCardIds()).toEqual([]);
+  });
+
+  it('opening the single-card share dialog leaves bulk mode', () => {
+    const c = setup();
+    withCards(c);
+    c.toggleSelectAll();
+    c.openBulkShareDialog();
+    expect(c.bulkShare()).toBe(true);
+
+    c.openShareDialog(c.linkedCards()[0]);
+
+    expect(c.bulkShare()).toBe(false);
+    expect(c.shareCard()?.cardId).toBe('a');
   });
 });

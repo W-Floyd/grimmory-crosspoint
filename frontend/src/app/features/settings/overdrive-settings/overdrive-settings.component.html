@@ -202,9 +202,48 @@
 
       @if (linkedCards().length > 0) {
         <p-card header="Linked Cards">
+          @if (selectableCards().length > 1) {
+            <div class="bulk-bar">
+              <p-checkbox [binary]="true" [ngModel]="allSelected()" (onChange)="toggleSelectAll()"
+                [ngModelOptions]="{ standalone: true }" inputId="select-all-cards"
+                ariaLabel="Select all cards" pTooltip="Select every card you own" />
+              <label for="select-all-cards" class="bulk-select-label">
+                {{ selectedCards().length ? selectedCards().length + ' selected' : 'Select all' }}
+              </label>
+
+              @if (selectedCards().length) {
+                <span class="bulk-actions">
+                  <p-button label="Share" icon="pi pi-users" severity="secondary" size="small" [text]="true"
+                    [disabled]="bulkRunning()"
+                    pTooltip="Apply one set of users to every selected card, replacing their current sharing"
+                    (onClick)="openBulkShareDialog()" />
+                  <p-button [label]="'Refresh ' + refreshableSelectedCards().length" icon="pi pi-refresh"
+                    severity="secondary" size="small" [text]="true"
+                    [disabled]="bulkRunning() || refreshableSelectedCards().length === 0"
+                    [pTooltip]="refreshableSelectedCards().length
+                      ? 'Re-link the selected card+PIN cards from their stored credentials'
+                      : 'None of the selected cards has a stored card + PIN to re-link from'"
+                    (onClick)="onBulkRefresh()" />
+                  <p-button label="Unlink" icon="pi pi-times" severity="danger" size="small" [text]="true"
+                    [disabled]="bulkRunning()" pTooltip="Clear the stored token/credentials for every selected card"
+                    (onClick)="onBulkUnlink()" />
+                  <p-button label="Clear" severity="secondary" size="small" [text]="true"
+                    [disabled]="bulkRunning()" (onClick)="clearSelection()" />
+                </span>
+              }
+              @if (bulkRunning()) {
+                <span class="bulk-progress"><i class="pi pi-spin pi-spinner"></i> Working…</span>
+              }
+            </div>
+          }
           @for (card of linkedCards(); track card.cardId) {
             <div class="linked-card-row">
               @if (isOwned(card)) {
+                @if (selectableCards().length > 1) {
+                  <p-checkbox [binary]="true" [ngModel]="isSelected(card)" (onChange)="toggleCardSelection(card)"
+                    [ngModelOptions]="{ standalone: true }" [disabled]="bulkRunning()"
+                    ariaLabel="Select this card" styleClass="card-select" />
+                }
                 <span class="linked-card-info">
                   <div class="card-primary">
                     <input pInputText type="text" [value]="card.name || ''" #labelInput placeholder="Card label"
@@ -264,6 +303,10 @@
                     pTooltip="Clear this card's stored token/credentials" (onClick)="onUnlinkCard(card)" />
                 </span>
               } @else {
+                @if (selectableCards().length > 1) {
+                  <!-- Keeps shared-with-you rows aligned with the selectable ones above. -->
+                  <span class="card-select-spacer" aria-hidden="true"></span>
+                }
                 <span class="linked-card-info">
                   <span class="linked-card-name">{{ card.name || card.cardId }}</span>
                   <small class="linked-card-id">
@@ -276,32 +319,40 @@
               }
             </div>
           }
-          <small class="hint">Set a label to rename a card. Share to grant other users borrow/hold access (they can't unlink or relabel it). Unlink to clear an expired/blocked token, then re-link. Refresh (card+PIN links only) re-links from the stored credentials without re-entering the PIN.</small>
+          <small class="hint">Set a label to rename a card. Share to grant other users borrow/hold access (they can't unlink or relabel it). Unlink to clear an expired/blocked token, then re-link. Refresh (card+PIN links only) re-links from the stored credentials without re-entering the PIN. Tick several cards to share, refresh or unlink them together — updating a PIN stays per-card, since each card has its own.</small>
         </p-card>
       }
 
       <p-dialog [(visible)]="shareDialogVisible" [modal]="true" [style]="{ width: '30rem' }"
-        header="Share card" [dismissableMask]="true">
-        @if (shareCard(); as card) {
+        [header]="bulkShare() ? 'Share ' + selectedCards().length + ' cards' : 'Share card'"
+        [dismissableMask]="true">
+        @if (bulkShare()) {
+          <p class="share-dialog-intro">
+            Choose who can borrow and hold with all <strong>{{ selectedCards().length }} selected cards</strong>.
+            Saving <strong>replaces</strong> the sharing on each of them, so anyone not selected here loses access
+            to those cards.
+          </p>
+        } @else if (shareCard(); as card) {
           <p class="share-dialog-intro">
             Choose who can borrow and hold with <strong>{{ cardLabel(card) }}</strong>. They can search, borrow,
             hold and import with it, but can't relabel, unlink, or change its default library.
           </p>
-          <p-multiSelect
-            [options]="shareableUsers()"
-            [ngModel]="selectedShareUserIds()"
-            (ngModelChange)="selectedShareUserIds.set($event)"
-            optionValue="userId"
-            optionLabel="username"
-            [filter]="true"
-            filterBy="name,username"
-            placeholder="Select users"
-            selectedItemsLabel="{0} users selected"
-            styleClass="w-full"
-            appendTo="body">
-            <ng-template let-user pTemplate="item">{{ userOptionLabel(user) }}</ng-template>
-          </p-multiSelect>
         }
+        <!-- One picker for both modes: bulk applies the chosen set to every selected card. -->
+        <p-multiSelect
+          [options]="shareableUsers()"
+          [ngModel]="selectedShareUserIds()"
+          (ngModelChange)="selectedShareUserIds.set($event)"
+          optionValue="userId"
+          optionLabel="username"
+          [filter]="true"
+          filterBy="name,username"
+          placeholder="Select users"
+          selectedItemsLabel="{0} users selected"
+          styleClass="w-full"
+          appendTo="body">
+          <ng-template let-user pTemplate="item">{{ userOptionLabel(user) }}</ng-template>
+        </p-multiSelect>
         <ng-template pTemplate="footer">
           <p-button label="Cancel" severity="secondary" [text]="true" (onClick)="shareDialogVisible.set(false)" />
           <p-button label="Save" icon="pi pi-check" [loading]="savingShares()" (onClick)="saveShares()" />

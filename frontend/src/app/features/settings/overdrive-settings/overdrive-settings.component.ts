@@ -1,4 +1,5 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
+import { catchError, concatMap, from, map, Observable, of, toArray } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { AppSettingsService } from '../../../shared/service/app-settings.service';
 import { AppSettingKey } from '../../../shared/model/app-settings.model';
@@ -14,6 +15,8 @@ import { OrderListModule } from '@openng/optimus-ui/orderlist';
 import { DialogModule } from '@openng/optimus-ui/dialog';
 import { MultiSelectModule } from '@openng/optimus-ui/multiselect';
 import { SelectModule } from '@openng/optimus-ui/select';
+import { Checkbox } from '@openng/optimus-ui/checkbox';
+import { ConfirmationService } from '@openng/optimus-ui/api';
 import { LibraryService } from '../../../features/book/service/library.service';
 import { OverdriveCardAdminComponent } from './card-admin/overdrive-card-admin.component';
 import { Library, LibraryPath } from '../../../features/book/model/library.model';
@@ -32,6 +35,7 @@ import { Library, LibraryPath } from '../../../features/book/model/library.model
     DialogModule,
     MultiSelectModule,
     SelectModule,
+    Checkbox,
     OverdriveCardAdminComponent
 ],
   templateUrl: './overdrive-settings.component.html',
@@ -43,6 +47,7 @@ export class OverdriveSettingsComponent {
   private readonly overdriveService = inject(OverDriveService);
   private readonly messageService = inject(MessageService);
   private readonly libraryService = inject(LibraryService);
+  private readonly confirmationService = inject(ConfirmationService);
 
   // Grimmory libraries (with paths) for the per-type import-destination selectors.
   readonly grimmoryLibraries = this.libraryService.libraries;
@@ -284,8 +289,108 @@ export class OverdriveSettingsComponent {
   }
 
   // ── Card sharing ───────────────────────────────────────────────────────
+  // ── Bulk selection ───────────────────────────────────────────────────
+
+  /**
+   * Card ids ticked for a bulk action. Only cards you own are selectable — a card shared with you has
+   * no management actions at all, so it has no checkbox to tick.
+   */
+  selectedCardIds = signal<string[]>([]);
+  bulkRunning = signal(false);
+
+  readonly selectableCards = computed(() => this.linkedCards().filter(c => this.isOwned(c)));
+  readonly selectedCards = computed(() => {
+    const ids = new Set(this.selectedCardIds());
+    return this.selectableCards().filter(c => ids.has(c.cardId));
+  });
+  readonly allSelected = computed(() =>
+    this.selectableCards().length > 0 && this.selectedCards().length === this.selectableCards().length);
+  /** Bulk refresh only applies to card+PIN links; the rest have nothing to re-link from. */
+  readonly refreshableSelectedCards = computed(() => this.selectedCards().filter(c => c.credentialsStored));
+
+  isSelected(card: OverDriveCard): boolean {
+    return this.selectedCardIds().includes(card.cardId);
+  }
+
+  toggleCardSelection(card: OverDriveCard): void {
+    this.selectedCardIds.update(ids => ids.includes(card.cardId)
+      ? ids.filter(id => id !== card.cardId)
+      : [...ids, card.cardId]);
+  }
+
+  toggleSelectAll(): void {
+    this.selectedCardIds.set(this.allSelected() ? [] : this.selectableCards().map(c => c.cardId));
+  }
+
+  clearSelection(): void {
+    this.selectedCardIds.set([]);
+  }
+
+  /** Re-link every selected card+PIN card, one at a time so we don't fan out calls to OverDrive. */
+  onBulkRefresh(): void {
+    const cards = this.refreshableSelectedCards();
+    if (!cards.length) {
+      return;
+    }
+    this.runBulk(cards.map(card => () => this.overdriveService.refreshCard(card.cardId)), 'Refreshed');
+  }
+
+  /** Unlink every selected card, after one confirmation covering the whole set. */
+  onBulkUnlink(): void {
+    const cards = this.selectedCards();
+    if (!cards.length) {
+      return;
+    }
+    const shared = cards.filter(c => c.sharedWithCount).length;
+    this.confirmationService.confirm({
+      header: cards.length === 1 ? 'Unlink this card?' : `Unlink ${cards.length} cards?`,
+      message: `This clears the stored token and credentials for ${cards.length} card(s), so you'll need to `
+        + `link them again to borrow.`
+        + (shared ? ` ${shared} of them are shared with other users; those shares are removed too.` : ''),
+      icon: 'pi pi-exclamation-triangle',
+      acceptButtonProps: { label: 'Unlink', severity: 'danger' },
+      rejectButtonProps: { label: 'Cancel', severity: 'secondary' },
+      accept: () => this.runBulk(
+        cards.map(card => () => this.overdriveService.removeCard(card.cardId)), 'Unlinked',
+        // Drop only the ones that actually unlinked: a card that failed is still linked server-side,
+        // and removing it from the list would claim otherwise until the next reload.
+        (results) => {
+          const removed = new Set(cards.filter((_, i) => results[i]).map(c => c.cardId));
+          this.linkedCards.update(list => list.filter(c => !removed.has(c.cardId)));
+        })
+    });
+  }
+
+  /**
+   * Run one call per card sequentially, tolerating individual failures, then report how many worked.
+   * Sequential rather than parallel: refresh and unlink both talk to OverDrive per card.
+   */
+  private runBulk(tasks: (() => Observable<unknown>)[], verb: string,
+                  onDone?: (results: boolean[]) => void): void {
+    this.bulkRunning.set(true);
+    this.setupError.set(null);
+    from(tasks).pipe(
+      concatMap(task => task().pipe(map(() => true), catchError(() => of(false)))),
+      toArray()
+    ).subscribe(results => {
+      this.bulkRunning.set(false);
+      const ok = results.filter(Boolean).length;
+      const failed = results.length - ok;
+      onDone?.(results);
+      this.clearSelection();
+      if (ok) {
+        this.messageService.add({ severity: 'success', summary: verb, detail: `${verb} ${ok} card(s)` });
+      }
+      if (failed) {
+        this.setupError.set(`${failed} of ${results.length} card(s) failed — see the server log for details`);
+      }
+    });
+  }
+
   shareDialogVisible = signal(false);
   shareCard = signal<OverDriveCard | null>(null);
+  /** True when the share dialog is applying one user set across every selected card. */
+  bulkShare = signal(false);
   shareableUsers = signal<OverDriveShareUser[]>([]);
   selectedShareUserIds = signal<number[]>([]);
   savingShares = signal(false);
@@ -294,8 +399,26 @@ export class OverdriveSettingsComponent {
     return user.name ? `${user.name} (${user.username})` : user.username;
   }
 
+  /**
+   * Open the share dialog for every selected card at once. Starts empty rather than merging the cards'
+   * current share sets, because saving replaces sharing on all of them — showing a union would imply
+   * the untouched ones keep what they had.
+   */
+  openBulkShareDialog(): void {
+    this.bulkShare.set(true);
+    this.shareCard.set(null);
+    this.selectedShareUserIds.set([]);
+    this.shareableUsers.set([]);
+    this.shareDialogVisible.set(true);
+    this.overdriveService.shareableUsers().subscribe({
+      next: (users) => this.shareableUsers.set(users ?? []),
+      error: () => this.shareableUsers.set([])
+    });
+  }
+
   /** Open the share dialog for a card, loading candidate users and the card's current shares. */
   openShareDialog(card: OverDriveCard): void {
+    this.bulkShare.set(false);
     this.shareCard.set(card);
     this.selectedShareUserIds.set([]);
     this.shareableUsers.set([]);
@@ -310,8 +433,12 @@ export class OverdriveSettingsComponent {
     });
   }
 
-  /** Persist the chosen share set for the dialog's card. */
+  /** Persist the chosen share set for the dialog's card, or for every selected card in bulk. */
   saveShares(): void {
+    if (this.bulkShare()) {
+      this.saveBulkShares();
+      return;
+    }
     const card = this.shareCard();
     if (!card) {
       return;
@@ -331,6 +458,44 @@ export class OverdriveSettingsComponent {
       error: (err) => {
         this.savingShares.set(false);
         this.setupError.set(err?.error?.message || err?.message || 'Share update failed');
+      }
+    });
+  }
+
+  /** Apply one share set to every selected card, replacing whatever each had. */
+  private saveBulkShares(): void {
+    const cards = this.selectedCards();
+    const ids = this.selectedShareUserIds();
+    if (!cards.length) {
+      this.shareDialogVisible.set(false);
+      return;
+    }
+    this.savingShares.set(true);
+    from(cards).pipe(
+      concatMap(card => this.overdriveService.setShares(card.cardId, ids).pipe(
+        map(() => card.cardId), catchError(() => of(null))
+      )),
+      toArray()
+    ).subscribe(results => {
+      const applied = results.filter((id): id is string => !!id);
+      this.savingShares.set(false);
+      this.shareDialogVisible.set(false);
+      this.bulkShare.set(false);
+      const updated = new Set(applied);
+      this.linkedCards.update(list => list.map(c =>
+        updated.has(c.cardId) ? { ...c, sharedWithCount: ids.length } : c));
+      this.clearSelection();
+      if (applied.length) {
+        this.messageService.add({
+          severity: 'success', summary: 'Sharing updated',
+          detail: ids.length
+            ? `${applied.length} card(s) shared with ${ids.length} user(s)`
+            : `Sharing cleared on ${applied.length} card(s)`
+        });
+      }
+      const failed = results.length - applied.length;
+      if (failed) {
+        this.setupError.set(`${failed} of ${results.length} card(s) failed to update`);
       }
     });
   }
