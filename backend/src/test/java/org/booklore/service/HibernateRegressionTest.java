@@ -8,6 +8,7 @@ import org.booklore.model.enums.BookFileType;
 import org.booklore.repository.BookRepository;
 import org.booklore.repository.LibraryRepository;
 import org.booklore.repository.UserBookProgressRepository;
+import org.booklore.repository.UserRepository;
 import org.booklore.service.task.TaskCronService;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assertions;
@@ -72,6 +73,9 @@ class HibernateRegressionTest {
 
     @Autowired
     private UserBookProgressRepository userBookProgressRepository;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -1095,6 +1099,68 @@ class HibernateRegressionTest {
 
             BookEntity reloaded = bookRepository.findByIdWithMetadata(book.getId()).orElseThrow();
             assertThat(reloaded.getMetadata().getEmbeddingVector()).isEqualTo("[0.3, 0.4]");
+        }
+    }
+
+    /**
+     * User permissions are a LAZY one-to-one, so any caller that filters a user list on a permission
+     * needs them fetch-joined — reading them off a detached entity throws. This is what broke the
+     * OverDrive share picker, which filters the roster on the OverDrive permission.
+     */
+    @Nested
+    class UserPermissionsGraph {
+
+        @Test
+        void findAllWithPermissions_loadsPermissionsForDetachedUse() {
+            persistUserWithPermissions("perm-user-1", true);
+            entityManager.flush();
+            entityManager.clear();
+
+            var users = userRepository.findAllWithPermissions();
+
+            assertThat(users).isNotEmpty();
+            // Assert the association is already loaded rather than merely readable — inside this
+            // transactional test a lazy read could still succeed off the open session and hide the bug.
+            for (BookLoreUserEntity user : users) {
+                assertThat(org.hibernate.Hibernate.isPropertyInitialized(user, "permissions")).isTrue();
+            }
+            BookLoreUserEntity loaded = users.stream()
+                    .filter(u -> "perm-user-1".equals(u.getUsername())).findFirst().orElseThrow();
+            entityManager.clear();
+            Assertions.assertDoesNotThrow(() -> loaded.getPermissions().isPermissionAccessOverdrive());
+            assertThat(loaded.getPermissions().isPermissionAccessOverdrive()).isTrue();
+        }
+
+        @Test
+        void findAll_leavesPermissionsUninitialized() {
+            persistUserWithPermissions("perm-user-2", true);
+            entityManager.flush();
+            entityManager.clear();
+
+            var users = userRepository.findAll();
+            assertThat(users).isNotEmpty();
+
+            // Documents why findAllWithPermissions exists: the plain query defers the association, so
+            // touching it after the session closes is what produced LazyInitializationException.
+            BookLoreUserEntity user = users.stream()
+                    .filter(u -> "perm-user-2".equals(u.getUsername())).findFirst().orElseThrow();
+            assertThat(org.hibernate.Hibernate.isPropertyInitialized(user, "permissions")).isFalse();
+        }
+
+        private BookLoreUserEntity persistUserWithPermissions(String username, boolean overdrive) {
+            BookLoreUserEntity user = BookLoreUserEntity.builder()
+                    .username(username)
+                    .passwordHash("password")
+                    .isDefaultPassword(false)
+                    .name(username)
+                    .build();
+            UserPermissionsEntity perms = new UserPermissionsEntity();
+            perms.setUser(user);
+            perms.setPermissionAccessOverdrive(overdrive);
+            user.setPermissions(perms);
+            entityManager.persist(user);
+            entityManager.persist(perms);
+            return user;
         }
     }
 }

@@ -3149,7 +3149,8 @@ public class OverDriveService {
         if (owner.equals(me) && tokenRepository.findByUserId(me).isEmpty() && !currentUserCanManageAllShares()) {
             return List.of();
         }
-        return userRepository.findAll().stream()
+        // Permissions are fetch-joined: the filter below reads them, and this runs outside a session.
+        return userRepository.findAllWithPermissions().stream()
                 .filter(u -> u.getId() != null && !u.getId().equals(owner))
                 .filter(OverDriveService::canUseOverdrive)
                 .map(u -> new OverDriveShareUser(u.getId(), u.getUsername(), u.getName()))

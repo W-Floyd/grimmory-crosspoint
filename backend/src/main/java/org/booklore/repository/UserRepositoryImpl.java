@@ -36,6 +36,15 @@ public class UserRepositoryImpl implements UserRepositoryCustom {
 
     @Override
     @Transactional(readOnly = true)
+    public List<BookLoreUserEntity> findAllWithPermissions() {
+        return em.createQuery(
+                        "SELECT u FROM BookLoreUserEntity u LEFT JOIN FETCH u.permissions",
+                        BookLoreUserEntity.class)
+                .getResultList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<BookLoreUserEntity> findAllWithDetails() {
         List<BookLoreUserEntity> users = em.createQuery(
                         "SELECT DISTINCT u FROM BookLoreUserEntity u " +

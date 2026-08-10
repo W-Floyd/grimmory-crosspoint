@@ -832,7 +832,7 @@ class OverDriveServiceTest {
         when(tokenRepository.findByUserId(5L)).thenReturn(List.of());
 
         assertThat(service.shareableUsers()).isEmpty();
-        verify(userRepository, never()).findAll();
+        verify(userRepository, never()).findAllWithPermissions();
     }
 
     @Test
@@ -940,7 +940,7 @@ class OverDriveServiceTest {
     @Test
     void shareableUsers_scopedToAnotherOwner_excludesThatOwnerRatherThanTheCaller() {
         authAsCardManager(5L);
-        when(userRepository.findAll()).thenReturn(List.of(
+        when(userRepository.findAllWithPermissions()).thenReturn(List.of(
                 overdriveUser(4L, "ann", "Ann"),
                 overdriveUser(5L, "me", "Me"),
                 overdriveUser(9L, "bob", "Bob")));
@@ -955,7 +955,7 @@ class OverDriveServiceTest {
 
         assertThatThrownBy(() -> service.shareableUsers(4L))
                 .isInstanceOf(org.booklore.exception.APIException.class);
-        verify(userRepository, never()).findAll();
+        verify(userRepository, never()).findAllWithPermissions();
     }
 
     @Test
@@ -1085,7 +1085,7 @@ class OverDriveServiceTest {
         // The picker is only available to a user who actually owns a card to share.
         when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").token("t").build()));
-        when(userRepository.findAll()).thenReturn(List.of(
+        when(userRepository.findAllWithPermissions()).thenReturn(List.of(
                 overdriveUser(7L, "me", "Me"),
                 overdriveUser(8L, "bob", "Bob"),
                 overdriveUser(9L, "ann", "Ann"),
@@ -1109,7 +1109,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(tokenRepository.findByUserId(7L)).thenReturn(List.of());
         assertThat(service.shareableUsers()).isEmpty();
-        verify(userRepository, never()).findAll();
+        verify(userRepository, never()).findAllWithPermissions();
     }
 
     @Test
