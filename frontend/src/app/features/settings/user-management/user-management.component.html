@@ -291,6 +291,18 @@
                             <label [for]="'bookdrop-'+user.id">{{ t('perms.accessBookdrop') }}</label>
                           </div>
                           <div class="permission-item">
+                            <p-checkbox [binary]="true" [(ngModel)]="user.permissions.canAccessOverdrive" (onChange)="onOverdriveAccessChange(user)" [disabled]="isPermissionDisabled(user)" inputId="overdrive-{{user.id}}"></p-checkbox>
+                            <label [for]="'overdrive-'+user.id">{{ t('perms.accessOverdrive') }}</label>
+                          </div>
+                          <div class="permission-item">
+                            <p-checkbox [binary]="true" [(ngModel)]="user.permissions.canManageAllOverdriveShares" [disabled]="isPermissionDisabled(user) || !user.permissions.canAccessOverdrive" inputId="overdrive-manage-all-{{user.id}}"></p-checkbox>
+                            <label [for]="'overdrive-manage-all-'+user.id">{{ t('perms.manageAllOverdriveShares') }}</label>
+                          </div>
+                          <div class="permission-item">
+                            <p-checkbox [binary]="true" [(ngModel)]="user.permissions.canManageAllOverdriveCards" [disabled]="isPermissionDisabled(user) || !user.permissions.canAccessOverdrive" inputId="overdrive-manage-cards-{{user.id}}"></p-checkbox>
+                            <label [for]="'overdrive-manage-cards-'+user.id">{{ t('perms.manageAllOverdriveCards') }}</label>
+                          </div>
+                          <div class="permission-item">
                             <p-checkbox [binary]="true" [(ngModel)]="user.permissions.canAccessLibraryStats" [disabled]="isPermissionDisabled(user)" inputId="stats-{{user.id}}"></p-checkbox>
                             <label [for]="'stats-'+user.id">{{ t('perms.viewLibraryStats') }}</label>
                           </div>

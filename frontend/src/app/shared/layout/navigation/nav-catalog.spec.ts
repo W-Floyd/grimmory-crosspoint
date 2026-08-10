@@ -53,6 +53,8 @@ describe('nav-catalog', () => {
     expect(findPageNavItem('dashboard', translate, {})?.id).toBe('dashboard');
     expect(findPageNavItem('bookdrop', translate, {})).toBeNull();
     expect(findPageNavItem('bookdrop', translate, { canAccessBookdrop: true })?.id).toBe('bookdrop');
+    expect(findPageNavItem('overdrive', translate, { canUpload: true })).toBeNull();
+    expect(findPageNavItem('overdrive', translate, { canAccessOverdrive: true })?.id).toBe('overdrive');
     expect(findPageNavItem('metadataManager', translate, { canManageLibrary: true })).toBeNull();
     expect(findPageNavItem('metadataManager', translate, { canEditMetadata: true })?.id).toBe('metadataManager');
     expect(findPageNavItem('unknown', translate, {})).toBeNull();

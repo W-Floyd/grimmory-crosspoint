@@ -54,6 +54,9 @@ class UserPermissionUtilsTest {
                 .permissionSyncKobo(false)
                 .permissionManageMetadataConfig(false)
                 .permissionAccessBookdrop(false)
+                .permissionAccessOverdrive(false)
+                .permissionManageAllOverdriveShares(false)
+                .permissionManageAllOverdriveCards(false)
                 .permissionAccessLibraryStats(false)
                 .permissionAccessUserStats(false)
                 .permissionAccessTaskManager(false)
@@ -82,6 +85,9 @@ class UserPermissionUtilsTest {
                 .permissionSyncKobo(true)
                 .permissionManageMetadataConfig(true)
                 .permissionAccessBookdrop(true)
+                .permissionAccessOverdrive(true)
+                .permissionManageAllOverdriveShares(true)
+                .permissionManageAllOverdriveCards(true)
                 .permissionAccessLibraryStats(true)
                 .permissionAccessUserStats(true)
                 .permissionAccessTaskManager(true)
@@ -109,6 +115,9 @@ class UserPermissionUtilsTest {
                 .permissionSyncKobo(false)
                 .permissionManageMetadataConfig(false)
                 .permissionAccessBookdrop(false)
+                .permissionAccessOverdrive(false)
+                .permissionManageAllOverdriveShares(false)
+                .permissionManageAllOverdriveCards(false)
                 .permissionAccessLibraryStats(false)
                 .permissionAccessUserStats(false)
                 .permissionAccessTaskManager(false)
@@ -129,6 +138,9 @@ class UserPermissionUtilsTest {
             case SYNC_KOBO -> builder.permissionSyncKobo(value);
             case MANAGE_METADATA_CONFIG -> builder.permissionManageMetadataConfig(value);
             case ACCESS_BOOKDROP -> builder.permissionAccessBookdrop(value);
+            case ACCESS_OVERDRIVE -> builder.permissionAccessOverdrive(value);
+            case MANAGE_ALL_OVERDRIVE_SHARES -> builder.permissionManageAllOverdriveShares(value);
+            case MANAGE_ALL_OVERDRIVE_CARDS -> builder.permissionManageAllOverdriveCards(value);
             case ACCESS_LIBRARY_STATS -> builder.permissionAccessLibraryStats(value);
             case ACCESS_USER_STATS -> builder.permissionAccessUserStats(value);
             case ACCESS_TASK_MANAGER -> builder.permissionAccessTaskManager(value);
@@ -156,6 +168,9 @@ class UserPermissionUtilsTest {
         perms.setCanSyncKobo(false);
         perms.setCanManageMetadataConfig(false);
         perms.setCanAccessBookdrop(false);
+        perms.setCanAccessOverdrive(false);
+        perms.setCanManageAllOverdriveShares(false);
+        perms.setCanManageAllOverdriveCards(false);
         perms.setCanAccessLibraryStats(false);
         perms.setCanAccessUserStats(false);
         perms.setCanAccessTaskManager(false);
@@ -176,6 +191,9 @@ class UserPermissionUtilsTest {
             case SYNC_KOBO -> perms.setCanSyncKobo(value);
             case MANAGE_METADATA_CONFIG -> perms.setCanManageMetadataConfig(value);
             case ACCESS_BOOKDROP -> perms.setCanAccessBookdrop(value);
+            case ACCESS_OVERDRIVE -> perms.setCanAccessOverdrive(value);
+            case MANAGE_ALL_OVERDRIVE_SHARES -> perms.setCanManageAllOverdriveShares(value);
+            case MANAGE_ALL_OVERDRIVE_CARDS -> perms.setCanManageAllOverdriveCards(value);
             case ACCESS_LIBRARY_STATS -> perms.setCanAccessLibraryStats(value);
             case ACCESS_USER_STATS -> perms.setCanAccessUserStats(value);
             case ACCESS_TASK_MANAGER -> perms.setCanAccessTaskManager(value);

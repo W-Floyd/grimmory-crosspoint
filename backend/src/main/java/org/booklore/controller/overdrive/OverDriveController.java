@@ -18,6 +18,7 @@ import org.booklore.service.metadata.parser.OverDriveItemExtractor;
 import org.booklore.service.overdrive.OverDriveService;
 import org.booklore.util.FileUtils;
 import org.springframework.http.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import jakarta.servlet.http.HttpServletResponse;
@@ -40,6 +41,7 @@ import java.util.stream.Stream;
 @RestController
 @RequestMapping("/api/overdrive")
 @Tag(name = "OverDrive Integration", description = "Endpoints for managing OverDrive/Libby library loans and holds")
+@PreAuthorize("@securityUtil.canAccessOverdrive() or @securityUtil.isAdmin()")
 public class OverDriveController {
 
     private final OverDriveService overDriveService;
@@ -159,6 +161,20 @@ public class OverDriveController {
     }
 
     /**
+     * GET /api/overdrive/cards/all — every user's linked cards, for a cross-user card manager. Each
+     * entry carries its owner, which management calls pass back as {@code userId}.
+     */
+    @Operation(summary = "List every user's linked Libby cards",
+               description = "Cross-user card administration: returns all linked cards with their owners. Requires permission to manage any user's OverDrive cards.")
+    @ApiResponse(responseCode = "200", description = "Cards listed successfully")
+    @ApiResponse(responseCode = "403", description = "Caller may not manage other users' cards")
+    @GetMapping("/cards/all")
+    public ResponseEntity<List<OverDriveManagedCard>> listAllCards() {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.listAllCards());
+    }
+
+    /**
      * PUT /api/overdrive/{identity}/default-library — remember a card's default destination library +
      * path for borrow &amp; import. Omit both params to clear it (imports then fall back to Bookdrop).
      */
@@ -169,9 +185,11 @@ public class OverDriveController {
     public ResponseEntity<Void> setDefaultLibrary(
             @Parameter(description = "Library card id") @PathVariable String identity,
             @RequestParam(required = false) Long libraryId,
-            @RequestParam(required = false) Long pathId) {
+            @RequestParam(required = false) Long pathId,
+            @Parameter(description = "Card owner; omit for your own card. Requires cross-user card management.")
+            @RequestParam(required = false) Long userId) {
         requireEnabled();
-        overDriveService.setDefaultLibrary(identity, libraryId, pathId);
+        overDriveService.setDefaultLibrary(identity, libraryId, pathId, userId);
         return ResponseEntity.noContent().build();
     }
 
@@ -185,9 +203,11 @@ public class OverDriveController {
     @PutMapping("/{identity}/label")
     public ResponseEntity<Void> setCardLabel(
             @Parameter(description = "Library card id") @PathVariable String identity,
-            @RequestParam(required = false) String name) {
+            @RequestParam(required = false) String name,
+            @Parameter(description = "Card owner; omit for your own card. Requires cross-user card management.")
+            @RequestParam(required = false) Long userId) {
         requireEnabled();
-        overDriveService.setCardLabel(identity, name);
+        overDriveService.setCardLabel(identity, name, userId);
         return ResponseEntity.noContent().build();
     }
 
@@ -242,30 +262,34 @@ public class OverDriveController {
     }
 
     /**
-     * GET /api/overdrive/{identity}/shares — users a card is currently shared with (owner or admin).
+     * GET /api/overdrive/{identity}/shares — users a card is shared with (owner or card manager).
      */
     @Operation(summary = "List a card's shares")
     @ApiResponse(responseCode = "200", description = "Shares listed")
     @GetMapping("/{identity}/shares")
     public ResponseEntity<List<OverDriveShareUser>> listShares(
-            @Parameter(description = "Library card id") @PathVariable String identity) {
+            @Parameter(description = "Library card id") @PathVariable String identity,
+            @Parameter(description = "Card owner; omit for your own card. Requires cross-user share management.")
+            @RequestParam(required = false) Long userId) {
         requireEnabled();
-        return ResponseEntity.ok(overDriveService.listShares(identity));
+        return ResponseEntity.ok(overDriveService.listShares(identity, userId));
     }
 
     /**
      * PUT /api/overdrive/{identity}/shares — replace the set of users a card is shared with (owner or
-     * admin). Body: {@code {"userIds": [1, 2]}}; an empty/absent list revokes all shares.
+     * card manager). Body: {@code {"userIds": [1, 2]}}; an empty/absent list revokes all shares.
      */
     @Operation(summary = "Set a card's shares",
-               description = "Replaces the users this card is shared with; owner or admin only.")
+               description = "Replaces the users this card is shared with; the card's owner or a user who may manage any user's cards.")
     @ApiResponse(responseCode = "204", description = "Shares saved")
     @PutMapping("/{identity}/shares")
     public ResponseEntity<Void> setShares(
             @Parameter(description = "Library card id") @PathVariable String identity,
+            @Parameter(description = "Card owner; omit for your own card. Requires cross-user share management.")
+            @RequestParam(required = false) Long userId,
             @RequestBody(required = false) OverDriveShareRequest request) {
         requireEnabled();
-        overDriveService.setShares(identity, request != null ? request.userIds() : null);
+        overDriveService.setShares(identity, request != null ? request.userIds() : null, userId);
         return ResponseEntity.noContent().build();
     }
 
@@ -754,10 +778,12 @@ public class OverDriveController {
     @ApiResponse(responseCode = "200", description = "Token removed successfully")
     @DeleteMapping("/token")
     public ResponseEntity<Void> removeToken(
-            @Parameter(description = "Identity") @RequestParam String identity
+            @Parameter(description = "Identity") @RequestParam String identity,
+            @Parameter(description = "Card owner; omit for your own card. Requires cross-user card management.")
+            @RequestParam(required = false) Long userId
     ) {
         requireEnabled();
-        overDriveService.removeToken(identity);
+        overDriveService.removeToken(identity, userId);
         return ResponseEntity.ok().build();
     }
 
@@ -773,11 +799,13 @@ public class OverDriveController {
     @ApiResponse(responseCode = "400", description = "No stored credentials, or re-link failed")
     @PostMapping("/{identity}/refresh")
     public ResponseEntity<Void> refreshCard(
-            @Parameter(description = "Library card id") @PathVariable String identity
+            @Parameter(description = "Library card id") @PathVariable String identity,
+            @Parameter(description = "Card owner; omit for a card you can use. Requires cross-user card management.")
+            @RequestParam(required = false) Long userId
     ) {
         requireEnabled();
         try {
-            overDriveService.refreshCard(identity);
+            overDriveService.refreshCard(identity, userId);
             return ResponseEntity.ok().build();
         } catch (APIException e) {
             throw e;

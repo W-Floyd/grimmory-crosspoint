@@ -161,7 +161,7 @@ export class SettingsComponent implements OnInit {
       case SettingsTab.DeviceSettings:
         return !!(permissions?.admin || permissions?.canSyncKoReader || permissions?.canSyncKobo);
       case SettingsTab.Overdrive:
-        return !!(permissions?.admin || permissions?.canManageMetadataConfig);
+        return !!(permissions?.admin || permissions?.canAccessOverdrive);
       default:
         return false;
     }

@@ -127,6 +127,21 @@ public class SecurityUtil {
         return user != null && user.getPermissions().isCanAccessBookdrop();
     }
 
+    public boolean canAccessOverdrive() {
+        var user = getCurrentUser();
+        return user != null && user.getPermissions().isCanAccessOverdrive();
+    }
+
+    public boolean canManageAllOverdriveShares() {
+        var user = getCurrentUser();
+        return user != null && user.getPermissions().isCanManageAllOverdriveShares();
+    }
+
+    public boolean canManageAllOverdriveCards() {
+        var user = getCurrentUser();
+        return user != null && user.getPermissions().isCanManageAllOverdriveCards();
+    }
+
     public boolean canAccessUserStats() {
         var user = getCurrentUser();
         return user != null && user.getPermissions().isCanAccessUserStats();

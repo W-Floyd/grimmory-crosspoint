@@ -292,6 +292,36 @@
               </div>
 
               <div class="permission-item">
+                <p-checkbox formControlName="permissionAccessOverdrive" [binary]="true" inputId="perm-overdrive"></p-checkbox>
+                <label for="perm-overdrive" class="permission-label">
+                  <div class="permission-icon-wrapper">
+                    <i class="pi pi-book permission-icon"></i>
+                  </div>
+                  <span class="permission-name">{{ t('perms.accessOverdrive') }}</span>
+                </label>
+              </div>
+
+              <div class="permission-item">
+                <p-checkbox formControlName="permissionManageAllOverdriveShares" [binary]="true" [disabled]="!userForm.get('permissionAccessOverdrive')?.value" inputId="perm-overdrive-manage-all"></p-checkbox>
+                <label for="perm-overdrive-manage-all" class="permission-label">
+                  <div class="permission-icon-wrapper">
+                    <i class="pi pi-id-card permission-icon"></i>
+                  </div>
+                  <span class="permission-name">{{ t('perms.manageAllOverdriveShares') }}</span>
+                </label>
+              </div>
+
+              <div class="permission-item">
+                <p-checkbox formControlName="permissionManageAllOverdriveCards" [binary]="true" [disabled]="!userForm.get('permissionAccessOverdrive')?.value" inputId="perm-overdrive-manage-cards"></p-checkbox>
+                <label for="perm-overdrive-manage-cards" class="permission-label">
+                  <div class="permission-icon-wrapper">
+                    <i class="pi pi-users permission-icon"></i>
+                  </div>
+                  <span class="permission-name">{{ t('perms.manageAllOverdriveCards') }}</span>
+                </label>
+              </div>
+
+              <div class="permission-item">
                 <p-checkbox formControlName="permissionAccessLibraryStats" [binary]="true" inputId="perm-library-stats"></p-checkbox>
                 <label for="perm-library-stats" class="permission-label">
                   <div class="permission-icon-wrapper">

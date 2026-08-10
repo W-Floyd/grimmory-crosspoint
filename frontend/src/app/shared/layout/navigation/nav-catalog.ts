@@ -8,6 +8,7 @@ export interface ShellNavPermissions {
   canAccessLibraryStats?: boolean;
   canAccessUserStats?: boolean;
   canAccessBookdrop?: boolean;
+  canAccessOverdrive?: boolean;
 }
 
 export interface ShellActionHandlers {
@@ -50,6 +51,10 @@ function canAccessUserStats(permissions: ShellNavPermissions): boolean {
 
 function canAccessBookdrop(permissions: ShellNavPermissions): boolean {
   return !!permissions.admin || !!permissions.canAccessBookdrop;
+}
+
+function canAccessOverdrive(permissions: ShellNavPermissions): boolean {
+  return !!permissions.admin || !!permissions.canAccessOverdrive;
 }
 
 function canEditMetadata(permissions: ShellNavPermissions): boolean {
@@ -136,8 +141,8 @@ const SECONDARY_PAGE_DEFINITIONS: readonly PageDefinition[] = [
     labelKey: 'layout.menu.overdrive',
     icon: 'book-down',
     routerLink: ['/overdrive'],
-    // Any user who can add books — each connects their own Libby account and borrows independently.
-    isVisible: canUploadBooks,
+    // Each permitted user connects their own Libby account and borrows independently.
+    isVisible: canAccessOverdrive,
   },
 ] as const;
 

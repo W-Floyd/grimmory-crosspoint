@@ -25,6 +25,9 @@ public class UserUpdateRequest {
         private boolean canSyncKobo;
         private boolean canManageMetadataConfig;
         private boolean canAccessBookdrop;
+        private boolean canAccessOverdrive;
+        private boolean canManageAllOverdriveShares;
+        private boolean canManageAllOverdriveCards;
         private boolean canAccessLibraryStats;
         private boolean canAccessUserStats;
         private boolean canAccessTaskManager;

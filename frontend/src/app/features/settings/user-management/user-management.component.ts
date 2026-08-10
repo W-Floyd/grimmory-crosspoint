@@ -319,6 +319,9 @@ export class UserManagementComponent implements OnInit {
       user.permissions.canSyncKobo = true;
       user.permissions.canAccessOpds = true;
       user.permissions.canAccessBookdrop = true;
+      user.permissions.canAccessOverdrive = true;
+      user.permissions.canManageAllOverdriveShares = true;
+      user.permissions.canManageAllOverdriveCards = true;
       user.permissions.canAccessLibraryStats = true;
       user.permissions.canAccessUserStats = true;
       user.permissions.canManageMetadataConfig = true;
@@ -337,6 +340,14 @@ export class UserManagementComponent implements OnInit {
       user.permissions.canBulkResetBookloreReadProgress = true;
       user.permissions.canBulkResetKoReaderReadProgress = true;
       user.permissions.canBulkResetBookReadStatus = true;
+    }
+  }
+
+  /** Managing other users' cards is meaningless without OverDrive access, so revoking it clears both. */
+  onOverdriveAccessChange(user: User) {
+    if (!user.permissions.canAccessOverdrive) {
+      user.permissions.canManageAllOverdriveShares = false;
+      user.permissions.canManageAllOverdriveCards = false;
     }
   }
 

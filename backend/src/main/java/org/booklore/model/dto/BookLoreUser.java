@@ -45,6 +45,9 @@ public class BookLoreUser {
         private boolean canAccessOpds;
         private boolean canManageMetadataConfig;
         private boolean canAccessBookdrop;
+        private boolean canAccessOverdrive;
+        private boolean canManageAllOverdriveShares;
+        private boolean canManageAllOverdriveCards;
         private boolean canAccessLibraryStats;
         private boolean canAccessUserStats;
         private boolean canAccessTaskManager;

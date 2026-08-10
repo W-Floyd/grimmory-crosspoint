@@ -14,5 +14,6 @@ public class AppUserInfo {
     private boolean canUpload;
     private boolean canDownload;
     private boolean canAccessBookdrop;
+    private boolean canAccessOverdrive;
     private int maxFileUploadSizeMb;
 }

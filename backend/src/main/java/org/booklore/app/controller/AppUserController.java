@@ -46,6 +46,7 @@ public class AppUserController {
                 .canUpload(perms.isCanUpload())
                 .canDownload(perms.isCanDownload())
                 .canAccessBookdrop(perms.isCanAccessBookdrop())
+                .canAccessOverdrive(perms.isCanAccessOverdrive())
                 .maxFileUploadSizeMb(maxUploadSizeMb)
                 .build();
 

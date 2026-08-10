@@ -3,6 +3,7 @@ import {describe, expect, it} from 'vitest';
 import {routes} from './app.routes';
 import {AuthChildGuard, AuthGuard} from './core/security/auth.guard';
 import {BookdropGuard} from './core/security/guards/bookdrop.guard';
+import {OverdriveGuard} from './core/security/guards/overdrive.guard';
 import {EditMetadataGuard} from './core/security/guards/edit-metdata.guard';
 import {LibraryStatsGuard} from './core/security/guards/library-stats.guard';
 import {UserStatsGuard} from './core/security/guards/user-stats.guard';
@@ -49,6 +50,7 @@ describe('app routes', () => {
     const children = shellRoute?.children ?? [];
 
     expect(children.find(route => route.path === 'bookdrop')?.canActivate).toEqual([BookdropGuard]);
+    expect(children.find(route => route.path === 'overdrive')?.canActivate).toEqual([OverdriveGuard]);
     expect(typeof children.find(route => route.path === 'overdrive')?.loadComponent).toBe('function');
     expect(children.find(route => route.path === 'metadata-manager')?.canActivate).toEqual([EditMetadataGuard]);
     expect(children.find(route => route.path === 'library-stats')?.canActivate).toEqual([LibraryStatsGuard]);

@@ -6,6 +6,7 @@ import org.booklore.model.dto.Book;
 import org.booklore.model.dto.BookMetadata;
 import org.booklore.model.dto.overdrive.*;
 import org.booklore.model.dto.response.OverDriveApiResponse;
+import org.booklore.model.entity.BookLoreUserEntity;
 import org.booklore.model.entity.OverDriveAuditEntity;
 import org.booklore.model.entity.OverDriveCardShareEntity;
 import org.booklore.model.entity.OverDriveImportDestinationEntity;
@@ -195,6 +196,53 @@ public class OverDriveService {
     private boolean currentUserIsAdmin() {
         BookLoreUser user = authenticationService.getAuthenticatedUser();
         return user != null && user.getPermissions() != null && user.getPermissions().isAdmin();
+    }
+
+    /**
+     * Whether the current user may administer cards they do not own — unlink, refresh, relabel, set a
+     * default library, and list every user's cards. Admins always can; everyone else needs the explicit
+     * permission. Without it a user is confined to their own (and shared-to-them) cards, which is the
+     * default for an ordinary OverDrive user.
+     */
+    private boolean currentUserCanManageAllCards() {
+        BookLoreUser user = authenticationService.getAuthenticatedUser();
+        if (user == null || user.getPermissions() == null) {
+            return false;
+        }
+        return user.getPermissions().isAdmin() || user.getPermissions().isCanManageAllOverdriveCards();
+    }
+
+    /**
+     * Whether the current user may manage sharing on cards they do not own. Full card administration
+     * is a superset, so it grants this too.
+     */
+    private boolean currentUserCanManageAllShares() {
+        BookLoreUser user = authenticationService.getAuthenticatedUser();
+        if (user == null || user.getPermissions() == null) {
+            return false;
+        }
+        return currentUserCanManageAllCards() || user.getPermissions().isCanManageAllOverdriveShares();
+    }
+
+    /**
+     * Resolve a specific owner's card row for administration. A null {@code ownerUserId} means the
+     * caller's own card; targeting another user's row requires the cross-user card permission. Unlike
+     * {@link #accessibleTokenRow}, a card merely shared with the caller is not theirs to administer.
+     */
+    private OverDriveTokenEntity administrableCard(String identity, Long ownerUserId) {
+        Long me = currentUserId();
+        Long target = ownerUserId != null ? ownerUserId : me;
+        if (!target.equals(me) && !currentUserCanManageAllCards()) {
+            throw ApiError.FORBIDDEN.createException("You can only manage your own OverDrive cards");
+        }
+        return tokenRepository.findByUserIdAndIdentity(target, identity)
+                .orElseThrow(() -> ApiError.GENERIC_NOT_FOUND.createException("No such card: " + identity));
+    }
+
+    /** Audit/log suffix naming the card owner, for actions taken on someone else's card. */
+    private String onBehalfOfSuffix(Long ownerUserId) {
+        Long me = currentUserId();
+        return ownerUserId == null || ownerUserId.equals(me) ? "" : " (card owned by " + ownerName(ownerUserId) + ")";
     }
 
     // ── Card access resolution (owned OR shared-to-you) ──────────────────
@@ -799,6 +847,25 @@ public class OverDriveService {
        * credential key configured) — those should be cleared and re-linked instead.
        */
       public void refreshCard(String identity) {
+        refreshCard(identity, null);
+      }
+
+      /**
+       * Refresh a card's token. {@code ownerUserId} targets another user's card and requires the
+       * cross-user card permission; null means "a card I can use", which includes one shared with me.
+       */
+      public void refreshCard(String identity, Long ownerUserId) {
+        if (ownerUserId != null && !ownerUserId.equals(currentUserId())) {
+            OverDriveTokenEntity card = administrableCard(identity, ownerUserId);
+            if (relinkRow(card) == null) {
+                throw new RestClientException("Couldn't refresh this card — it has no stored card+PIN "
+                        + "credentials (set OVERDRIVE_CREDENTIAL_KEY and link by card + PIN), or re-linking "
+                        + "failed. Unlink it and link again.");
+            }
+            recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null,
+                    "Token refreshed from stored credentials" + onBehalfOfSuffix(ownerUserId));
+            return;
+        }
         if (relinkCard(identity) == null) {
             throw new RestClientException("Couldn't refresh this card — it has no stored card+PIN "
                     + "credentials (set OVERDRIVE_CREDENTIAL_KEY and link by card + PIN), or re-linking "
@@ -824,9 +891,22 @@ public class OverDriveService {
             return null;
         }
         var row = accessibleTokenRow(currentUserId(), cardId).orElse(null);
+        return relinkRow(row);
+      }
+
+      /**
+       * Re-link a specific card row from its stored credentials, updating the row in place. Returns the
+       * new token, or null when the row can't be re-linked (no credential key, or no card+PIN on file).
+       * Never throws.
+       */
+      private String relinkRow(OverDriveTokenEntity row) {
+        if (!credentialCipher.isEnabled()) {
+            return null;
+        }
         if (row == null || row.getCredCard() == null || row.getWebsiteId() == null || row.getIlsName() == null) {
             return null;
         }
+        String cardId = row.getIdentity();
         String cn = credentialCipher.decrypt(row.getCredCard());
         String pin = credentialCipher.decrypt(row.getCredPin());
         if (cn == null) {
@@ -2917,14 +2997,25 @@ public class OverDriveService {
       /** Remove the current user's stored token for a specific card. */
       @Transactional
       public void removeToken(String identity) {
-        Long userId = currentUserId();
+        removeToken(identity, null);
+      }
+
+      /**
+       * Remove a stored token. {@code ownerUserId} targets another user's card and requires the
+       * cross-user card permission; null means the caller's own.
+       */
+      @Transactional
+      public void removeToken(String identity, Long ownerUserId) {
+        OverDriveTokenEntity card = administrableCard(identity, ownerUserId);
         // Capture the card name before deletion so the history entry can still name the unlinked card.
-        String cardName = tokenRepository.findByUserIdAndIdentity(userId, identity)
-                .map(OverDriveTokenEntity::getCardName).orElse(null);
-        tokenRepository.deleteByUserIdAndIdentity(userId, identity);
+        String cardName = card.getCardName();
+        Long ownerId = card.getUserId();
+        // Shares point at the token row, so drop them with it rather than leaving them dangling.
+        cardShareRepository.findByTokenId(card.getId()).forEach(cardShareRepository::delete);
+        tokenRepository.deleteByUserIdAndIdentity(ownerId, identity);
         recordAudit(OverDriveAuditAction.CARD_UNLINKED, identity, null, null, null, null,
-                cardName != null ? "Unlinked " + cardName : "Unlinked card");
-        log.info("OverDrive card {} removed for user {}", identity, userId);
+                (cardName != null ? "Unlinked " + cardName : "Unlinked card") + onBehalfOfSuffix(ownerId));
+        log.info("OverDrive card {} removed for user {} by user {}", identity, ownerId, currentUserId());
       }
 
       /** Whether the current user can use the given card (owns it or it's shared with them). */
@@ -2936,20 +3027,27 @@ public class OverDriveService {
 
       /**
        * Candidate users to share a card with: everyone except the current user (minimal fields).
-       * Only users who actually own a linked card (or admins, who can manage any card's shares) may
+       * Only users who actually own a linked card (or those who may manage any user's cards) may
        * enumerate the roster — a user with nothing to share has no need for the picker, so this keeps
        * the full user list from being readable by every authenticated user.
        */
       public List<OverDriveShareUser> shareableUsers() {
         Long me = currentUserId();
-        if (tokenRepository.findByUserId(me).isEmpty() && !currentUserIsAdmin()) {
+        if (tokenRepository.findByUserId(me).isEmpty() && !currentUserCanManageAllShares()) {
             return List.of();
         }
         return userRepository.findAll().stream()
                 .filter(u -> u.getId() != null && !u.getId().equals(me))
+                .filter(OverDriveService::canUseOverdrive)
                 .map(u -> new OverDriveShareUser(u.getId(), u.getUsername(), u.getName()))
                 .sorted(Comparator.comparing(u -> shareUserSortKey(u), String.CASE_INSENSITIVE_ORDER))
                 .toList();
+      }
+
+      /** A share is only useful to someone who can reach the OverDrive feature at all. */
+      private static boolean canUseOverdrive(BookLoreUserEntity user) {
+        var perms = user.getPermissions();
+        return perms != null && (perms.isPermissionAdmin() || perms.isPermissionAccessOverdrive());
       }
 
       private static String shareUserSortKey(OverDriveShareUser u) {
@@ -2958,15 +3056,28 @@ public class OverDriveService {
 
       /**
        * Resolve the owner's card row for share management, enforcing that the caller may manage it: the
-       * card's owner, or any admin. Throws 403 otherwise, 404 if no such card exists.
+       * card's owner, or a user permitted to manage any user's cards. Throws 403 otherwise, 404 if no
+       * such card exists.
        */
       private OverDriveTokenEntity manageableCard(String identity) {
+        return manageableCard(identity, null);
+      }
+
+      private OverDriveTokenEntity manageableCard(String identity, Long ownerUserId) {
         Long me = currentUserId();
+        if (ownerUserId != null && !ownerUserId.equals(me)) {
+            // An explicit owner removes the ambiguity below, but is still a cross-user action.
+            if (!currentUserCanManageAllShares()) {
+                throw ApiError.FORBIDDEN.createException("You can only manage sharing for cards you own");
+            }
+            return tokenRepository.findByUserIdAndIdentity(ownerUserId, identity)
+                    .orElseThrow(() -> ApiError.GENERIC_NOT_FOUND.createException("No such card: " + identity));
+        }
         Optional<OverDriveTokenEntity> owned = tokenRepository.findByUserIdAndIdentity(me, identity);
         if (owned.isPresent()) {
             return owned.get();
         }
-        if (currentUserIsAdmin()) {
+        if (currentUserCanManageAllShares()) {
             // (user_id, identity) is unique, so two users can each own a row for the same identity.
             // Rather than silently editing an arbitrary owner's shares, act only when it's unambiguous.
             List<OverDriveTokenEntity> matches = tokenRepository.findByIdentity(identity);
@@ -2975,16 +3086,20 @@ public class OverDriveService {
             }
             if (matches.size() > 1) {
                 throw ApiError.GENERIC_BAD_REQUEST.createException(
-                        "Card " + identity + " is linked by multiple users; manage its shares as its owner");
+                        "Card " + identity + " is linked by multiple users; pass userId to pick one");
             }
             return matches.getFirst();
         }
         throw ApiError.FORBIDDEN.createException("You can only manage sharing for cards you own");
       }
 
-      /** The users a card is currently shared with (owner or admin only). */
+      /** The users a card is currently shared with (the card's owner, or a cross-user card manager). */
       public List<OverDriveShareUser> listShares(String identity) {
-        OverDriveTokenEntity card = manageableCard(identity);
+        return listShares(identity, null);
+      }
+
+      public List<OverDriveShareUser> listShares(String identity, Long ownerUserId) {
+        OverDriveTokenEntity card = manageableCard(identity, ownerUserId);
         return cardShareRepository.findByTokenId(card.getId()).stream()
                 .map(s -> userRepository.findById(s.getSharedWithUserId()).orElse(null))
                 .filter(Objects::nonNull)
@@ -2994,12 +3109,17 @@ public class OverDriveService {
       }
 
       /**
-       * Replace the set of users a card is shared with (owner or admin only). The card owner is never a
+       * Replace the set of users a card is shared with (owner or cross-user card manager). The owner is never a
        * valid target; unknown user ids are ignored. Existing grants not in the new set are revoked.
        */
       @Transactional
       public void setShares(String identity, List<Long> userIds) {
-        OverDriveTokenEntity card = manageableCard(identity);
+        setShares(identity, userIds, null);
+      }
+
+      @Transactional
+      public void setShares(String identity, List<Long> userIds, Long ownerUserId) {
+        OverDriveTokenEntity card = manageableCard(identity, ownerUserId);
         Set<Long> desired = new LinkedHashSet<>();
         if (userIds != null) {
             for (Long uid : userIds) {
@@ -3054,6 +3174,27 @@ public class OverDriveService {
       }
 
       /**
+       * Every user's linked cards, for a cross-user card manager. Returns the owner alongside each card
+       * so management calls can name the target unambiguously (an identity can be linked by more than
+       * one user). Throws 403 without the cross-user card permission.
+       */
+      public List<OverDriveManagedCard> listAllCards() {
+        if (!currentUserCanManageAllCards()) {
+            throw ApiError.FORBIDDEN.createException("You cannot manage other users' OverDrive cards");
+        }
+        return tokenRepository.findAll().stream()
+                .map(t -> new OverDriveManagedCard(
+                        t.getIdentity(), t.getCardName(), t.getLibraryKey(), t.getCredCard() != null,
+                        t.getDefaultLibraryId(), t.getDefaultPathId(),
+                        cardShareRepository.countByTokenId(t.getId()),
+                        canAutoRenew(t), t.getExpiresAt(),
+                        t.getUserId(), ownerName(t.getUserId())))
+                .sorted(Comparator.comparing(OverDriveManagedCard::ownerName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(c -> c.name() != null ? c.name() : c.cardId(), String.CASE_INSENSITIVE_ORDER))
+                .toList();
+      }
+
+      /**
        * Whether a card can silently re-link its token when it expires: it must have card+PIN on file,
        * retain the library sign-in details, and credential storage must currently be enabled (a
        * disabled/changed key can't decrypt the stored credentials). Same requirement as an audiobook
@@ -3073,12 +3214,16 @@ public class OverDriveService {
 
       /** Set a friendly display label for a card; a blank label clears it back to the default name. */
       public void setCardLabel(String identity, String label) {
-        OverDriveTokenEntity entity = tokenRepository.findByUserIdAndIdentity(currentUserId(), identity)
-                .orElseThrow(() -> new RestClientException("No such card: " + identity));
+        setCardLabel(identity, label, null);
+      }
+
+      public void setCardLabel(String identity, String label, Long ownerUserId) {
+        OverDriveTokenEntity entity = administrableCard(identity, ownerUserId);
         entity.setCardName(label != null && !label.isBlank() ? label.trim() : null);
         tokenRepository.save(entity);
         recordAudit(OverDriveAuditAction.CARD_RELABELED, identity, null, null, null, null,
-                label != null && !label.isBlank() ? "Renamed to \"" + label.trim() + "\"" : "Label cleared");
+                (label != null && !label.isBlank() ? "Renamed to \"" + label.trim() + "\"" : "Label cleared")
+                        + onBehalfOfSuffix(entity.getUserId()));
       }
 
       /**
@@ -3086,8 +3231,11 @@ public class OverDriveService {
        * Passing nulls clears the default so imports fall back to the Bookdrop folder.
        */
       public void setDefaultLibrary(String identity, Long libraryId, Long pathId) {
-        OverDriveTokenEntity entity = tokenRepository.findByUserIdAndIdentity(currentUserId(), identity)
-                .orElseThrow(() -> new RestClientException("No such card: " + identity));
+        setDefaultLibrary(identity, libraryId, pathId, null);
+      }
+
+      public void setDefaultLibrary(String identity, Long libraryId, Long pathId, Long ownerUserId) {
+        OverDriveTokenEntity entity = administrableCard(identity, ownerUserId);
         entity.setDefaultLibraryId(libraryId);
         entity.setDefaultPathId(pathId);
         tokenRepository.save(entity);

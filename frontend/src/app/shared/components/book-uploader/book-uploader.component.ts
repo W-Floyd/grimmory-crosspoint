@@ -1,5 +1,6 @@
 import {ChangeDetectorRef, Component, inject, ViewChild, effect, signal, computed} from '@angular/core';
 import {OverDriveService} from '../../../core/services/overdrive.service';
+import {UserService} from '../../../features/settings/user-management/user.service';
 import {FileSelectEvent, FileUpload, FileUploadHandlerEvent} from '@openng/optimus-ui/fileupload';
 import {Button} from '@openng/optimus-ui/button';
 import {FormsModule} from '@angular/forms';
@@ -61,6 +62,7 @@ export class BookUploaderComponent {
   private readonly t = inject(TranslocoService);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly overdriveService = inject(OverDriveService);
+  private readonly userService = inject(UserService);
 
   // Allow uploading .acsm files only when an external ACSM handler is configured (they're converted
   // to a book on the server). The file picker's accept list adjusts accordingly.
@@ -94,10 +96,14 @@ export class BookUploaderComponent {
   });
 
   constructor() {
-    this.overdriveService.capabilities().subscribe({
-      next: (c) => this.acsmSupported.set(!!c?.acsmHandlerConfigured),
-      error: () => this.acsmSupported.set(false)
-    });
+    // The capabilities probe lives behind the OverDrive permission, so only ask when the user has it.
+    const permissions = this.userService.currentUser()?.permissions;
+    if (permissions?.admin || permissions?.canAccessOverdrive) {
+      this.overdriveService.capabilities().subscribe({
+        next: (c) => this.acsmSupported.set(!!c?.acsmHandlerConfigured),
+        error: () => this.acsmSupported.set(false)
+      });
+    }
   }
 
   get selectedLibrary(): Library | null {

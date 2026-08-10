@@ -36,6 +36,9 @@ public class UserCreateRequest {
     private boolean permissionAdmin;
     private boolean permissionManageMetadataConfig;
     private boolean permissionAccessBookdrop;
+    private boolean permissionAccessOverdrive;
+    private boolean permissionManageAllOverdriveShares;
+    private boolean permissionManageAllOverdriveCards;
     private boolean permissionAccessLibraryStats;
     private boolean permissionAccessUserStats;
     private boolean permissionAccessTaskManager;

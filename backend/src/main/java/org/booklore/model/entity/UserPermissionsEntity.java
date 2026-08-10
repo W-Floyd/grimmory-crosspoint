@@ -67,6 +67,18 @@ public class UserPermissionsEntity {
     @Builder.Default
     private boolean permissionAccessBookdrop = false;
 
+    @Column(name = "permission_access_overdrive", nullable = false)
+    @Builder.Default
+    private boolean permissionAccessOverdrive = false;
+
+    @Column(name = "permission_manage_all_overdrive_shares", nullable = false)
+    @Builder.Default
+    private boolean permissionManageAllOverdriveShares = false;
+
+    @Column(name = "permission_manage_all_overdrive_cards", nullable = false)
+    @Builder.Default
+    private boolean permissionManageAllOverdriveCards = false;
+
     @Column(name = "permission_access_library_stats", nullable = false)
     @Builder.Default
     private boolean permissionAccessLibraryStats = false;

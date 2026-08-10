@@ -340,6 +340,9 @@ export interface User {
     canSyncKobo: boolean;
     canAccessOpds: boolean;
     canAccessBookdrop: boolean;
+    canAccessOverdrive: boolean;
+    canManageAllOverdriveShares: boolean;
+    canManageAllOverdriveCards: boolean;
     canAccessLibraryStats: boolean;
     canAccessUserStats: boolean;
     canAccessTaskManager: boolean;

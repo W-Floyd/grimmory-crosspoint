@@ -106,6 +106,30 @@ public enum UserPermission {
             UserPermissionsEntity::isPermissionAccessBookdrop,
             UserPermissionsEntity::setPermissionAccessBookdrop
     ),
+    CAN_ACCESS_OVERDRIVE(
+            "Access OverDrive/Libby",
+            BookLoreUser.UserPermissions::isCanAccessOverdrive,
+            BookLoreUser.UserPermissions::setCanAccessOverdrive,
+            UserUpdateRequest.Permissions::isCanAccessOverdrive,
+            UserPermissionsEntity::isPermissionAccessOverdrive,
+            UserPermissionsEntity::setPermissionAccessOverdrive
+    ),
+    CAN_MANAGE_ALL_OVERDRIVE_SHARES(
+            "Manage sharing for any user's OverDrive cards",
+            BookLoreUser.UserPermissions::isCanManageAllOverdriveShares,
+            BookLoreUser.UserPermissions::setCanManageAllOverdriveShares,
+            UserUpdateRequest.Permissions::isCanManageAllOverdriveShares,
+            UserPermissionsEntity::isPermissionManageAllOverdriveShares,
+            UserPermissionsEntity::setPermissionManageAllOverdriveShares
+    ),
+    CAN_MANAGE_ALL_OVERDRIVE_CARDS(
+            "Manage any user's OverDrive cards",
+            BookLoreUser.UserPermissions::isCanManageAllOverdriveCards,
+            BookLoreUser.UserPermissions::setCanManageAllOverdriveCards,
+            UserUpdateRequest.Permissions::isCanManageAllOverdriveCards,
+            UserPermissionsEntity::isPermissionManageAllOverdriveCards,
+            UserPermissionsEntity::setPermissionManageAllOverdriveCards
+    ),
     CAN_ACCESS_LIBRARY_STATS(
             "Access library stats",
             BookLoreUser.UserPermissions::isCanAccessLibraryStats,
@@ -281,10 +305,25 @@ public enum UserPermission {
         }
     }
 
+    /**
+     * Enforce dependencies between permissions so the stored set can never describe an unreachable
+     * capability. Managing other users' OverDrive cards is meaningless without access to the feature
+     * itself, and leaving the grant behind would silently restore it if access were re-granted later.
+     * Call this after any bulk write to a permissions row.
+     */
+    public static void normalize(UserPermissionsEntity target) {
+        if (target == null) return;
+        if (!target.isPermissionAccessOverdrive()) {
+            target.setPermissionManageAllOverdriveShares(false);
+            target.setPermissionManageAllOverdriveCards(false);
+        }
+    }
+
     public static void copyFromRequestToEntity(UserUpdateRequest.Permissions source, UserPermissionsEntity target) {
         if (source == null || target == null) return;
         for (UserPermission permission : values()) {
             permission.setInEntity(target, permission.getFromRequest(source));
         }
+        normalize(target);
     }
 }

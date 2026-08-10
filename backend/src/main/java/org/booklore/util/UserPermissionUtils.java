@@ -22,6 +22,9 @@ public class UserPermissionUtils {
             case SYNC_KOBO -> perms.isPermissionSyncKobo();
             case MANAGE_METADATA_CONFIG -> perms.isPermissionManageMetadataConfig();
             case ACCESS_BOOKDROP -> perms.isPermissionAccessBookdrop();
+            case ACCESS_OVERDRIVE -> perms.isPermissionAccessOverdrive();
+            case MANAGE_ALL_OVERDRIVE_SHARES -> perms.isPermissionManageAllOverdriveShares();
+            case MANAGE_ALL_OVERDRIVE_CARDS -> perms.isPermissionManageAllOverdriveCards();
             case ACCESS_LIBRARY_STATS -> perms.isPermissionAccessLibraryStats();
             case ACCESS_USER_STATS -> perms.isPermissionAccessUserStats();
             case ACCESS_TASK_MANAGER -> perms.isPermissionAccessTaskManager();
@@ -45,6 +48,9 @@ public class UserPermissionUtils {
             case SYNC_KOBO -> perms.isCanSyncKobo();
             case MANAGE_METADATA_CONFIG -> perms.isCanManageMetadataConfig();
             case ACCESS_BOOKDROP -> perms.isCanAccessBookdrop();
+            case ACCESS_OVERDRIVE -> perms.isCanAccessOverdrive();
+            case MANAGE_ALL_OVERDRIVE_SHARES -> perms.isCanManageAllOverdriveShares();
+            case MANAGE_ALL_OVERDRIVE_CARDS -> perms.isCanManageAllOverdriveCards();
             case ACCESS_LIBRARY_STATS -> perms.isCanAccessLibraryStats();
             case ACCESS_USER_STATS -> perms.isCanAccessUserStats();
             case ACCESS_TASK_MANAGER -> perms.isCanAccessTaskManager();

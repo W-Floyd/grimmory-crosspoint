@@ -81,6 +81,32 @@ class OverDriveServiceTest {
                 .thenReturn(BookLoreUser.builder().id(userId).permissions(perms).build());
     }
 
+    /** A non-admin who may manage sharing on any card, but not administer the cards themselves. */
+    private void authAsShareManager(long userId) {
+        BookLoreUser.UserPermissions perms = new BookLoreUser.UserPermissions();
+        perms.setCanAccessOverdrive(true);
+        perms.setCanManageAllOverdriveShares(true);
+        when(authenticationService.getAuthenticatedUser())
+                .thenReturn(BookLoreUser.builder().id(userId).permissions(perms).build());
+    }
+
+    /** A non-admin with full cross-user card administration (which implies share management). */
+    private void authAsCardManager(long userId) {
+        BookLoreUser.UserPermissions perms = new BookLoreUser.UserPermissions();
+        perms.setCanAccessOverdrive(true);
+        perms.setCanManageAllOverdriveCards(true);
+        when(authenticationService.getAuthenticatedUser())
+                .thenReturn(BookLoreUser.builder().id(userId).permissions(perms).build());
+    }
+
+    /** An ordinary OverDrive user: feature access, but confined to their own cards. */
+    private void authAsOverdriveUser(long userId) {
+        BookLoreUser.UserPermissions perms = new BookLoreUser.UserPermissions();
+        perms.setCanAccessOverdrive(true);
+        when(authenticationService.getAuthenticatedUser())
+                .thenReturn(BookLoreUser.builder().id(userId).permissions(perms).build());
+    }
+
     @Test
     void storeToken_persistsCardForCurrentUser() {
         authAs(7L);
@@ -118,8 +144,20 @@ class OverDriveServiceTest {
     @Test
     void removeToken_removesCurrentUsersCard() {
         authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-1")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().id(3L).userId(7L).identity("card-1").token("t").build()));
         service.removeToken("card-1");
         verify(tokenRepository).deleteByUserIdAndIdentity(7L, "card-1");
+    }
+
+    @Test
+    void removeToken_forACardYouDoNotHave_is404RatherThanASilentNoOp() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "nope")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.removeToken("nope"))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(tokenRepository, never()).deleteByUserIdAndIdentity(any(), any());
     }
 
     @Test
@@ -761,6 +799,145 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void setShares_byShareManagerForAnotherUsersCard_isAllowed() {
+        authAsShareManager(5L);
+        when(tokenRepository.findByUserIdAndIdentity(5L, "someones")).thenReturn(Optional.empty());
+        when(tokenRepository.findByIdentity("someones")).thenReturn(List.of(
+                OverDriveTokenEntity.builder().id(8L).userId(4L).identity("someones").token("t").build()));
+        when(cardShareRepository.findByTokenId(8L)).thenReturn(List.of());
+        when(userRepository.existsById(9L)).thenReturn(true);
+
+        service.setShares("someones", List.of(9L));
+
+        ArgumentCaptor<org.booklore.model.entity.OverDriveCardShareEntity> saved =
+                ArgumentCaptor.forClass(org.booklore.model.entity.OverDriveCardShareEntity.class);
+        verify(cardShareRepository).save(saved.capture());
+        assertThat(saved.getValue().getTokenId()).isEqualTo(8L);
+    }
+
+    @Test
+    void setShares_byPlainOverdriveUserForAnotherUsersCard_isForbidden() {
+        authAsOverdriveUser(5L);
+        when(tokenRepository.findByUserIdAndIdentity(5L, "someones")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.setShares("someones", List.of(9L)))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(tokenRepository, never()).findByIdentity(any());
+        verify(cardShareRepository, never()).save(any());
+    }
+
+    @Test
+    void shareableUsers_emptyForAPlainOverdriveUserWithNoCardOfTheirOwn() {
+        authAsOverdriveUser(5L);
+        when(tokenRepository.findByUserId(5L)).thenReturn(List.of());
+
+        assertThat(service.shareableUsers()).isEmpty();
+        verify(userRepository, never()).findAll();
+    }
+
+    @Test
+    void setShares_byCardManager_isAllowedBecauseCardManagementImpliesShareManagement() {
+        authAsCardManager(5L);
+        when(tokenRepository.findByUserIdAndIdentity(5L, "someones")).thenReturn(Optional.empty());
+        when(tokenRepository.findByIdentity("someones")).thenReturn(List.of(
+                OverDriveTokenEntity.builder().id(8L).userId(4L).identity("someones").token("t").build()));
+        when(cardShareRepository.findByTokenId(8L)).thenReturn(List.of());
+        when(userRepository.existsById(9L)).thenReturn(true);
+
+        service.setShares("someones", List.of(9L));
+
+        verify(cardShareRepository).save(any());
+    }
+
+    @Test
+    void setShares_withAnExplicitOwner_resolvesAnIdentityLinkedByMultipleUsers() {
+        authAsCardManager(5L);
+        when(tokenRepository.findByUserIdAndIdentity(3L, "dup")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().id(2L).userId(3L).identity("dup").token("t").build()));
+        when(cardShareRepository.findByTokenId(2L)).thenReturn(List.of());
+        when(userRepository.existsById(9L)).thenReturn(true);
+
+        service.setShares("dup", List.of(9L), 3L);
+
+        ArgumentCaptor<org.booklore.model.entity.OverDriveCardShareEntity> saved =
+                ArgumentCaptor.forClass(org.booklore.model.entity.OverDriveCardShareEntity.class);
+        verify(cardShareRepository).save(saved.capture());
+        assertThat(saved.getValue().getTokenId()).isEqualTo(2L);
+        // Never consults the ambiguous by-identity lookup when the owner is named.
+        verify(tokenRepository, never()).findByIdentity(any());
+    }
+
+    @Test
+    void removeToken_forAnotherUsersCard_isAllowedForACardManagerAndDropsItsShares() {
+        authAsCardManager(5L);
+        when(tokenRepository.findByUserIdAndIdentity(4L, "theirs")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().id(8L).userId(4L).identity("theirs").cardName("LAPL").token("t").build()));
+        when(cardShareRepository.findByTokenId(8L)).thenReturn(List.of(
+                org.booklore.model.entity.OverDriveCardShareEntity.builder().id(1L).tokenId(8L).sharedWithUserId(9L).build()));
+
+        service.removeToken("theirs", 4L);
+
+        verify(cardShareRepository).delete(any());
+        verify(tokenRepository).deleteByUserIdAndIdentity(4L, "theirs");
+    }
+
+    @Test
+    void removeToken_forAnotherUsersCard_isForbiddenForAShareManager() {
+        authAsShareManager(5L);
+
+        assertThatThrownBy(() -> service.removeToken("theirs", 4L))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(tokenRepository, never()).deleteByUserIdAndIdentity(any(), any());
+    }
+
+    @Test
+    void setCardLabel_forAnotherUsersCard_isForbiddenWithoutCardManagement() {
+        authAsOverdriveUser(5L);
+
+        assertThatThrownBy(() -> service.setCardLabel("theirs", "Nickname", 4L))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(tokenRepository, never()).save(any());
+    }
+
+    @Test
+    void setCardLabel_forAnotherUsersCard_isAllowedForACardManager() {
+        authAsCardManager(5L);
+        OverDriveTokenEntity row = OverDriveTokenEntity.builder()
+                .id(8L).userId(4L).identity("theirs").token("t").build();
+        when(tokenRepository.findByUserIdAndIdentity(4L, "theirs")).thenReturn(Optional.of(row));
+
+        service.setCardLabel("theirs", "Nickname", 4L);
+
+        verify(tokenRepository).save(row);
+        assertThat(row.getCardName()).isEqualTo("Nickname");
+    }
+
+    @Test
+    void listAllCards_isForbiddenWithoutCardManagement() {
+        authAsShareManager(5L);
+
+        assertThatThrownBy(() -> service.listAllCards())
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(tokenRepository, never()).findAll();
+    }
+
+    @Test
+    void listAllCards_returnsEveryUsersCardsWithTheirOwner() {
+        authAsCardManager(5L);
+        when(tokenRepository.findAll()).thenReturn(List.of(
+                OverDriveTokenEntity.builder().id(1L).userId(4L).identity("a").cardName("LAPL").token("t").build(),
+                OverDriveTokenEntity.builder().id(2L).userId(9L).identity("b").cardName("BPL").token("t").build()));
+        when(userRepository.findById(4L)).thenReturn(Optional.of(
+                org.booklore.model.entity.BookLoreUserEntity.builder().id(4L).username("ann").name("Ann").build()));
+        when(userRepository.findById(9L)).thenReturn(Optional.of(
+                org.booklore.model.entity.BookLoreUserEntity.builder().id(9L).username("bob").name("Bob").build()));
+
+        assertThat(service.listAllCards())
+                .extracting(c -> c.ownerUserId() + ":" + c.ownerName() + ":" + c.cardId())
+                .containsExactly("4:Ann:a", "9:Bob:b");
+    }
+
+    @Test
     void setShares_byAdmin_ambiguousIdentity_isRejected() {
         authAsAdmin(1L);
         when(tokenRepository.findByUserIdAndIdentity(1L, "dup")).thenReturn(Optional.empty());
@@ -827,11 +1004,22 @@ class OverDriveServiceTest {
         when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").token("t").build()));
         when(userRepository.findAll()).thenReturn(List.of(
-                org.booklore.model.entity.BookLoreUserEntity.builder().id(7L).username("me").name("Me").build(),
-                org.booklore.model.entity.BookLoreUserEntity.builder().id(8L).username("bob").name("Bob").build(),
-                org.booklore.model.entity.BookLoreUserEntity.builder().id(9L).username("ann").name("Ann").build()));
+                overdriveUser(7L, "me", "Me"),
+                overdriveUser(8L, "bob", "Bob"),
+                overdriveUser(9L, "ann", "Ann"),
+                // Sharing a card with someone who cannot reach OverDrive would be a no-op.
+                org.booklore.model.entity.BookLoreUserEntity.builder().id(10L).username("zoe").name("Zoe").build()));
 
         assertThat(service.shareableUsers()).extracting(u -> u.userId()).containsExactly(9L, 8L);
+    }
+
+    /** A user entity carrying the OverDrive permission, as the share picker requires. */
+    private static org.booklore.model.entity.BookLoreUserEntity overdriveUser(Long id, String username, String name) {
+        var user = org.booklore.model.entity.BookLoreUserEntity.builder().id(id).username(username).name(name).build();
+        var perms = org.booklore.model.entity.UserPermissionsEntity.builder().permissionAccessOverdrive(true).build();
+        perms.setUser(user);
+        user.setPermissions(perms);
+        return user;
     }
 
     @Test

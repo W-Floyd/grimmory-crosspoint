@@ -7,10 +7,12 @@ import {BookdropGuard} from './guards/bookdrop.guard';
 import {EditMetadataGuard} from './guards/edit-metdata.guard';
 import {LibraryStatsGuard} from './guards/library-stats.guard';
 import {ManageLibraryGuard} from './guards/manage-library.guard';
+import {OverdriveGuard} from './guards/overdrive.guard';
 import {UserStatsGuard} from './guards/user-stats.guard';
 
 type PermissionFlag =
   | 'canAccessBookdrop'
+  | 'canAccessOverdrive'
   | 'canEditMetadata'
   | 'canAccessLibraryStats'
   | 'canManageLibrary'
@@ -21,6 +23,7 @@ function createUser(permissionFlag: PermissionFlag, value: boolean, admin = fals
     permissions: {
       admin,
       canAccessBookdrop: permissionFlag === 'canAccessBookdrop' ? value : false,
+      canAccessOverdrive: permissionFlag === 'canAccessOverdrive' ? value : false,
       canEditMetadata: permissionFlag === 'canEditMetadata' ? value : false,
       canAccessLibraryStats: permissionFlag === 'canAccessLibraryStats' ? value : false,
       canManageLibrary: permissionFlag === 'canManageLibrary' ? value : false,
@@ -96,6 +99,15 @@ describe('security guards', () => {
 
   it('redirects bookdrop access when the user lacks permission', () => {
     expectGuardRedirects('canAccessBookdrop', BookdropGuard);
+  });
+
+  it('allows overdrive access for admins and users with the explicit permission', () => {
+    expectGuardAllows('canAccessOverdrive', OverdriveGuard);
+    expectGuardAllowsAdmin('canAccessOverdrive', OverdriveGuard);
+  });
+
+  it('redirects overdrive access when the user lacks permission', () => {
+    expectGuardRedirects('canAccessOverdrive', OverdriveGuard);
   });
 
   it('allows metadata editing for admins and users with the explicit permission', () => {
