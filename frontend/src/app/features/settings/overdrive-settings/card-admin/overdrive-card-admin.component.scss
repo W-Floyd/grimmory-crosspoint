@@ -1,0 +1,181 @@
+// Mirrors the card styling of the parent OverDrive settings page so an admin's view of someone else's
+// card reads the same as their view of their own.
+.settings-card {
+  margin-bottom: 1.5rem;
+}
+
+.card-admin-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.25rem;
+}
+
+.settings-description {
+  color: var(--text-color-secondary);
+  margin: 0 0 1rem;
+}
+
+.card-admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+
+  .card-admin-filter {
+    flex: 1 1 18rem;
+    min-width: 12rem;
+  }
+
+  .card-admin-count {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--text-color-secondary);
+  }
+}
+
+.card-admin-empty {
+  color: var(--text-color-secondary);
+  font-style: italic;
+}
+
+// Owner grouping header: who linked the cards in this card block.
+.owner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem 0;
+
+  .owner-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 600;
+  }
+
+  .owner-count {
+    font-size: 0.8rem;
+    color: var(--text-color-secondary);
+  }
+}
+
+.linked-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+
+  .linked-card-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 0.35rem;
+
+    .card-primary {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      width: 100%;
+    }
+
+    .card-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .meta-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 0.1rem 0.45rem;
+      border-radius: 1rem;
+      background: var(--surface-200, rgb(255 255 255 / 8%));
+      color: var(--text-color-secondary);
+
+      i {
+        font-size: 0.7rem;
+      }
+
+      &.good {
+        color: var(--green-500, #22c55e);
+        background: color-mix(in srgb, var(--green-500, #22c55e) 15%, transparent);
+      }
+
+      // An expired token is the one state an admin is usually here to fix.
+      &.bad {
+        color: var(--red-500, #ef4444);
+        background: color-mix(in srgb, var(--red-500, #ef4444) 15%, transparent);
+      }
+
+      &.muted {
+        color: var(--text-color-secondary);
+      }
+    }
+
+    .linked-card-label {
+      flex: 1 1 auto;
+      min-width: 8rem;
+      max-width: 20rem;
+
+      &.dirty {
+        border-color: var(--primary-color);
+      }
+    }
+
+    .linked-card-id {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-color-secondary);
+      overflow-wrap: anywhere;
+    }
+
+    .shared-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--primary-color);
+
+      i {
+        font-size: 0.7rem;
+      }
+    }
+
+    .unsaved-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--orange-500, #f97316);
+
+      i {
+        font-size: 0.7rem;
+      }
+    }
+  }
+
+  .linked-card-actions {
+    display: flex;
+    gap: 0.25rem;
+    flex-shrink: 0;
+  }
+}
+
+.share-dialog-intro {
+  margin: 0 0 0.75rem;
+  color: var(--text-color-secondary);
+}

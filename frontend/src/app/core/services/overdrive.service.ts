@@ -26,6 +26,25 @@ export interface OverDriveCard {
   tokenExpiresAt?: number | null;
 }
 
+/**
+ * A linked card as seen by a cross-user card manager: the same shape as {@link OverDriveCard} minus the
+ * viewer-relative fields, plus its owner. `ownerUserId` is what management calls pass back to name the
+ * target row — the same `cardId` can appear once per user who linked it.
+ */
+export interface OverDriveManagedCard {
+  cardId: string;
+  name?: string | null;
+  libraryKey?: string | null;
+  credentialsStored?: boolean;
+  defaultLibraryId?: number | null;
+  defaultPathId?: number | null;
+  sharedWithCount?: number;
+  canAutoRenew?: boolean;
+  tokenExpiresAt?: number | null;
+  ownerUserId: number;
+  ownerName: string;
+}
+
 /** A user for the card-sharing picker / share list. */
 export interface OverDriveShareUser {
   userId: number;
@@ -344,23 +363,39 @@ export class OverDriveService {
     return this.http.get<OverDriveCard[]>(`${this.baseUrl}/cards`);
   }
 
-  /** Unlink a card (clear its stored token/credentials). */
-  removeCard(cardId: string): Observable<void> {
-    return this.http.delete<void>(`${this.baseUrl}/token`, { params: { identity: cardId } });
+  /**
+   * Every user's linked cards, for a cross-user card manager. Requires permission to manage any user's
+   * OverDrive cards; 403 otherwise.
+   */
+  allCards(): Observable<OverDriveManagedCard[]> {
+    return this.http.get<OverDriveManagedCard[]>(`${this.baseUrl}/cards/all`);
+  }
+
+  /**
+   * Unlink a card (clear its stored token/credentials). Pass `ownerUserId` to unlink another user's
+   * card — that requires permission to manage any user's cards.
+   */
+  removeCard(cardId: string, ownerUserId?: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/token`, { params: this.ownerParams({ identity: cardId }, ownerUserId) });
   }
 
   /** Refresh a card+PIN card's token by re-linking from its stored credentials. */
-  refreshCard(cardId: string): Observable<void> {
-    return this.http.post<void>(`${this.baseUrl}/${cardId}/refresh`, null);
+  refreshCard(cardId: string, ownerUserId?: number): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${cardId}/refresh`, null, { params: this.ownerParams({}, ownerUserId) });
   }
 
   /** Set a friendly display label for a card (blank clears it back to the default name). */
-  setCardLabel(cardId: string, name: string): Observable<void> {
+  setCardLabel(cardId: string, name: string, ownerUserId?: number): Observable<void> {
     const params: Record<string, string> = {};
     if (name && name.trim()) {
       params['name'] = name.trim();
     }
-    return this.http.put<void>(`${this.baseUrl}/${cardId}/label`, null, { params });
+    return this.http.put<void>(`${this.baseUrl}/${cardId}/label`, null, { params: this.ownerParams(params, ownerUserId) });
+  }
+
+  /** Add the card owner to a query when acting on someone else's card; omitted means "mine". */
+  private ownerParams(params: Record<string, string>, ownerUserId?: number): Record<string, string> {
+    return ownerUserId == null ? params : { ...params, userId: String(ownerUserId) };
   }
 
   /** Remember a card's default destination library + path (omit both to clear → Bookdrop). */
@@ -376,18 +411,18 @@ export class OverDriveService {
   }
 
   /** Candidate users to share a card with (everyone but you). */
-  shareableUsers(): Observable<OverDriveShareUser[]> {
-    return this.http.get<OverDriveShareUser[]>(`${this.baseUrl}/shareable-users`);
+  shareableUsers(ownerUserId?: number): Observable<OverDriveShareUser[]> {
+    return this.http.get<OverDriveShareUser[]>(`${this.baseUrl}/shareable-users`, { params: this.ownerParams({}, ownerUserId) });
   }
 
-  /** Users a card is currently shared with (owner or admin only). */
-  listShares(cardId: string): Observable<OverDriveShareUser[]> {
-    return this.http.get<OverDriveShareUser[]>(`${this.baseUrl}/${cardId}/shares`);
+  /** Users a card is currently shared with (its owner, or a cross-user share manager). */
+  listShares(cardId: string, ownerUserId?: number): Observable<OverDriveShareUser[]> {
+    return this.http.get<OverDriveShareUser[]>(`${this.baseUrl}/${cardId}/shares`, { params: this.ownerParams({}, ownerUserId) });
   }
 
-  /** Replace the set of users a card is shared with (owner or admin only). */
-  setShares(cardId: string, userIds: number[]): Observable<void> {
-    return this.http.put<void>(`${this.baseUrl}/${cardId}/shares`, { userIds });
+  /** Replace the set of users a card is shared with (its owner, or a cross-user share manager). */
+  setShares(cardId: string, userIds: number[], ownerUserId?: number): Observable<void> {
+    return this.http.put<void>(`${this.baseUrl}/${cardId}/shares`, { userIds }, { params: this.ownerParams({}, ownerUserId) });
   }
 
   /** The current user's recent OverDrive activity history (newest first). */

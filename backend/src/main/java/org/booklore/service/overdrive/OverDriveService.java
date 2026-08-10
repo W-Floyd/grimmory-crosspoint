@@ -3032,12 +3032,25 @@ public class OverDriveService {
        * the full user list from being readable by every authenticated user.
        */
       public List<OverDriveShareUser> shareableUsers() {
+        return shareableUsers(null);
+      }
+
+      /**
+       * Candidate share targets for a specific card owner. {@code ownerUserId} names whose card is being
+       * shared — that user is excluded (they already have it) rather than the caller, so a cross-user
+       * manager can share a card with themselves. Cross-user use requires the share permission.
+       */
+      public List<OverDriveShareUser> shareableUsers(Long ownerUserId) {
         Long me = currentUserId();
-        if (tokenRepository.findByUserId(me).isEmpty() && !currentUserCanManageAllShares()) {
+        Long owner = ownerUserId != null ? ownerUserId : me;
+        if (!owner.equals(me) && !currentUserCanManageAllShares()) {
+            throw ApiError.FORBIDDEN.createException("You can only manage sharing for cards you own");
+        }
+        if (owner.equals(me) && tokenRepository.findByUserId(me).isEmpty() && !currentUserCanManageAllShares()) {
             return List.of();
         }
         return userRepository.findAll().stream()
-                .filter(u -> u.getId() != null && !u.getId().equals(me))
+                .filter(u -> u.getId() != null && !u.getId().equals(owner))
                 .filter(OverDriveService::canUseOverdrive)
                 .map(u -> new OverDriveShareUser(u.getId(), u.getUsername(), u.getName()))
                 .sorted(Comparator.comparing(u -> shareUserSortKey(u), String.CASE_INSENSITIVE_ORDER))

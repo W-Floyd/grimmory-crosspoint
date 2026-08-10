@@ -15,6 +15,7 @@ import { DialogModule } from '@openng/optimus-ui/dialog';
 import { MultiSelectModule } from '@openng/optimus-ui/multiselect';
 import { SelectModule } from '@openng/optimus-ui/select';
 import { LibraryService } from '../../../features/book/service/library.service';
+import { OverdriveCardAdminComponent } from './card-admin/overdrive-card-admin.component';
 import { Library, LibraryPath } from '../../../features/book/model/library.model';
 
 @Component({
@@ -30,7 +31,8 @@ import { Library, LibraryPath } from '../../../features/book/model/library.model
     OrderListModule,
     DialogModule,
     MultiSelectModule,
-    SelectModule
+    SelectModule,
+    OverdriveCardAdminComponent
 ],
   templateUrl: './overdrive-settings.component.html',
   styleUrl: './overdrive-settings.component.scss',

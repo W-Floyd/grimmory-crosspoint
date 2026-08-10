@@ -256,9 +256,11 @@ public class OverDriveController {
     @Operation(summary = "List users a card can be shared with")
     @ApiResponse(responseCode = "200", description = "Users listed")
     @GetMapping("/shareable-users")
-    public ResponseEntity<List<OverDriveShareUser>> shareableUsers() {
+    public ResponseEntity<List<OverDriveShareUser>> shareableUsers(
+            @Parameter(description = "Card owner whose share targets to list; omit for your own cards.")
+            @RequestParam(required = false) Long userId) {
         requireEnabled();
-        return ResponseEntity.ok(overDriveService.shareableUsers());
+        return ResponseEntity.ok(overDriveService.shareableUsers(userId));
     }
 
     /**

@@ -938,6 +938,27 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void shareableUsers_scopedToAnotherOwner_excludesThatOwnerRatherThanTheCaller() {
+        authAsCardManager(5L);
+        when(userRepository.findAll()).thenReturn(List.of(
+                overdriveUser(4L, "ann", "Ann"),
+                overdriveUser(5L, "me", "Me"),
+                overdriveUser(9L, "bob", "Bob")));
+
+        // Sharing user 4's card: user 4 already has it, but the manager themselves is a valid target.
+        assertThat(service.shareableUsers(4L)).extracting(u -> u.userId()).containsExactly(9L, 5L);
+    }
+
+    @Test
+    void shareableUsers_scopedToAnotherOwner_isForbiddenWithoutShareManagement() {
+        authAsOverdriveUser(5L);
+
+        assertThatThrownBy(() -> service.shareableUsers(4L))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(userRepository, never()).findAll();
+    }
+
+    @Test
     void setShares_byAdmin_ambiguousIdentity_isRejected() {
         authAsAdmin(1L);
         when(tokenRepository.findByUserIdAndIdentity(1L, "dup")).thenReturn(Optional.empty());

@@ -1,0 +1,145 @@
+@if (permitted()) {
+  <p-toast />
+
+  <div class="settings-card card-admin">
+    <h3 class="card-admin-title">
+      <i class="pi pi-users"></i>
+      All Users' Cards
+    </h3>
+    <p class="settings-description">
+      Every Libby card linked on this server, grouped by the user who linked it. You can relabel, refresh,
+      unlink and re-share these cards on their owner's behalf — you cannot borrow with them, and you
+      cannot link a new card for someone else (that needs their credentials).
+    </p>
+
+    @if (!loaded()) {
+      <p-button label="Load cards" icon="pi pi-download" [loading]="loading()" (onClick)="load()" />
+    } @else {
+      <div class="card-admin-toolbar">
+        <input pInputText type="text" class="card-admin-filter"
+          [ngModel]="filter()" (ngModelChange)="filter.set($event)"
+          [ngModelOptions]="{ standalone: true }"
+          placeholder="Filter by user, card or library key" />
+        <p-button icon="pi pi-refresh" label="Reload" severity="secondary" size="small" [text]="true"
+          [loading]="loading()" pTooltip="Re-fetch every user's cards" (onClick)="load()" />
+        <span class="card-admin-count">{{ totalShown() }} card(s) across {{ groups().length }} user(s)</span>
+      </div>
+
+      @if (error(); as message) {
+        <p-message severity="error" [text]="message" styleClass="w-full" />
+      }
+
+      @if (groups().length === 0) {
+        <p class="card-admin-empty">
+          @if (cards().length === 0) {
+            No user has linked a Libby card yet.
+          } @else {
+            No card matches that filter.
+          }
+        </p>
+      }
+
+      @for (group of groups(); track group.ownerUserId) {
+        <p-card>
+          <ng-template pTemplate="header">
+            <div class="owner-header">
+              <span class="owner-name"><i class="pi pi-user"></i> {{ group.ownerName }}</span>
+              <span class="owner-count">{{ group.cards.length }} card(s)</span>
+            </div>
+          </ng-template>
+
+          @for (card of group.cards; track card.cardId) {
+            <div class="linked-card-row">
+              <span class="linked-card-info">
+                <div class="card-primary">
+                  <input pInputText type="text" [value]="card.name || ''" #labelInput placeholder="Card label"
+                    class="linked-card-label" [class.dirty]="labelInput.value !== (card.name || '')"
+                    (keyup.enter)="onRenameCard(card, labelInput.value)"
+                    (keyup.escape)="labelInput.value = (card.name || '')" />
+                  <small class="linked-card-id">
+                    {{ card.cardId }}
+                    @if (labelInput.value !== (card.name || '')) {
+                      <span class="unsaved-badge" pTooltip="Unsaved label — press the check to save or the cross to discard.">
+                        <i class="pi pi-pencil"></i> Unsaved
+                      </span>
+                    } @else if (card.sharedWithCount) {
+                      <span class="shared-badge" pTooltip="This card is shared with other users.">
+                        <i class="pi pi-users"></i> Shared with {{ card.sharedWithCount }}
+                      </span>
+                    }
+                  </small>
+                </div>
+                <div class="card-meta">
+                  @if (card.libraryKey) {
+                    <span class="meta-badge muted" pTooltip="OverDrive library key for this card">{{ card.libraryKey }}</span>
+                  }
+                  <span class="meta-badge" [class.good]="card.credentialsStored" [class.muted]="!card.credentialsStored"
+                    [pTooltip]="card.credentialsStored ? 'Card number + PIN stored (encrypted) for this card.' : 'No stored card + PIN — only its owner can add one.'">
+                    <i class="pi pi-key"></i> {{ card.credentialsStored ? 'Card+PIN saved' : 'No card+PIN' }}
+                  </span>
+                  <span class="meta-badge" [class.good]="card.canAutoRenew" [class.muted]="!card.canAutoRenew"
+                    [pTooltip]="card.canAutoRenew ? 'This card can silently re-link its token when it expires.' : 'Won\'t auto-renew — needs card + PIN on file and credential storage enabled (OVERDRIVE_CREDENTIAL_KEY).'">
+                    <i class="pi pi-sync"></i> {{ card.canAutoRenew ? 'Auto-renew' : 'No auto-renew' }}
+                  </span>
+                  @if (card.tokenExpiresAt) {
+                    <span class="meta-badge" [class.bad]="isExpired(card)" [class.muted]="!isExpired(card)"
+                      [pTooltip]="isExpired(card) ? 'This card\'s Libby token has expired — refresh it (card+PIN only) or ask its owner to re-link.' : 'When the current Libby token expires'">
+                      {{ isExpired(card) ? 'Token expired ' : 'Token exp ' }}{{ formatEpoch(card.tokenExpiresAt) }}
+                    </span>
+                  }
+                </div>
+              </span>
+              <span class="linked-card-actions">
+                @if (labelInput.value !== (card.name || '')) {
+                  <p-button icon="pi pi-check" severity="success" size="small" [text]="true"
+                    pTooltip="Save this label" (onClick)="onRenameCard(card, labelInput.value)" />
+                  <p-button icon="pi pi-times" severity="secondary" size="small" [text]="true"
+                    pTooltip="Discard label change" (onClick)="labelInput.value = (card.name || '')" />
+                }
+                <p-button label="Share" icon="pi pi-users" severity="secondary" size="small" [text]="true"
+                  pTooltip="Choose who else can borrow and hold with this card"
+                  (onClick)="openShareDialog(card)" />
+                @if (card.credentialsStored) {
+                  <p-button label="Refresh" icon="pi pi-refresh" severity="secondary" size="small" [text]="true"
+                    pTooltip="Re-link from the stored card + PIN to get a fresh token"
+                    (onClick)="onRefreshCard(card)" />
+                }
+                <p-button label="Unlink" icon="pi pi-times" severity="danger" size="small" [text]="true"
+                  pTooltip="Clear this card's stored token and credentials" (onClick)="onUnlinkCard(card)" />
+              </span>
+            </div>
+          }
+        </p-card>
+      }
+    }
+  </div>
+
+  <p-dialog [(visible)]="shareDialogVisible" [modal]="true" [style]="{ width: '30rem' }"
+    header="Share card" [dismissableMask]="true">
+    @if (shareCard(); as card) {
+      <p class="share-dialog-intro">
+        Choose who can borrow and hold with <strong>{{ cardLabel(card) }}</strong>, owned by
+        <strong>{{ card.ownerName }}</strong>. They can search, borrow, hold and import with it, but can't
+        relabel, unlink, or change its default library.
+      </p>
+      <p-multiSelect
+        [options]="shareableUsers()"
+        [ngModel]="selectedShareUserIds()"
+        (ngModelChange)="selectedShareUserIds.set($event)"
+        optionValue="userId"
+        optionLabel="username"
+        [filter]="true"
+        filterBy="name,username"
+        placeholder="Select users"
+        selectedItemsLabel="{0} users selected"
+        styleClass="w-full"
+        appendTo="body">
+        <ng-template let-user pTemplate="item">{{ userOptionLabel(user) }}</ng-template>
+      </p-multiSelect>
+    }
+    <ng-template pTemplate="footer">
+      <p-button label="Cancel" severity="secondary" [text]="true" (onClick)="shareDialogVisible.set(false)" />
+      <p-button label="Save" icon="pi pi-check" [loading]="savingShares()" (onClick)="saveShares()" />
+    </ng-template>
+  </p-dialog>
+}
