@@ -187,7 +187,8 @@
   gap: 0.35rem;
   margin-bottom: 1rem;
 
-  label {
+  label,
+  .field-label {
     font-weight: 500;
   }
 }
@@ -213,4 +214,14 @@
 .link-optional {
   font-weight: 400;
   color: var(--text-color-secondary);
+}
+
+// Per-method guidance under the link dialog's inputs.
+.link-method-hint {
+  color: var(--text-color-secondary);
+  line-height: 1.4;
+
+  code {
+    font-size: 0.85em;
+  }
 }

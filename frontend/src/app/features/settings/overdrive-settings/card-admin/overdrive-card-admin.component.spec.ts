@@ -16,6 +16,8 @@ const overdriveService = {
   refreshCard: vi.fn(() => of(void 0)),
   removeCard: vi.fn(() => of(void 0)),
   linkCard: vi.fn(() => of([] as unknown[])),
+  redeemSetupCode: vi.fn(() => of([] as unknown[])),
+  linkToken: vi.fn(() => of([] as unknown[])),
   resolveLibrary: vi.fn(() => of({valid: true, libraryKey: 'lapl', name: 'Los Angeles PL'})),
 };
 
@@ -174,6 +176,7 @@ describe('OverdriveCardAdminComponent', () => {
   it('links a card+PIN as the chosen user, not as the manager', () => {
     const c = setup();
     c.openLinkDialog();
+    c.linkMethod.set('card-pin');
     c.linkForUserId.set(9);
     c.linkLibraryKey.set(' lapl ');
     c.linkCardNumber.set(' 12345 ');
@@ -187,9 +190,61 @@ describe('OverdriveCardAdminComponent', () => {
     expect(overdriveService.allCards).toHaveBeenCalled();
   });
 
+  it('redeems a setup code for the chosen user', () => {
+    const c = setup();
+    c.openLinkDialog();
+    // Setup code is the default method: the artifact exists to be passed to another device.
+    expect(c.linkMethod()).toBe('setup-code');
+    c.linkForUserId.set(9);
+    c.linkSetupCode.set(' 12345678 ');
+
+    c.onLinkForUser();
+
+    expect(overdriveService.redeemSetupCode).toHaveBeenCalledWith('12345678', 9);
+    expect(c.linkDialogVisible()).toBe(false);
+  });
+
+  it('rejects a setup code that is not 8 digits', () => {
+    const c = setup();
+    c.openLinkDialog();
+    c.linkForUserId.set(9);
+    c.linkSetupCode.set('1234');
+
+    c.onLinkForUser();
+
+    expect(overdriveService.redeemSetupCode).not.toHaveBeenCalled();
+    expect(c.linkError()).toBe('A Libby setup code is 8 digits');
+  });
+
+  it('links a pasted identity token for the chosen user', () => {
+    const c = setup();
+    c.openLinkDialog();
+    c.linkMethod.set('token');
+    c.linkForUserId.set(9);
+    c.linkIdentityToken.set(' eyJhbGciOi.abc.def ');
+
+    c.onLinkForUser();
+
+    expect(overdriveService.linkToken).toHaveBeenCalledWith('eyJhbGciOi.abc.def', 9);
+    expect(c.linkDialogVisible()).toBe(false);
+  });
+
+  it('requires an identity token when that method is chosen', () => {
+    const c = setup();
+    c.openLinkDialog();
+    c.linkMethod.set('token');
+    c.linkForUserId.set(9);
+
+    c.onLinkForUser();
+
+    expect(overdriveService.linkToken).not.toHaveBeenCalled();
+    expect(c.linkError()).toBe('Paste the identity token');
+  });
+
   it('requires a target user, a library key and a card number before linking', () => {
     const c = setup();
     c.openLinkDialog();
+    c.linkMethod.set('card-pin');
 
     c.onLinkForUser();
     expect(c.linkError()).toBe('Choose which user this card belongs to');

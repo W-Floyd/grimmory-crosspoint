@@ -8,10 +8,10 @@
     </h3>
     <p class="settings-description">
       Every Libby card linked on this server, grouped by the user who linked it. You can relabel, refresh,
-      unlink and re-share these cards on their owner's behalf, and link a card for someone who has given
-      you its number and PIN. Setup codes and identity tokens can't be used on someone's behalf — those
-      come from their own Libby app or browser session. Sharing a card to yourself does give you borrowing
-      access to it, and the loan counts against its owner's limit at their library.
+      unlink and re-share these cards on their owner's behalf, and link a card for someone from a setup
+      code, an identity token, or a card number and PIN they've passed on to you. Sharing a card to
+      yourself does give you borrowing access to it, and the loan counts against its owner's limit at
+      their library.
     </p>
 
     @if (!loaded()) {
@@ -121,8 +121,9 @@
   <p-dialog [(visible)]="linkDialogVisible" [modal]="true" [style]="{ width: '30rem' }"
     header="Link a card for a user" [dismissableMask]="true">
     <p class="share-dialog-intro">
-      Enter a card number and PIN the user has given you. The card is linked as theirs — it appears in
-      their card list and its loans are their loans. The PIN is stored encrypted and never shown again.
+      Link a card using details the user has passed on to you. However it's linked, the card is theirs —
+      it appears in their card list and its loans are their loans, and this shows in their history as
+      linked by you.
     </p>
     @if (linkError(); as message) {
       <p-message severity="error" styleClass="mb-3">{{ message }}</p-message>
@@ -136,31 +137,74 @@
       </p-select>
     </div>
     <div class="field">
-      <label for="link-key">Library key</label>
-      <div class="link-key-row">
-        <input pInputText id="link-key" class="w-full" autocomplete="off" placeholder="e.g. lapl"
-          [ngModel]="linkLibraryKey()" (ngModelChange)="linkLibraryKey.set($event)"
-          [ngModelOptions]="{ standalone: true }" (keyup.enter)="checkLinkKey()" />
-        <p-button label="Check" severity="secondary" size="small" [loading]="resolvingLinkKey()"
-          pTooltip="Resolve this key against the OverDrive directory" (onClick)="checkLinkKey()" />
-      </div>
-      @if (linkKeyResolution(); as resolution) {
-        <small class="link-key-status" [class.valid]="resolution.valid" [class.invalid]="!resolution.valid">
-          {{ resolution.valid ? (resolution.name || resolution.libraryKey) : 'Unknown library key' }}
-        </small>
+      <!-- Not a <label>: p-selectButton renders a button group, with no single control to bind to. -->
+      <span class="field-label">How</span>
+      <p-selectButton [options]="linkMethods" optionValue="value" optionLabel="label" [allowEmpty]="false"
+        [ngModel]="linkMethod()" (ngModelChange)="linkMethod.set($event)" [ngModelOptions]="{ standalone: true }" />
+    </div>
+
+    @switch (linkMethod()) {
+      @case ('setup-code') {
+        <div class="field">
+          <label for="link-code">Setup code</label>
+          <input pInputText id="link-code" class="w-full" autocomplete="off" inputmode="numeric"
+            placeholder="8 digits"
+            [ngModel]="linkSetupCode()" (ngModelChange)="linkSetupCode.set($event)"
+            [ngModelOptions]="{ standalone: true }" />
+          <small class="link-method-hint">
+            They generate it in Libby under Settings → "Copy to another device". It expires shortly, so
+            redeem it soon after they send it. Links every card on their account, browse-only — for
+            Adobe-DRM downloads use card + PIN instead.
+          </small>
+        </div>
       }
-    </div>
-    <div class="field">
-      <label for="link-number">Card number</label>
-      <input pInputText id="link-number" class="w-full" autocomplete="off"
-        [ngModel]="linkCardNumber()" (ngModelChange)="linkCardNumber.set($event)"
-        [ngModelOptions]="{ standalone: true }" />
-    </div>
-    <div class="field">
-      <label for="link-pin">PIN <span class="link-optional">(if required)</span></label>
-      <input pInputText id="link-pin" type="password" class="w-full" autocomplete="off"
-        [ngModel]="linkPin()" (ngModelChange)="linkPin.set($event)" [ngModelOptions]="{ standalone: true }" />
-    </div>
+      @case ('token') {
+        <div class="field">
+          <label for="link-identity-token">Identity token</label>
+          <input pInputText id="link-identity-token" class="w-full" autocomplete="off"
+            placeholder="eyJhbGciOi..."
+            [ngModel]="linkIdentityToken()" (ngModelChange)="linkIdentityToken.set($event)"
+            [ngModelOptions]="{ standalone: true }" />
+          <small class="link-method-hint">
+            From their signed-in browser: localStorage <code>…:sentry.identity</code>, or an
+            <code>Authorization: Bearer</code> value. This is their whole Libby session until it expires —
+            prefer a setup code unless you need Adobe-DRM downloads and have no PIN.
+          </small>
+        </div>
+      }
+      @default {
+        <div class="field">
+          <label for="link-key">Library key</label>
+          <div class="link-key-row">
+            <input pInputText id="link-key" class="w-full" autocomplete="off" placeholder="e.g. lapl"
+              [ngModel]="linkLibraryKey()" (ngModelChange)="linkLibraryKey.set($event)"
+              [ngModelOptions]="{ standalone: true }" (keyup.enter)="checkLinkKey()" />
+            <p-button label="Check" severity="secondary" size="small" [loading]="resolvingLinkKey()"
+              pTooltip="Resolve this key against the OverDrive directory" (onClick)="checkLinkKey()" />
+          </div>
+          @if (linkKeyResolution(); as resolution) {
+            <small class="link-key-status" [class.valid]="resolution.valid" [class.invalid]="!resolution.valid">
+              {{ resolution.valid ? (resolution.name || resolution.libraryKey) : 'Unknown library key' }}
+            </small>
+          }
+        </div>
+        <div class="field">
+          <label for="link-number">Card number</label>
+          <input pInputText id="link-number" class="w-full" autocomplete="off"
+            [ngModel]="linkCardNumber()" (ngModelChange)="linkCardNumber.set($event)"
+            [ngModelOptions]="{ standalone: true }" />
+        </div>
+        <div class="field">
+          <label for="link-pin">PIN <span class="link-optional">(if required)</span></label>
+          <input pInputText id="link-pin" type="password" class="w-full" autocomplete="off"
+            [ngModel]="linkPin()" (ngModelChange)="linkPin.set($event)" [ngModelOptions]="{ standalone: true }" />
+          <small class="link-method-hint">
+            The only method that can auto-renew its token later, since the credentials are stored
+            (encrypted) for re-linking. Required for audiobook downloads.
+          </small>
+        </div>
+      }
+    }
     <ng-template pTemplate="footer">
       <p-button label="Cancel" severity="secondary" [text]="true" (onClick)="linkDialogVisible.set(false)" />
       <p-button label="Link card" icon="pi pi-check" [loading]="linking()" (onClick)="onLinkForUser()" />

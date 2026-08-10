@@ -703,6 +703,17 @@ public class OverDriveService {
        * link multiple accounts. Returns the cards linked by this code.
        */
       public List<OverDriveCard> redeemSetupCode(String setupCode) {
+        return redeemSetupCode(setupCode, null);
+      }
+
+      /**
+       * Redeem a setup code on another user's behalf. {@code ownerUserId} requires the cross-user card
+       * permission; null links for the caller. The code is a short-lived, single-purpose artifact the
+       * user can pass on (it exists to move an account to another device), so delegating it is no
+       * different from delegating a card number and PIN.
+       */
+      public List<OverDriveCard> redeemSetupCode(String setupCode, Long ownerUserId) {
+        Long owner = resolveCardOwner(ownerUserId);
         String code = setupCode != null ? setupCode.trim() : "";
         if (!code.matches("\\d{8}")) {
             throw new RestClientException("Invalid Libby setup code: expected 8 digits");
@@ -738,10 +749,10 @@ public class OverDriveService {
             throw new RestClientException("Setup code linked no library cards; check the code and try again.");
         }
         for (OverDriveCard card : cards) {
-            storeToken(card.cardId(), card.name(), card.libraryKey(), token);
-            recordAudit(OverDriveAuditAction.CARD_LINKED, card.cardId(), null, null, null, null, "Linked via setup code");
+            storeToken(card.cardId(), card.name(), card.libraryKey(), token, owner);
+            recordCardLinked(owner, card.cardId(), "Linked via setup code");
         }
-        log.info("Libby account linked for user {}: {} card(s)", currentUserId(), cards.size());
+        log.info("Libby account linked for user {} (by user {}): {} card(s)", owner, currentUserId(), cards.size());
         return cards;
       }
 
@@ -753,6 +764,15 @@ public class OverDriveService {
        * stored, so it can't be auto-re-linked — when it expires, paste a fresh one.
        */
       public List<OverDriveCard> linkToken(String token) {
+        return linkToken(token, null);
+      }
+
+      /**
+       * Link a pasted identity token on another user's behalf. {@code ownerUserId} requires the
+       * cross-user card permission; null links for the caller.
+       */
+      public List<OverDriveCard> linkToken(String token, Long ownerUserId) {
+        Long owner = resolveCardOwner(ownerUserId);
         String t = token != null ? token.trim() : "";
         if (t.regionMatches(true, 0, "Bearer ", 0, 7)) {
             t = t.substring(7).trim();
@@ -768,10 +788,11 @@ public class OverDriveService {
             throw new RestClientException("That token linked no library cards; it may be expired or invalid.");
         }
         for (OverDriveCard card : cards) {
-            storeToken(card.cardId(), card.name(), card.libraryKey(), t);
-            recordAudit(OverDriveAuditAction.CARD_LINKED, card.cardId(), null, null, null, null, "Linked via pasted token");
+            storeToken(card.cardId(), card.name(), card.libraryKey(), t, owner);
+            recordCardLinked(owner, card.cardId(), "Linked via pasted token");
         }
-        log.info("Libby identity token linked for user {}: {} card(s)", currentUserId(), cards.size());
+        log.info("Libby identity token linked for user {} (by user {}): {} card(s)", owner, currentUserId(),
+                cards.size());
         return cards;
       }
 
@@ -825,17 +846,24 @@ public class OverDriveService {
         for (OverDriveCard card : cards) {
             storeToken(card.cardId(), card.name(), card.libraryKey(), token, owner);
             storeCardCredentials(card.cardId(), websiteId, ilsName, encCard, encPin, owner);
-            if (owner.equals(currentUserId())) {
-                recordAudit(OverDriveAuditAction.CARD_LINKED, card.cardId(), null, null, null, null,
-                        "Linked via card + PIN");
-            } else {
-                recordAuditForUser(owner, OverDriveAuditAction.CARD_LINKED, card.cardId(),
-                        "Linked via card + PIN by " + ownerName(currentUserId()));
-            }
+            recordCardLinked(owner, card.cardId(), "Linked via card + PIN");
         }
         log.info("Libby card linked by number for user {} (by user {}): {} card(s){}", owner, currentUserId(),
                 cards.size(), credentialCipher.isEnabled() ? " (credentials stored for auto-relink)" : "");
         return cards;
+      }
+
+      /**
+       * Record a CARD_LINKED history entry for the card's owner. When a manager linked it on their
+       * behalf, the entry still belongs to the owner (it's their card) and names who did it.
+       */
+      private void recordCardLinked(Long owner, String cardId, String how) {
+        if (owner.equals(currentUserId())) {
+            recordAudit(OverDriveAuditAction.CARD_LINKED, cardId, null, null, null, null, how);
+        } else {
+            recordAuditForUser(owner, OverDriveAuditAction.CARD_LINKED, cardId,
+                    how + " by " + ownerName(currentUserId()));
+        }
       }
 
       /** Read the library's local-auth ILS name from {@code GET /auth/forms/{websiteId}}, or null. */

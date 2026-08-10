@@ -991,6 +991,35 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void redeemSetupCode_forAnotherUser_isForbiddenWithoutCardManagement() {
+        authAsOverdriveUser(5L);
+
+        // Rejected on the permission check, before the code is ever sent to OverDrive.
+        assertThatThrownBy(() -> service.redeemSetupCode("12345678", 4L))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(tokenRepository, never()).save(any());
+    }
+
+    @Test
+    void linkToken_forAnotherUser_isForbiddenWithoutCardManagement() {
+        authAsOverdriveUser(5L);
+
+        assertThatThrownBy(() -> service.linkToken("eyJhbGciOi.abc.def", 4L))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(tokenRepository, never()).save(any());
+    }
+
+    @Test
+    void redeemSetupCode_forAnotherUser_checksThePermissionBeforeValidatingTheCode() {
+        authAsOverdriveUser(5L);
+
+        // An invalid code would also be rejected, but authorization is the failure that must win.
+        assertThatThrownBy(() -> service.redeemSetupCode("nonsense", 4L))
+                .isInstanceOf(org.booklore.exception.APIException.class)
+                .hasMessageContaining("yourself");
+    }
+
+    @Test
     void setShares_byAdmin_ambiguousIdentity_isRejected() {
         authAsAdmin(1L);
         when(tokenRepository.findByUserIdAndIdentity(1L, "dup")).thenReturn(Optional.empty());

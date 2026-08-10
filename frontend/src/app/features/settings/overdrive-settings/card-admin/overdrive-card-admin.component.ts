@@ -8,16 +8,23 @@ import { TooltipModule } from '@openng/optimus-ui/tooltip';
 import { DialogModule } from '@openng/optimus-ui/dialog';
 import { MultiSelectModule } from '@openng/optimus-ui/multiselect';
 import { SelectModule } from '@openng/optimus-ui/select';
+import { SelectButton } from '@openng/optimus-ui/selectbutton';
 import { Toast } from '@openng/optimus-ui/toast';
 import { ConfirmationService, MessageService } from '@openng/optimus-ui/api';
 
+import { Observable } from 'rxjs';
+
 import {
+  OverDriveCard,
   OverDriveLibraryResolution,
   OverDriveManagedCard,
   OverDriveService,
   OverDriveShareUser
 } from '../../../../core/services/overdrive.service';
 import { UserService } from '../../user-management/user.service';
+
+/** How a delegated card link is performed — each artifact is one the user can pass on. */
+type LinkMethod = 'setup-code' | 'card-pin' | 'token';
 
 /** One card owner and the cards they've linked, for the grouped admin list. */
 interface OwnerGroup {
@@ -47,6 +54,7 @@ interface OwnerGroup {
     DialogModule,
     MultiSelectModule,
     SelectModule,
+    SelectButton,
     Toast
   ],
   templateUrl: './overdrive-card-admin.component.html',
@@ -235,6 +243,20 @@ export class OverdriveCardAdminComponent {
 
   // ── Link a card for another user ─────────────────────────────────────
 
+  /**
+   * How to link the card. All three artifacts are things the user can pass on — a setup code exists to
+   * move an account to another device, an identity token is a copyable string, a card number and PIN are
+   * spoken aloud at a library desk — so any of them can be entered on their behalf.
+   */
+  readonly linkMethods: { value: LinkMethod; label: string }[] = [
+    { value: 'setup-code', label: 'Setup code' },
+    { value: 'card-pin', label: 'Card + PIN' },
+    { value: 'token', label: 'Identity token' }
+  ];
+  linkMethod = signal<LinkMethod>('setup-code');
+  linkSetupCode = signal('');
+  linkIdentityToken = signal('');
+
   linkDialogVisible = signal(false);
   /** Users a card can be linked for; reuses the share roster, which already excludes you. */
   linkableUsers = signal<OverDriveShareUser[]>([]);
@@ -249,6 +271,9 @@ export class OverdriveCardAdminComponent {
 
   openLinkDialog(): void {
     this.linkForUserId.set(null);
+    this.linkMethod.set('setup-code');
+    this.linkSetupCode.set('');
+    this.linkIdentityToken.set('');
     this.linkLibraryKey.set('');
     this.linkCardNumber.set('');
     this.linkPin.set('');
@@ -282,28 +307,23 @@ export class OverdriveCardAdminComponent {
   }
 
   /**
-   * Link a card+PIN the user handed over, owned by them rather than by you. The PIN is sent once and
-   * stored encrypted server-side (when a credential key is configured); it is never read back.
+   * Link a card the user handed you the details for, owned by them rather than by you. Whatever the
+   * method, the resulting rows belong to the chosen user: the cards appear in their list and the loans
+   * are theirs. A PIN is sent once and stored encrypted server-side; it is never read back.
    */
   onLinkForUser(): void {
     const userId = this.linkForUserId();
-    const key = this.linkLibraryKey().trim();
-    const number = this.linkCardNumber().trim();
     if (userId == null) {
       this.linkError.set('Choose which user this card belongs to');
       return;
     }
-    if (!key) {
-      this.linkError.set('Enter the library key for this card');
-      return;
-    }
-    if (!number) {
-      this.linkError.set('Card number is required');
+    const request = this.buildLinkRequest(userId);
+    if (!request) {
       return;
     }
     this.linking.set(true);
     this.linkError.set(null);
-    this.overdriveService.linkCard(key, number, this.linkPin(), userId).subscribe({
+    request.subscribe({
       next: (cards) => {
         this.linking.set(false);
         this.linkDialogVisible.set(false);
@@ -320,6 +340,41 @@ export class OverdriveCardAdminComponent {
         this.linkError.set(this.messageOf(err, 'Link failed'));
       }
     });
+  }
+
+  /** Validate the fields for the chosen method and return the call to make, or null with an error set. */
+  private buildLinkRequest(userId: number): Observable<OverDriveCard[]> | null {
+    switch (this.linkMethod()) {
+      case 'setup-code': {
+        const code = this.linkSetupCode().trim();
+        if (!/^\d{8}$/.test(code)) {
+          this.linkError.set('A Libby setup code is 8 digits');
+          return null;
+        }
+        return this.overdriveService.redeemSetupCode(code, userId);
+      }
+      case 'token': {
+        const token = this.linkIdentityToken().trim();
+        if (!token) {
+          this.linkError.set('Paste the identity token');
+          return null;
+        }
+        return this.overdriveService.linkToken(token, userId);
+      }
+      default: {
+        const key = this.linkLibraryKey().trim();
+        const number = this.linkCardNumber().trim();
+        if (!key) {
+          this.linkError.set('Enter the library key for this card');
+          return null;
+        }
+        if (!number) {
+          this.linkError.set('Card number is required');
+          return null;
+        }
+        return this.overdriveService.linkCard(key, number, this.linkPin(), userId);
+      }
+    }
   }
 
   /** Identity alone isn't unique across users — a card row is (ownerUserId, cardId). */

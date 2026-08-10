@@ -338,8 +338,10 @@ export class OverDriveService {
   // Account / cards
 
   /** Redeem a Libby 8-digit setup code; links all cards on that account and returns them. */
-  redeemSetupCode(code: string): Observable<OverDriveCard[]> {
-    return this.http.post<OverDriveCard[]>(`${this.baseUrl}/setup-code`, { code });
+  redeemSetupCode(code: string, ownerUserId?: number): Observable<OverDriveCard[]> {
+    // userId redeems the code for another user; the code is theirs to pass on, like a card number+PIN.
+    return this.http.post<OverDriveCard[]>(`${this.baseUrl}/setup-code`,
+      ownerUserId == null ? { code } : { code, userId: ownerUserId });
   }
 
   /**
@@ -357,8 +359,9 @@ export class OverDriveService {
    * Link by pasting a Libby identity token from a signed-in browser (primary chip → can download
    * Adobe-DRM titles). Returns the linked cards.
    */
-  linkToken(token: string): Observable<OverDriveCard[]> {
-    return this.http.post<OverDriveCard[]>(`${this.baseUrl}/link-token`, { token });
+  linkToken(token: string, ownerUserId?: number): Observable<OverDriveCard[]> {
+    return this.http.post<OverDriveCard[]>(`${this.baseUrl}/link-token`,
+      ownerUserId == null ? { token } : { token, userId: ownerUserId });
   }
 
   /** The current user's linked library cards. */

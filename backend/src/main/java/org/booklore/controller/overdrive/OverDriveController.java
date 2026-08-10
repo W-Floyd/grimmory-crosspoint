@@ -77,10 +77,11 @@ public class OverDriveController {
      /**
       * POST /api/overdrive/setup-code — link a Libby account (and all its cards) from an 8-digit setup
       * code. Get the code in Libby under Settings → "Copy to another device". A user may redeem several
-      * codes to link multiple accounts. Returns the cards linked by this code.
+      * codes to link multiple accounts. Returns the cards linked by this code. Pass {@code userId} to
+      * link them for another user (requires permission to manage any user's cards).
       */
      @Operation(summary = "Register a Libby setup code",
-                description = "Redeems a Libby 8-digit setup code and links all cards on that account for the current user.")
+                description = "Redeems a Libby 8-digit setup code and links all cards on that account for the current user, or for the user named by userId (requires permission to manage any user's cards).")
      @ApiResponse(responseCode = "200", description = "Setup code registered; linked cards returned")
      @ApiResponse(responseCode = "400", description = "Invalid setup code")
      @PostMapping("/setup-code")
@@ -88,7 +89,7 @@ public class OverDriveController {
             @Parameter(description = "Libby 8-digit setup code") @RequestBody OverDriveSetupCodeRequest request
     ) {
         requireEnabled();
-        return ResponseEntity.ok(overDriveService.redeemSetupCode(request.getCode()));
+        return ResponseEntity.ok(overDriveService.redeemSetupCode(request.getCode(), request.getUserId()));
     }
 
     /**
@@ -101,15 +102,15 @@ public class OverDriveController {
     @ApiResponse(responseCode = "400", description = "Token missing, expired, or linked no cards")
     @PostMapping("/link-token")
     public ResponseEntity<List<OverDriveCard>> linkToken(
-            @RequestBody Map<String, String> body
+            @RequestBody OverDriveLinkTokenRequest body
     ) {
         requireEnabled();
-        String token = body != null ? body.get("token") : null;
+        String token = body != null ? body.getToken() : null;
         if (token == null || token.isBlank()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException("token is required");
         }
         try {
-            return ResponseEntity.ok(overDriveService.linkToken(token));
+            return ResponseEntity.ok(overDriveService.linkToken(token, body.getUserId()));
         } catch (APIException e) {
             throw e;
         } catch (Exception e) {
