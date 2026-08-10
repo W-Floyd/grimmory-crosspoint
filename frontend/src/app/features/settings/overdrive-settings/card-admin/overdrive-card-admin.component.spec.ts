@@ -15,6 +15,8 @@ const overdriveService = {
   setCardLabel: vi.fn(() => of(void 0)),
   refreshCard: vi.fn(() => of(void 0)),
   removeCard: vi.fn(() => of(void 0)),
+  linkCard: vi.fn(() => of([] as unknown[])),
+  resolveLibrary: vi.fn(() => of({valid: true, libraryKey: 'lapl', name: 'Los Angeles PL'})),
 };
 
 const confirmationService = {
@@ -167,6 +169,52 @@ describe('OverdriveCardAdminComponent', () => {
 
     expect(c.cards()[0].name).toBe('Ann\'s');
     expect(c.cards()[1].name).toBe('Renamed');
+  });
+
+  it('links a card+PIN as the chosen user, not as the manager', () => {
+    const c = setup();
+    c.openLinkDialog();
+    c.linkForUserId.set(9);
+    c.linkLibraryKey.set(' lapl ');
+    c.linkCardNumber.set(' 12345 ');
+    c.linkPin.set('4321');
+
+    c.onLinkForUser();
+
+    expect(overdriveService.linkCard).toHaveBeenCalledWith('lapl', '12345', '4321', 9);
+    expect(c.linkDialogVisible()).toBe(false);
+    // The new rows belong to someone else, so the list is re-fetched rather than patched.
+    expect(overdriveService.allCards).toHaveBeenCalled();
+  });
+
+  it('requires a target user, a library key and a card number before linking', () => {
+    const c = setup();
+    c.openLinkDialog();
+
+    c.onLinkForUser();
+    expect(c.linkError()).toBe('Choose which user this card belongs to');
+
+    c.linkForUserId.set(9);
+    c.onLinkForUser();
+    expect(c.linkError()).toBe('Enter the library key for this card');
+
+    c.linkLibraryKey.set('lapl');
+    c.onLinkForUser();
+    expect(c.linkError()).toBe('Card number is required');
+
+    expect(overdriveService.linkCard).not.toHaveBeenCalled();
+    expect(c.linkDialogVisible()).toBe(true);
+  });
+
+  it('reports an unresolvable library key when checking it', () => {
+    const c = setup();
+    overdriveService.resolveLibrary.mockReturnValue(throwError(() => new Error('nope')));
+    c.linkLibraryKey.set('bogus');
+
+    c.checkLinkKey();
+
+    expect(c.linkKeyResolution()).toEqual({valid: false, libraryKey: 'bogus', name: null});
+    expect(c.resolvingLinkKey()).toBe(false);
   });
 
   it('flags an expired token', () => {

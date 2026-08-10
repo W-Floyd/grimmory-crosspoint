@@ -7,10 +7,16 @@ import { ButtonModule } from '@openng/optimus-ui/button';
 import { TooltipModule } from '@openng/optimus-ui/tooltip';
 import { DialogModule } from '@openng/optimus-ui/dialog';
 import { MultiSelectModule } from '@openng/optimus-ui/multiselect';
+import { SelectModule } from '@openng/optimus-ui/select';
 import { Toast } from '@openng/optimus-ui/toast';
 import { ConfirmationService, MessageService } from '@openng/optimus-ui/api';
 
-import { OverDriveManagedCard, OverDriveService, OverDriveShareUser } from '../../../../core/services/overdrive.service';
+import {
+  OverDriveLibraryResolution,
+  OverDriveManagedCard,
+  OverDriveService,
+  OverDriveShareUser
+} from '../../../../core/services/overdrive.service';
 import { UserService } from '../../user-management/user.service';
 
 /** One card owner and the cards they've linked, for the grouped admin list. */
@@ -40,6 +46,7 @@ interface OwnerGroup {
     TooltipModule,
     DialogModule,
     MultiSelectModule,
+    SelectModule,
     Toast
   ],
   templateUrl: './overdrive-card-admin.component.html',
@@ -222,6 +229,95 @@ export class OverdriveCardAdminComponent {
       error: (err) => {
         this.savingShares.set(false);
         this.error.set(this.messageOf(err, 'Share update failed'));
+      }
+    });
+  }
+
+  // ── Link a card for another user ─────────────────────────────────────
+
+  linkDialogVisible = signal(false);
+  /** Users a card can be linked for; reuses the share roster, which already excludes you. */
+  linkableUsers = signal<OverDriveShareUser[]>([]);
+  linkForUserId = signal<number | null>(null);
+  linkLibraryKey = signal('');
+  linkCardNumber = signal('');
+  linkPin = signal('');
+  linking = signal(false);
+  linkError = signal<string | null>(null);
+  resolvingLinkKey = signal(false);
+  linkKeyResolution = signal<OverDriveLibraryResolution | null>(null);
+
+  openLinkDialog(): void {
+    this.linkForUserId.set(null);
+    this.linkLibraryKey.set('');
+    this.linkCardNumber.set('');
+    this.linkPin.set('');
+    this.linkError.set(null);
+    this.linkKeyResolution.set(null);
+    this.linkDialogVisible.set(true);
+    this.overdriveService.shareableUsers().subscribe({
+      next: (users) => this.linkableUsers.set(users ?? []),
+      error: () => this.linkableUsers.set([])
+    });
+  }
+
+  /** Validate the typed library key against the Thunder directory and show the resolved name. */
+  checkLinkKey(): void {
+    const key = this.linkLibraryKey().trim();
+    if (!key) {
+      this.linkKeyResolution.set(null);
+      return;
+    }
+    this.resolvingLinkKey.set(true);
+    this.overdriveService.resolveLibrary(key).subscribe({
+      next: (res) => {
+        this.linkKeyResolution.set(res);
+        this.resolvingLinkKey.set(false);
+      },
+      error: () => {
+        this.linkKeyResolution.set({ valid: false, libraryKey: key, name: null });
+        this.resolvingLinkKey.set(false);
+      }
+    });
+  }
+
+  /**
+   * Link a card+PIN the user handed over, owned by them rather than by you. The PIN is sent once and
+   * stored encrypted server-side (when a credential key is configured); it is never read back.
+   */
+  onLinkForUser(): void {
+    const userId = this.linkForUserId();
+    const key = this.linkLibraryKey().trim();
+    const number = this.linkCardNumber().trim();
+    if (userId == null) {
+      this.linkError.set('Choose which user this card belongs to');
+      return;
+    }
+    if (!key) {
+      this.linkError.set('Enter the library key for this card');
+      return;
+    }
+    if (!number) {
+      this.linkError.set('Card number is required');
+      return;
+    }
+    this.linking.set(true);
+    this.linkError.set(null);
+    this.overdriveService.linkCard(key, number, this.linkPin(), userId).subscribe({
+      next: (cards) => {
+        this.linking.set(false);
+        this.linkDialogVisible.set(false);
+        const owner = this.linkableUsers().find(u => u.userId === userId);
+        this.messageService.add({
+          severity: 'success', summary: 'Card linked',
+          detail: `Linked ${cards?.length ?? 0} card(s) for ${owner ? this.userOptionLabel(owner) : 'that user'}`
+        });
+        // The new rows belong to another user, so re-fetch rather than patching local state.
+        this.load();
+      },
+      error: (err) => {
+        this.linking.set(false);
+        this.linkError.set(this.messageOf(err, 'Link failed'));
       }
     });
   }

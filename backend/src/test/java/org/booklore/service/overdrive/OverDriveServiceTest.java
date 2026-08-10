@@ -959,6 +959,38 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void storeToken_forAnotherUser_isForbiddenWithoutCardManagement() {
+        authAsOverdriveUser(5L);
+
+        assertThatThrownBy(() -> service.storeToken("card-1", null, null, "tok", 4L))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(tokenRepository, never()).save(any());
+    }
+
+    @Test
+    void storeToken_forAnotherUser_writesTheRowAgainstThatUser() {
+        authAsCardManager(5L);
+        when(userRepository.existsById(4L)).thenReturn(true);
+        when(tokenRepository.findByUserIdAndIdentity(4L, "card-1")).thenReturn(Optional.empty());
+
+        service.storeToken("card-1", "LAPL", "lapl", "tok", 4L);
+
+        ArgumentCaptor<OverDriveTokenEntity> captor = ArgumentCaptor.forClass(OverDriveTokenEntity.class);
+        verify(tokenRepository).save(captor.capture());
+        assertThat(captor.getValue().getUserId()).isEqualTo(4L);
+    }
+
+    @Test
+    void storeToken_forAnUnknownUser_isRejected() {
+        authAsCardManager(5L);
+        when(userRepository.existsById(404L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.storeToken("card-1", null, null, "tok", 404L))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+        verify(tokenRepository, never()).save(any());
+    }
+
+    @Test
     void setShares_byAdmin_ambiguousIdentity_isRejected() {
         authAsAdmin(1L);
         when(tokenRepository.findByUserIdAndIdentity(1L, "dup")).thenReturn(Optional.empty());

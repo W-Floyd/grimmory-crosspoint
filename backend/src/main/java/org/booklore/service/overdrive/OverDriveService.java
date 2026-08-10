@@ -239,6 +239,25 @@ public class OverDriveService {
                 .orElseThrow(() -> ApiError.GENERIC_NOT_FOUND.createException("No such card: " + identity));
     }
 
+    /**
+     * The user a card write belongs to: the caller by default, or another user for a manager acting on
+     * their behalf. Unlike {@link #administrableCard} this doesn't require the row to exist yet, so it's
+     * what the link flows use when creating one.
+     */
+    private Long resolveCardOwner(Long ownerUserId) {
+        Long me = currentUserId();
+        if (ownerUserId == null || ownerUserId.equals(me)) {
+            return me;
+        }
+        if (!currentUserCanManageAllCards()) {
+            throw ApiError.FORBIDDEN.createException("You can only link OverDrive cards for yourself");
+        }
+        if (!userRepository.existsById(ownerUserId)) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("No such user: " + ownerUserId);
+        }
+        return ownerUserId;
+    }
+
     /** Audit/log suffix naming the card owner, for actions taken on someone else's card. */
     private String onBehalfOfSuffix(Long ownerUserId) {
         Long me = currentUserId();
@@ -288,6 +307,30 @@ public class OverDriveService {
     private void recordAudit(OverDriveAuditAction action, String identity, String titleId, String loanId,
                              Long bookId, String title, String detail) {
         recordAudit(action, identity, titleId, loanId, bookId, title, detail, true);
+    }
+
+    /**
+     * Record a history entry against a specific user rather than the caller — for an action a manager
+     * performed on someone else's behalf. It belongs in the owner's history (it's their card), with the
+     * acting manager named in the detail.
+     */
+    private void recordAuditForUser(Long userId, OverDriveAuditAction action, String identity, String detail) {
+        try {
+            OverDriveTokenEntity card = identity == null ? null
+                    : tokenRepository.findByUserIdAndIdentity(userId, identity).orElse(null);
+            auditRepository.save(OverDriveAuditEntity.builder()
+                    .userId(userId)
+                    .action(action.name())
+                    .identity(identity)
+                    .libraryKey(card != null ? card.getLibraryKey() : null)
+                    .cardName(card != null ? card.getCardName() : null)
+                    .detail(truncate(detail, 1024))
+                    .success(true)
+                    .createdAt(Instant.now())
+                    .build());
+        } catch (Exception e) {
+            log.debug("OverDrive: could not record history entry for user {}: {}", userId, e.getMessage());
+        }
     }
 
     /** Record a failed action to the history (the detail should carry the reason). */
@@ -745,6 +788,16 @@ public class OverDriveService {
        * @return the linked cards
        */
       public List<OverDriveCard> linkCard(String libraryKey, String cardNumber, String pin) {
+        return linkCard(libraryKey, cardNumber, pin, null);
+      }
+
+      /**
+       * Link a card by number + PIN. {@code ownerUserId} links it for another user and requires the
+       * cross-user card permission — the card+PIN flow is the only link method that can be delegated, as
+       * a setup code or identity token comes from the user's own Libby app or browser session.
+       */
+      public List<OverDriveCard> linkCard(String libraryKey, String cardNumber, String pin, Long ownerUserId) {
+        Long owner = resolveCardOwner(ownerUserId);
         String key = libraryKey != null ? libraryKey.trim() : "";
         String cn = cardNumber != null ? cardNumber.trim() : "";
         if (key.isEmpty() || cn.isEmpty()) {
@@ -770,12 +823,18 @@ public class OverDriveService {
         String encCard = credentialCipher.encrypt(cn);
         String encPin = credentialCipher.encrypt(pin);
         for (OverDriveCard card : cards) {
-            storeToken(card.cardId(), card.name(), card.libraryKey(), token);
-            storeCardCredentials(card.cardId(), websiteId, ilsName, encCard, encPin);
-            recordAudit(OverDriveAuditAction.CARD_LINKED, card.cardId(), null, null, null, null, "Linked via card + PIN");
+            storeToken(card.cardId(), card.name(), card.libraryKey(), token, owner);
+            storeCardCredentials(card.cardId(), websiteId, ilsName, encCard, encPin, owner);
+            if (owner.equals(currentUserId())) {
+                recordAudit(OverDriveAuditAction.CARD_LINKED, card.cardId(), null, null, null, null,
+                        "Linked via card + PIN");
+            } else {
+                recordAuditForUser(owner, OverDriveAuditAction.CARD_LINKED, card.cardId(),
+                        "Linked via card + PIN by " + ownerName(currentUserId()));
+            }
         }
-        log.info("Libby card linked by number for user {}: {} card(s){}", currentUserId(), cards.size(),
-                credentialCipher.isEnabled() ? " (credentials stored for auto-relink)" : "");
+        log.info("Libby card linked by number for user {} (by user {}): {} card(s){}", owner, currentUserId(),
+                cards.size(), credentialCipher.isEnabled() ? " (credentials stored for auto-relink)" : "");
         return cards;
       }
 
@@ -830,7 +889,12 @@ public class OverDriveService {
       @Transactional
       public void storeCardCredentials(String identity, String websiteId, String ilsName, String encCard,
                                        String encPin) {
-        tokenRepository.findByUserIdAndIdentity(currentUserId(), identity).ifPresent(entity -> {
+        storeCardCredentials(identity, websiteId, ilsName, encCard, encPin, null);
+      }
+
+      public void storeCardCredentials(String identity, String websiteId, String ilsName, String encCard,
+                                       String encPin, Long ownerUserId) {
+        tokenRepository.findByUserIdAndIdentity(resolveCardOwner(ownerUserId), identity).ifPresent(entity -> {
             entity.setWebsiteId(websiteId);
             entity.setIlsName(ilsName);
             entity.setCredCard(encCard);
@@ -2978,7 +3042,15 @@ public class OverDriveService {
       /** Store (or replace) the current user's token for a specific card. Persisted across restarts. */
       @Transactional
       public void storeToken(String identity, String cardName, String libraryKey, String token) {
-        Long userId = currentUserId();
+        storeToken(identity, cardName, libraryKey, token, null);
+      }
+
+      /**
+       * Store a token for a specific user. {@code ownerUserId} writes the row for someone else and
+       * requires the cross-user card permission; null means the caller.
+       */
+      public void storeToken(String identity, String cardName, String libraryKey, String token, Long ownerUserId) {
+        Long userId = resolveCardOwner(ownerUserId);
         OverDriveTokenEntity entity = tokenRepository.findByUserIdAndIdentity(userId, identity)
                 .orElseGet(OverDriveTokenEntity::new);
         entity.setUserId(userId);

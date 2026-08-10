@@ -8,8 +8,10 @@
     </h3>
     <p class="settings-description">
       Every Libby card linked on this server, grouped by the user who linked it. You can relabel, refresh,
-      unlink and re-share these cards on their owner's behalf — you cannot borrow with them, and you
-      cannot link a new card for someone else (that needs their credentials).
+      unlink and re-share these cards on their owner's behalf, and link a card for someone who has given
+      you its number and PIN. Setup codes and identity tokens can't be used on someone's behalf — those
+      come from their own Libby app or browser session. Sharing a card to yourself does give you borrowing
+      access to it, and the loan counts against its owner's limit at their library.
     </p>
 
     @if (!loaded()) {
@@ -20,6 +22,8 @@
           [ngModel]="filter()" (ngModelChange)="filter.set($event)"
           [ngModelOptions]="{ standalone: true }"
           placeholder="Filter by user, card or library key" />
+        <p-button icon="pi pi-plus" label="Link card for a user" severity="secondary" size="small"
+          pTooltip="Link a card+PIN on another user's behalf" (onClick)="openLinkDialog()" />
         <p-button icon="pi pi-refresh" label="Reload" severity="secondary" size="small" [text]="true"
           [loading]="loading()" pTooltip="Re-fetch every user's cards" (onClick)="load()" />
         <span class="card-admin-count">{{ totalShown() }} card(s) across {{ groups().length }} user(s)</span>
@@ -113,6 +117,55 @@
       }
     }
   </div>
+
+  <p-dialog [(visible)]="linkDialogVisible" [modal]="true" [style]="{ width: '30rem' }"
+    header="Link a card for a user" [dismissableMask]="true">
+    <p class="share-dialog-intro">
+      Enter a card number and PIN the user has given you. The card is linked as theirs — it appears in
+      their card list and its loans are their loans. The PIN is stored encrypted and never shown again.
+    </p>
+    @if (linkError(); as message) {
+      <p-message severity="error" styleClass="mb-3">{{ message }}</p-message>
+    }
+    <div class="field">
+      <label for="link-user">Card belongs to</label>
+      <p-select inputId="link-user" [options]="linkableUsers()" optionValue="userId" optionLabel="username"
+        [ngModel]="linkForUserId()" (ngModelChange)="linkForUserId.set($event)"
+        [filter]="true" filterBy="name,username" placeholder="Select a user" styleClass="w-full" appendTo="body">
+        <ng-template let-user pTemplate="item">{{ userOptionLabel(user) }}</ng-template>
+      </p-select>
+    </div>
+    <div class="field">
+      <label for="link-key">Library key</label>
+      <div class="link-key-row">
+        <input pInputText id="link-key" class="w-full" autocomplete="off" placeholder="e.g. lapl"
+          [ngModel]="linkLibraryKey()" (ngModelChange)="linkLibraryKey.set($event)"
+          [ngModelOptions]="{ standalone: true }" (keyup.enter)="checkLinkKey()" />
+        <p-button label="Check" severity="secondary" size="small" [loading]="resolvingLinkKey()"
+          pTooltip="Resolve this key against the OverDrive directory" (onClick)="checkLinkKey()" />
+      </div>
+      @if (linkKeyResolution(); as resolution) {
+        <small class="link-key-status" [class.valid]="resolution.valid" [class.invalid]="!resolution.valid">
+          {{ resolution.valid ? (resolution.name || resolution.libraryKey) : 'Unknown library key' }}
+        </small>
+      }
+    </div>
+    <div class="field">
+      <label for="link-number">Card number</label>
+      <input pInputText id="link-number" class="w-full" autocomplete="off"
+        [ngModel]="linkCardNumber()" (ngModelChange)="linkCardNumber.set($event)"
+        [ngModelOptions]="{ standalone: true }" />
+    </div>
+    <div class="field">
+      <label for="link-pin">PIN <span class="link-optional">(if required)</span></label>
+      <input pInputText id="link-pin" type="password" class="w-full" autocomplete="off"
+        [ngModel]="linkPin()" (ngModelChange)="linkPin.set($event)" [ngModelOptions]="{ standalone: true }" />
+    </div>
+    <ng-template pTemplate="footer">
+      <p-button label="Cancel" severity="secondary" [text]="true" (onClick)="linkDialogVisible.set(false)" />
+      <p-button label="Link card" icon="pi pi-check" [loading]="linking()" (onClick)="onLinkForUser()" />
+    </ng-template>
+  </p-dialog>
 
   <p-dialog [(visible)]="shareDialogVisible" [modal]="true" [style]="{ width: '30rem' }"
     header="Share card" [dismissableMask]="true">

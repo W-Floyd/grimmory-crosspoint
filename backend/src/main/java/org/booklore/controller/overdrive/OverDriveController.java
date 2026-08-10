@@ -124,7 +124,7 @@ public class OverDriveController {
      * fulfillment-capable primary chip (unlike a setup code, which yields a browse-only secondary).
      */
     @Operation(summary = "Link a library card by number + PIN",
-               description = "Links a card via the library's local sign-in (card number + PIN), yielding a primary chip that can fulfill Adobe-DRM titles. Optionally stores the credentials (encrypted) for silent re-link when the token expires.")
+               description = "Links a card via the library's local sign-in (card number + PIN), yielding a primary chip that can fulfill Adobe-DRM titles. Optionally stores the credentials (encrypted) for silent re-link when the token expires. Pass userId to link the card for another user (requires permission to manage any user's cards).")
     @ApiResponse(responseCode = "200", description = "Card linked; linked cards returned")
     @ApiResponse(responseCode = "400", description = "Invalid credentials or unsupported library")
     @PostMapping("/link-card")
@@ -138,7 +138,7 @@ public class OverDriveController {
         }
         try {
             return ResponseEntity.ok(overDriveService.linkCard(
-                    request.getLibraryKey(), request.getCardNumber(), request.getPin()));
+                    request.getLibraryKey(), request.getCardNumber(), request.getPin(), request.getUserId()));
         } catch (APIException e) {
             throw e;
         } catch (Exception e) {

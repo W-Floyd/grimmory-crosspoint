@@ -179,3 +179,38 @@
   margin: 0 0 0.75rem;
   color: var(--text-color-secondary);
 }
+
+// Delegated-link dialog: field stack, with the library key paired with its Check button.
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+
+  label {
+    font-weight: 500;
+  }
+}
+
+.link-key-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.link-key-status {
+  font-weight: 600;
+
+  &.valid {
+    color: var(--green-500, #22c55e);
+  }
+
+  &.invalid {
+    color: var(--red-500, #ef4444);
+  }
+}
+
+.link-optional {
+  font-weight: 400;
+  color: var(--text-color-secondary);
+}
