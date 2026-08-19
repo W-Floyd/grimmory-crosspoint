@@ -16,11 +16,8 @@
 
 START TRANSACTION;
 
--- Upstream's Drop_permission_demo_user shipped in this fork as V157; it is V146 again.
-UPDATE flyway_schema_history SET version = '146'
- WHERE version = '157' AND description = 'Drop permission demo user';
-
--- Fork migrations move to the reserved V900+ range, in their original order.
+-- Fork migrations move to the reserved V900+ range, in their original order. Vacating 146 comes
+-- first so that 157 -> 146 below never coexists with the old 146 row.
 UPDATE flyway_schema_history SET version = '900' WHERE version = '146' AND description = 'Create opds variant hash';
 UPDATE flyway_schema_history SET version = '901' WHERE version = '147' AND description = 'Add default preset to opds user v2';
 UPDATE flyway_schema_history SET version = '902' WHERE version = '148' AND description = 'Widen opds variant hash preset';
@@ -37,6 +34,10 @@ UPDATE flyway_schema_history SET version = '912' WHERE version = '159' AND descr
 UPDATE flyway_schema_history SET version = '913' WHERE version = '160' AND description = 'Create overdrive import destination';
 UPDATE flyway_schema_history SET version = '914' WHERE version = '161' AND description = 'Overdrive import destination magazine';
 UPDATE flyway_schema_history SET version = '915' WHERE version = '162' AND description = 'Add overdrive permissions';
+
+-- Upstream's Drop_permission_demo_user shipped in this fork as V157; it is V146 again.
+UPDATE flyway_schema_history SET version = '146'
+ WHERE version = '157' AND description = 'Drop permission demo user';
 
 COMMIT;
 
