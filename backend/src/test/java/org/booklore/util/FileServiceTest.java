@@ -1280,11 +1280,12 @@ class FileServiceTest {
     @DisplayName("Network Operations")
     class NetworkOperationsTests {
         void mockRestClient(String uri, Object response) {
+            // Production passes an already-parsed URI, not the String — see downloadImage.
             var mockRequestHeadersUriSpec = mock(RestClient.RequestHeadersUriSpec.class);
             var mockResponseSpec = mock(RestClient.ResponseSpec.class);
 
             when(restClient.get()).thenReturn(mockRequestHeadersUriSpec);
-            when(mockRequestHeadersUriSpec.uri(uri)).thenReturn(mockRequestHeadersUriSpec);
+            when(mockRequestHeadersUriSpec.uri(java.net.URI.create(uri))).thenReturn(mockRequestHeadersUriSpec);
             when(mockRequestHeadersUriSpec.retrieve()).thenReturn(mockResponseSpec);
 
             if (response instanceof Exception exception) {
@@ -1327,6 +1328,26 @@ class FileServiceTest {
                 assertNotNull(result);
                 assertEquals(100, result.getWidth());
                 assertEquals(100, result.getHeight());
+            }
+
+            @Test
+            @DisplayName("rejects a URL with unencoded braces rather than mangling it")
+            void downloadImageFromUrl_unencodedBraces_failsCleanly() {
+                // '{' is not a legal URI character, so this cannot be fetched either way. What matters
+                // is that it fails as a download error instead of being read as a template variable.
+                String imageUrl = "http://1.1.1.1/covers/{crid}/image.jpg";
+
+                assertThrows(IOException.class, () -> fileService.downloadImageFromUrl(imageUrl));
+            }
+
+            @Test
+            @DisplayName("does not re-encode an already percent-encoded URL")
+            void downloadImageFromUrl_encodedUrl_isNotDoubleEncoded() throws IOException {
+                // %7B has to arrive as %7B, not %257B, or the request 404s.
+                String imageUrl = "http://1.1.1.1/covers/%7Bcrid%7D/image.jpg";
+                mockRestClient(imageUrl, imageToBytes(createTestImage(100, 100)));
+
+                assertNotNull(fileService.downloadImageFromUrl(imageUrl));
             }
 
             @Test

@@ -20,6 +20,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -302,8 +303,11 @@ public class FileService {
             // Fetched through the shared RestClient, whose InetAddressFilter enforces the outbound
             // address restrictions (app.outbound.restricted-ranges) per connection — so redirects are
             // covered too, and this no longer walks the redirect chain checking addresses itself.
+            // Pass an already-parsed URI, not the String. RestClient treats a String as a URI
+            // template, which re-encodes what is already encoded: an OverDrive cover URL carrying
+            // %7Bcrid%7D comes back out as %257B... and 404s.
             byte[] body = restClient.get()
-                    .uri(imageUrl)
+                    .uri(URI.create(imageUrl))
                     .retrieve()
                     .body(byte[].class);
             // readImage rejects null/empty, so a decoded image always has the bytes it came from.
