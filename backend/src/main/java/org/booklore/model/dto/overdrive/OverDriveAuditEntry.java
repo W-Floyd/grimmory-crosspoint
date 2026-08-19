@@ -15,4 +15,6 @@ public record OverDriveAuditEntry(
         String title,
         String detail,
         boolean success,
+        /** True when the scheduled automation did this, rather than the user acting directly. */
+        boolean automated,
         String createdAt) {}

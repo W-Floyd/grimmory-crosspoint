@@ -658,3 +658,15 @@
     color: var(--orange-500, #f97316);
   }
 }
+
+.history-automated {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.7rem;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.75;
+  border: 1px solid currentColor;
+  vertical-align: middle;
+}

@@ -84,6 +84,8 @@ export interface OverDriveAutoSyncSettings {
 /** One entry in a user's OverDrive activity history. */
 export interface OverDriveAuditEntry {
   id: number;
+  /** True when the scheduled automation did this, rather than you acting directly. */
+  automated?: boolean;
   /** Action name, e.g. BORROW, RETURN, HOLD_PLACED, CARD_LINKED, SHARE_UPDATED. */
   action: string;
   identity?: string | null;

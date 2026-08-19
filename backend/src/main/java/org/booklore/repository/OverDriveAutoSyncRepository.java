@@ -20,6 +20,7 @@ public interface OverDriveAutoSyncRepository extends JpaRepository<OverDriveAuto
      * Every user who opted into at least one automated action. This is the poller's work list — users
      * with no row, or with both flags off, are never touched.
      */
-    @Query("SELECT a FROM OverDriveAutoSyncEntity a WHERE a.autoImportLoans = true OR a.autoBorrowHolds = true")
+    @Query("SELECT a FROM OverDriveAutoSyncEntity a WHERE a.autoImportLoans = true "
+            + "OR a.autoBorrowHolds = true OR a.autoReturnEnabled = true")
     List<OverDriveAutoSyncEntity> findAllOptedIn();
 }

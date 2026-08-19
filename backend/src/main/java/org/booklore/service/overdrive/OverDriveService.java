@@ -125,6 +125,23 @@ public class OverDriveService {
      */
     private final Set<String> importsInFlight = ConcurrentHashMap.newKeySet();
 
+    /**
+     * Set for the duration of one user's automation pass, so history entries written by the ordinary
+     * borrow/import/return paths can be marked as unattended.
+     *
+     * <p>A thread-local rather than a parameter: the automation deliberately reuses the interactive
+     * methods (same destinations, same format rules, same history), and threading a flag through
+     * {@code borrowAndImport}'s eleven arguments to reach {@code recordAudit} would be far more
+     * invasive than the thing it records. Each user's pass runs on its own thread, and the flag is
+     * always cleared in a finally.
+     */
+    private final ThreadLocal<Boolean> automationInProgress = ThreadLocal.withInitial(() -> false);
+
+    /** Whether the current thread is inside an automation pass. */
+    private boolean isAutomated() {
+        return Boolean.TRUE.equals(automationInProgress.get());
+    }
+
     /** The authenticated Grimmory user, or throws if there is no authenticated user. */
     private BookLoreUser currentUser() {
         BookLoreUser user = authenticationService.getAuthenticatedUser();
@@ -336,6 +353,7 @@ public class OverDriveService {
                     .cardName(card != null ? card.getCardName() : null)
                     .detail(truncate(detail, 1024))
                     .success(true)
+                    .automated(isAutomated())
                     .createdAt(Instant.now())
                     .build());
         } catch (Exception e) {
@@ -379,11 +397,17 @@ public class OverDriveService {
                     .title(truncate(resolvedTitle, 1024))
                     .detail(truncate(detail, 1024))
                     .success(success)
+                    .automated(isAutomated())
                     .createdAt(Instant.now())
                     .build());
         } catch (Exception e) {
             log.debug("OverDrive: could not record history for {}: {}", action, e.getMessage());
         }
+    }
+
+    /** Write a trivial history entry, so tests can observe how the automation flag is applied. */
+    void recordAuditForTest() { // package-private for testing
+        recordAudit(OverDriveAuditAction.RETURN, null, null, null, null, null, null);
     }
 
     private static String truncate(String s, int max) {
@@ -399,7 +423,8 @@ public class OverDriveService {
                 .stream()
                 .map(a -> new OverDriveAuditEntry(a.getId(), a.getAction(), a.getIdentity(), a.getLibraryKey(),
                         a.getCardName(), a.getTitleId(), a.getLoanId(), a.getBookId(), a.getTitle(), a.getDetail(),
-                        a.isSuccess(), a.getCreatedAt() != null ? a.getCreatedAt().toString() : null))
+                        a.isSuccess(), a.isAutomated(),
+                        a.getCreatedAt() != null ? a.getCreatedAt().toString() : null))
                 .toList();
     }
 
@@ -2267,8 +2292,19 @@ public class OverDriveService {
        * of the pass, so each is caught, counted against the loan, and logged.
        */
       public AutoSyncOutcome runAutoSync() {
+        automationInProgress.set(true);
+        try {
+            return doAutoSync();
+        } finally {
+            // Always cleared: the pool thread is reused, and a leaked flag would mark a later
+            // interactive action as automated.
+            automationInProgress.remove();
+        }
+      }
+
+      private AutoSyncOutcome doAutoSync() {
         OverDriveAutoSyncSettings settings = getAutoSyncSettings();
-        if (!settings.autoImportLoans() && !settings.autoBorrowHolds()) {
+        if (!settings.autoImportLoans() && !settings.autoBorrowHolds() && !settings.autoReturnEnabled()) {
             return AutoSyncOutcome.none();
         }
         Long userId = currentUserId();

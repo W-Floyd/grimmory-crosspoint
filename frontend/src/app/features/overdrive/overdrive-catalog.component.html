@@ -746,6 +746,9 @@
           <td class="history-when">{{ formatDateTime(entry.createdAt) }}</td>
           <td>
             <span class="history-action" [class]="actionClass(entry.action)">{{ actionLabel(entry.action) }}</span>
+            @if (entry.automated) {
+              <span class="history-automated" pTooltip="Performed by the scheduled OverDrive automation, not by you" tooltipPosition="top">auto</span>
+            }
           </td>
           <td>
             <span class="history-status" [class.is-failed]="entry.success === false">

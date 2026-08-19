@@ -3,6 +3,7 @@ package org.booklore.service.overdrive;
 import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.model.dto.BookLoreUser;
 import org.booklore.model.dto.overdrive.OverDriveAutoSyncSettings;
+import org.booklore.model.entity.OverDriveAuditEntity;
 import org.booklore.model.entity.OverDriveAutoSyncEntity;
 import org.booklore.model.entity.OverDriveLoanEntity;
 import org.booklore.repository.OverDriveAutoSyncRepository;
@@ -168,6 +169,29 @@ class OverDriveAutoSyncSettingsTest {
     }
 
     @Test
+    void autoReturnAloneIsEnoughToBeInTheWorkList() {
+        // Auto-return is an opt-in in its own right; a user who wants only that must still be polled.
+        when(autoSyncRepository.findAllOptedIn()).thenReturn(List.of(
+                OverDriveAutoSyncEntity.builder().userId(5L).autoReturnEnabled(true).build()));
+
+        assertThat(service.autoSyncOptedInUserIds()).containsExactly(5L);
+    }
+
+    @Test
+    void autoReturnAloneStillRunsAPass() {
+        authAs(7L);
+        when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.of(
+                OverDriveAutoSyncEntity.builder().userId(7L).autoReturnEnabled(true).build()));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of());
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+
+        // Reaches the card lookup rather than short-circuiting on import/borrow both being off.
+        service.runAutoSync();
+
+        verify(tokenRepository).findByUserId(7L);
+    }
+
+    @Test
     void optedInUserIdsAreTheWorkList() {
         when(autoSyncRepository.findAllOptedIn()).thenReturn(List.of(
                 OverDriveAutoSyncEntity.builder().userId(3L).autoImportLoans(true).build(),
@@ -325,5 +349,23 @@ class OverDriveAutoSyncSettingsTest {
 
         // Drawn against a window the user has just changed, so it no longer means anything.
         assertThat(loan.getAutoReturnDueAt()).isNull();
+    }
+
+    @Test
+    void historyRecordsWhetherTheAutomationOrTheUserActed() {
+        authAs(7L);
+        when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.of(
+                OverDriveAutoSyncEntity.builder().userId(7L).autoReturnEnabled(true).build()));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of());
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+
+        // Nothing to do, but the pass must leave the thread unmarked when it finishes.
+        service.runAutoSync();
+
+        service.recordAuditForTest();
+        ArgumentCaptor<OverDriveAuditEntity> captor = ArgumentCaptor.forClass(OverDriveAuditEntity.class);
+        verify(auditRepository).save(captor.capture());
+        // A leaked flag would misattribute every later interactive action on this thread.
+        assertThat(captor.getValue().isAutomated()).isFalse();
     }
 }

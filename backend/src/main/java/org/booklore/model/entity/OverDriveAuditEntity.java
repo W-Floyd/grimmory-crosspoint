@@ -59,6 +59,11 @@ public class OverDriveAuditEntity {
     @Column(name = "detail", length = 1024)
     private String detail;
 
+    /** Whether the scheduled automation performed this, rather than the user acting directly. */
+    @Column(name = "automated", nullable = false)
+    @Builder.Default
+    private boolean automated = false;
+
     @Column(name = "success", nullable = false)
     @Builder.Default
     private boolean success = true;
