@@ -2537,12 +2537,23 @@ public class OverDriveService {
                         failures++;
                         log.warn("OverDrive auto-borrow: hold {} (\"{}\") on card {} failed for user {}: {}",
                                 hold.getId(), hold.getTitle(), entry.getKey(), userId, e.getMessage());
-                        recordAuditFailure(OverDriveAuditAction.AUTO_BORROW, entry.getKey(), hold.getId(), null,
-                                "Automatic borrow failed: " + e.getMessage());
                     }
                 }
             }
         }
+
+        // Loan ids the user actually holds right now. The loan table is a cache that is only ever
+        // written to — a loan returned in the Libby app, expired, or returned by this very pass leaves
+        // its row behind with a stale state. Filtering on the live sync is what stops the automation
+        // acting on loans that no longer exist.
+        Set<String> heldLoanIds = syncs.values().stream()
+                .filter(Objects::nonNull)
+                .map(OverDriveSyncResponse::getLoans)
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .map(OverDriveLoan::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
 
         int imported = 0;
         if (settings.autoImportLoans()) {
@@ -2551,30 +2562,33 @@ public class OverDriveService {
             // that decides what still needs doing. Holds borrowed above are already imported by
             // borrowAndImport, and their rows now say so, so they aren't picked up twice.
             for (OverDriveLoanEntity loan : loanRepository.findByUserId(userId)) {
-                if (!pendingAutoImport(loan)) {
+                if (!heldLoanIds.contains(loan.getOverdriveLoanId()) || !pendingAutoImport(loan)) {
                     continue;
                 }
                 try {
                     pauseBetweenTitles(borrowed + imported);
+                    // The stored format decides how the title is fulfilled. Passing null made every
+                    // magazine and audiobook fall through to the ebook path and fail as "no importable
+                    // format", even where the handler was configured and worked by hand.
                     borrowAndImport(loan.getIdentity(), loan.getOverdriveLoanId(), null, null,
-                            loan.getTitle(), loan.getAuthor(), null, loan.getIsbn(), null, null, null);
+                            loan.getTitle(), loan.getAuthor(), null, loan.getIsbn(),
+                            loan.getFormatId(), loan.getFormatId(), null);
                     imported++;
                 } catch (Exception e) {
                     failures++;
                     noteAutoImportFailure(loan);
+                    // borrowAndImport already records its own failure entry, marked automated; a second
+                    // one here only duplicated every row, one of them titled with a raw title id.
                     log.warn("OverDrive auto-import: loan {} (\"{}\") failed for user {} (attempt {}): {}",
                             loan.getOverdriveLoanId(), loan.getTitle(), userId, loan.getAutoImportFailures(),
                             e.getMessage());
-                    recordAuditFailure(OverDriveAuditAction.AUTO_IMPORT, loan.getIdentity(),
-                            loan.getOverdriveLoanId(), loan.getOverdriveLoanId(),
-                            "Automatic import failed: " + e.getMessage());
                 }
             }
         }
 
         int returned = 0;
         if (settings.autoReturnEnabled()) {
-            AutoReturnOutcome autoReturn = runAutoReturn(userId, settings, holdsCountByTitle(syncs));
+            AutoReturnOutcome autoReturn = runAutoReturn(userId, settings, holdsCountByTitle(syncs), heldLoanIds);
             returned = autoReturn.returned();
             failures += autoReturn.failures();
         }
@@ -2625,12 +2639,18 @@ public class OverDriveService {
        * trade worth making — those go back as soon as the minimum age is reached.
        */
       AutoReturnOutcome runAutoReturn(Long userId, OverDriveAutoSyncSettings settings,
-                                      Map<String, Integer> holdsByTitle) { // package-private for testing
+                                      Map<String, Integer> holdsByTitle,
+                                      Set<String> heldLoanIds) { // package-private for testing
         Instant now = Instant.now();
         int returned = 0;
         int failures = 0;
 
         for (OverDriveLoanEntity loan : loanRepository.findByUserId(userId)) {
+            // Returning a loan the user no longer holds is at best a wasted call and at worst acts on
+            // a stale row, so only loans present in this pass's sync are considered.
+            if (!heldLoanIds.contains(loan.getOverdriveLoanId())) {
+                continue;
+            }
             int holds = holdsByTitle.getOrDefault(loan.getOverdriveLoanId(), 0);
             if (!autoReturnDue(loan, settings, holds, now)) {
                 continue;
@@ -2764,8 +2784,17 @@ public class OverDriveService {
       }
 
       /** Whether a loan row is still waiting to be imported automatically. */
+      boolean pendingAutoImportForTest(OverDriveLoanEntity loan) { // package-private for testing
+        return pendingAutoImport(loan);
+      }
+
       private boolean pendingAutoImport(OverDriveLoanEntity loan) {
         return !Boolean.TRUE.equals(loan.getFulfilled())
+                // A row marked returned or expired is not a loan any more. borrowAndImport borrows
+                // when it finds no active loan, so importing one of these would silently take the
+                // title out again — the caller must also check the loan is in the live sync.
+                && !"RETURNED".equals(loan.getState())
+                && !"EXPIRED".equals(loan.getState())
                 && loan.getIdentity() != null
                 && loan.getOverdriveLoanId() != null
                 && loan.getAutoImportFailures() < MAX_AUTO_IMPORT_FAILURES;

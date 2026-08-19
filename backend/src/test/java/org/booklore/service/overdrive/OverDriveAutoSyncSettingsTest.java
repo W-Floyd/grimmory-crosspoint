@@ -424,4 +424,47 @@ class OverDriveAutoSyncSettingsTest {
         // The paginator sizes itself from this, so it must be the full count.
         assertThat(service.listHistory(0, 25).total()).isEqualTo(130);
     }
+
+    @Test
+    void aLoanNoLongerHeldIsNeverAutoReturned() {
+        authAs(7L);
+        when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.of(autoReturnEnabled(14, 0, true)));
+        OverDriveLoanEntity loan = fulfilledLoan(30);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(loan));
+
+        // Absent from the live sync: already returned, expired, or handed back in the Libby app.
+        OverDriveService.AutoReturnOutcome outcome =
+                service.runAutoReturn(7L, service.getAutoSyncSettings(), Map.of(), Set.of());
+
+        assertThat(outcome.returned()).isZero();
+    }
+
+    @Test
+    void aReturnedRowIsNotTreatedAsPendingImport() {
+        // borrowAndImport borrows when it finds no active loan, so re-importing a returned row would
+        // silently take the title out again — this is what re-borrowed a batch of titles.
+        OverDriveLoanEntity loan = fulfilledLoan(1);
+        loan.setFulfilled(false);
+        loan.setState("RETURNED");
+
+        assertThat(service.pendingAutoImportForTest(loan)).isFalse();
+    }
+
+    @Test
+    void anExpiredRowIsNotTreatedAsPendingImport() {
+        OverDriveLoanEntity loan = fulfilledLoan(1);
+        loan.setFulfilled(false);
+        loan.setState("EXPIRED");
+
+        assertThat(service.pendingAutoImportForTest(loan)).isFalse();
+    }
+
+    @Test
+    void aLiveUnfulfilledLoanIsStillPendingImport() {
+        OverDriveLoanEntity loan = fulfilledLoan(1);
+        loan.setFulfilled(false);
+        loan.setState("BORROWED");
+
+        assertThat(service.pendingAutoImportForTest(loan)).isTrue();
+    }
 }
