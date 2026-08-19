@@ -253,6 +253,10 @@ export class FileMoverComponent implements OnDestroy {
       narrator: this.sanitize(meta.narrator || ''),
       publisher: this.sanitize(meta.publisher || ''),
       isbn: this.sanitize(meta.isbn13 || meta.isbn10 || ''),
+      // Must stay in step with PathPatternResolver: a token missing here resolves empty, so an
+      // optional block holding it silently disappears and the preview shows a path the move will
+      // not produce.
+      overdriveId: this.sanitize(meta.overdriveId || ''),
       currentFilename: this.sanitize(fileName)
     };
 

@@ -166,6 +166,8 @@ export interface BookMetadata {
   seriesNumber?: number | null;
   seriesTotal?: number | null;
   isbn13?: string;
+  /** OverDrive title id (the edition) this book was imported from, or null. */
+  overdriveId?: string;
   isbn10?: string;
   asin?: string;
   goodreadsId?: string;
