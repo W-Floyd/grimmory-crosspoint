@@ -142,6 +142,10 @@ public class PathPatternResolver {
         values.put("narrator", truncatePathComponent(narrator, MAX_COMPONENT_BYTES));
         values.put("publisher", truncatePathComponent(publisher, MAX_COMPONENT_BYTES));
         values.put("isbn", isbn);
+        // Distinguishes two editions of one work, which share title/author/year and would otherwise
+        // resolve to the same path — on import and on any later re-organise alike.
+        values.put("overdriveId", sanitize(metadata != null && metadata.getOverdriveId() != null
+                ? metadata.getOverdriveId() : ""));
         values.put("currentFilename", filename);
 
         return resolvePatternWithValues(pattern, values, filename, folderBased);
@@ -470,6 +474,9 @@ public class PathPatternResolver {
 
         String getIsbn10();
 
+        /** OverDrive title id (the edition) this book was imported from, or null. */
+        String getOverdriveId();
+
         LocalDate getPublishedDate();
 
         static BookMetadataProvider from(BookMetadata metadata) {
@@ -547,6 +554,11 @@ public class PathPatternResolver {
         }
 
         @Override
+        public String getOverdriveId() {
+            return metadata.getOverdriveId();
+        }
+
+        @Override
         public LocalDate getPublishedDate() {
             return metadata.getPublishedDate();
         }
@@ -612,6 +624,11 @@ public class PathPatternResolver {
         @Override
         public String getIsbn10() {
             return metadata.getIsbn10();
+        }
+
+        @Override
+        public String getOverdriveId() {
+            return metadata.getOverdriveId();
         }
 
         @Override

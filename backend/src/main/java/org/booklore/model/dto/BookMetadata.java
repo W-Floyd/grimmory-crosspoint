@@ -27,6 +27,9 @@ public class BookMetadata {
     private Integer seriesTotal;
     private String isbn13;
     private String isbn10;
+
+    /** OverDrive title id this book was imported from (the edition), or null. */
+    private String overdriveId;
     private Integer pageCount;
     private String language;
     private String narrator;

@@ -60,6 +60,14 @@ public class BookMetadataEntity {
     @Column(name = "isbn_10", length = 10)
     private String isbn10;
 
+    /**
+     * OverDrive title id this book was imported from, or null. Identifies the edition — the same id is
+     * used at every library offering it — so it distinguishes two editions of one work, which can
+     * otherwise share a title, author and year and resolve to the same filename.
+     */
+    @Column(name = "overdrive_id", length = 64)
+    private String overdriveId;
+
     @Column(name = "page_count")
     private Integer pageCount;
 

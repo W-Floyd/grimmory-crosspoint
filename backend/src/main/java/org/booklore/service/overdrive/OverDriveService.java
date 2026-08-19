@@ -3080,7 +3080,7 @@ public class OverDriveService {
         // carried. Fall back to the request-supplied fields if the lookup fails.
         BookMetadata metadata = overDriveParser.fetchTitleMetadata(titleId);
         if (metadata == null) {
-            metadata = buildImportMetadata(title, author, coverUrl, isbn);
+            metadata = buildImportMetadata(title, author, coverUrl, isbn, titleId);
         }
         String fileName = buildFileName(title, loanId, extension);
         MediaKind kind = fileType == BookFileType.AUDIOBOOK ? MediaKind.AUDIOBOOK : MediaKind.EBOOK;
@@ -3318,7 +3318,7 @@ public class OverDriveService {
 
             BookMetadata metadata = overDriveParser.fetchTitleMetadata(titleId);
             if (metadata == null) {
-                metadata = buildImportMetadata(title, author, coverUrl, isbn);
+                metadata = buildImportMetadata(title, author, coverUrl, isbn, titleId);
             }
 
             // A magazine issue arrives as several files — typically two EPUBs (a fixed "as-is" layout and
@@ -3453,10 +3453,17 @@ public class OverDriveService {
 
       /** Build the catalog-sourced metadata to layer onto the imported EPUB. */
       private BookMetadata buildImportMetadata(String title, String author, String coverUrl, String isbn) {
+        return buildImportMetadata(title, author, coverUrl, isbn, null);
+      }
+
+      /** As above, recording the OverDrive title id so {@code {overdriveId}} can be used in path patterns. */
+      private BookMetadata buildImportMetadata(String title, String author, String coverUrl, String isbn,
+                                               String titleId) {
         String cleanedIsbn = isbn != null ? isbn.replaceAll("[^0-9Xx]", "") : null;
         String isbn13 = cleanedIsbn != null && cleanedIsbn.length() == 13 ? cleanedIsbn : null;
         String isbn10 = cleanedIsbn != null && cleanedIsbn.length() == 10 ? cleanedIsbn : null;
         return BookMetadata.builder()
+                .overdriveId(titleId)
                 .title(title)
                 .authors(author != null && !author.isBlank() ? List.of(author) : null)
                 .thumbnailUrl(coverUrl != null && !coverUrl.isBlank() ? coverUrl : null)
