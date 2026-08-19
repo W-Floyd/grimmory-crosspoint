@@ -34,6 +34,9 @@ export class FileNamingPatternComponent {
     narrator: "Nick Podehl",
     publisher: "DAW Books",
     isbn: "9780756404741",
+    // Sample OverDrive edition id, so a pattern carrying {overdriveId} previews what it will produce
+    // rather than silently dropping the optional block that holds it.
+    overdriveId: "1986375",
   };
 
   defaultErrorMessage = '';

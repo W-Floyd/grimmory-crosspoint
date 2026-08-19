@@ -124,4 +124,14 @@ describe('FileNamingPatternComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
   }
+
+  it('previews the OverDrive id, and drops the block when a book has none', () => {
+    // The optional block is what makes the token safe in a shared pattern: present when there is an
+    // id, absent otherwise. The preview has to show both or it looks broken.
+    component.defaultPattern.set('{title}< [od-{overdriveId}]>');
+    expect(component.generateDefaultPreview()).toContain('[od-1986375]');
+
+    component.defaultPattern.set('{title}< [od-{missingField}]>');
+    expect(component.generateDefaultPreview()).not.toContain('[od-');
+  });
 });
