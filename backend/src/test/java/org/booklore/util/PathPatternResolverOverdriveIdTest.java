@@ -55,4 +55,26 @@ class PathPatternResolverOverdriveIdTest {
 
         assertThat(path).isEqualTo("Love from Paddington.epub");
     }
+
+    @Test
+    void anOptionalBlockCarriesTheIdOnlyWhenThereIsOne() {
+        // <...> drops entirely when a placeholder inside it is empty, so one pattern can serve a
+        // library holding both OverDrive imports and books that arrived any other way.
+        String pattern = "{title} - {authors}< [od-{overdriveId}]>.{extension}";
+
+        assertThat(PathPatternResolver.resolvePattern(edition("1986375"), pattern, "book.epub"))
+                .isEqualTo("Love from Paddington - Michael Bond [od-1986375].epub");
+        assertThat(PathPatternResolver.resolvePattern(edition(null), pattern, "book.epub"))
+                .isEqualTo("Love from Paddington - Michael Bond.epub");
+    }
+
+    @Test
+    void anOptionalBlockCanFallBackForNonOverdriveBooks() {
+        String pattern = "{title}< [od-{overdriveId}]| [local]>.{extension}";
+
+        assertThat(PathPatternResolver.resolvePattern(edition("1986375"), pattern, "book.epub"))
+                .isEqualTo("Love from Paddington [od-1986375].epub");
+        assertThat(PathPatternResolver.resolvePattern(edition(null), pattern, "book.epub"))
+                .isEqualTo("Love from Paddington [local].epub");
+    }
 }
