@@ -84,4 +84,12 @@ public class OverDriveLoanEntity {
     @Column(name = "auto_import_failures", nullable = false)
     @Builder.Default
     private int autoImportFailures = 0;
+
+    /**
+     * When this loan becomes due for automatic return. Drawn once from the user's configured window
+     * and then left alone — re-rolling it each poll would let the due time drift forever. Null until
+     * the loan is first evaluated, and cleared when the settings change so a new window is drawn.
+     */
+    @Column(name = "auto_return_due_at")
+    private Instant autoReturnDueAt;
 }

@@ -121,6 +121,46 @@
             <small>Claims a hold the moment it becomes available, then imports it. Turning this on also turns on automatic importing. Note that this spends a checkout slot without asking you.</small>
           </label>
         </div>
+        <div class="auto-sync-option">
+          <p-checkbox [binary]="true" [ngModel]="autoReturnEnabled()" (onChange)="onAutoReturnEnabledChange($event.checked)"
+            [ngModelOptions]="{ standalone: true }" inputId="auto-return-enabled"
+            ariaLabel="Automatically return old loans" />
+          <label for="auto-return-enabled">
+            Return loans once you have had them a while
+            <small>Only titles Grimmory has already imported — a loan you never downloaded is left alone, since returning it would give up your only access.</small>
+          </label>
+        </div>
+        @if (autoReturnEnabled()) {
+          <div class="auto-return-detail">
+            <label class="auto-return-field">
+              Keep for at least
+              <input type="number" min="0" max="365" class="auto-return-input"
+                [(ngModel)]="autoReturnMinAgeDays" (ngModelChange)="onAutoReturnWindowChange()"
+                [ngModelOptions]="{ standalone: true }">
+              <span class="auto-return-unit">days</span>
+            </label>
+            <label class="auto-return-field">
+              then return within the next
+              <input type="number" min="0" max="720" class="auto-return-input"
+                [(ngModel)]="autoReturnMaxDelayHours" (ngModelChange)="onAutoReturnWindowChange()"
+                [ngModelOptions]="{ standalone: true }">
+              <span class="auto-return-unit">hours</span>
+            </label>
+            <small class="auto-return-hint">
+              The exact moment is picked at random inside that window and then fixed, so returns do not all land at exactly the same age. Set the window to 0 to return as soon as the minimum age is reached.
+            </small>
+            <div class="auto-sync-option">
+              <p-checkbox [binary]="true" [ngModel]="autoReturnPromptWhenWaitlisted()"
+                (onChange)="onAutoReturnPromptWhenWaitlistedChange($event.checked)"
+                [ngModelOptions]="{ standalone: true }" inputId="auto-return-waitlisted"
+                ariaLabel="Return without delay when others are waiting" />
+              <label for="auto-return-waitlisted">
+                Skip the delay when someone is waiting
+                <small>If the title has holds queued, return it as soon as the minimum age is reached rather than waiting out the random window — nobody waits longer than they need to.</small>
+              </label>
+            </div>
+          </div>
+        }
       </div>
     </div>
 

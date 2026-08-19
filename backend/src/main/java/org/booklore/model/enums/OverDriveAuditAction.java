@@ -13,6 +13,8 @@ public enum OverDriveAuditAction {
     AUTO_BORROW,
     /** An unattended import of an existing loan. As above, only failures use this action. */
     AUTO_IMPORT,
+    /** An unattended return of a loan held past its configured age. Failures only; a success is RETURN. */
+    AUTO_RETURN,
     RETURN,
     HOLD_PLACED,
     HOLD_CANCELLED,

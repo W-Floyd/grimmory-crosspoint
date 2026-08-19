@@ -55,6 +55,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -2169,11 +2170,18 @@ public class OverDriveService {
       private static final long TITLE_GAP_MIN_MILLIS = 2_000;
       private static final long TITLE_GAP_MAX_MILLIS = 8_000;
 
-      /** The current user's automation opt-in — both false when they have never opted in. */
+      /** Defaults for a user who has never opted in: everything off, with the schema's suggested values. */
+      private static final OverDriveAutoSyncSettings AUTO_SYNC_DEFAULTS =
+              new OverDriveAutoSyncSettings(false, false, false, 14, 48, true);
+
+      /** The current user's automation opt-in — all off when they have never opted in. */
       public OverDriveAutoSyncSettings getAutoSyncSettings() {
         return autoSyncRepository.findByUserId(currentUserId())
-                .map(a -> new OverDriveAutoSyncSettings(a.isAutoImportLoans(), a.isAutoBorrowHolds()))
-                .orElseGet(() -> new OverDriveAutoSyncSettings(false, false));
+                .map(a -> new OverDriveAutoSyncSettings(
+                        a.isAutoImportLoans(), a.isAutoBorrowHolds(),
+                        a.isAutoReturnEnabled(), a.getAutoReturnMinAgeDays(),
+                        a.getAutoReturnMaxDelayHours(), a.isAutoReturnPromptWhenWaitlisted()))
+                .orElse(AUTO_SYNC_DEFAULTS);
       }
 
       /**
@@ -2191,10 +2199,42 @@ public class OverDriveService {
                 .orElseGet(() -> OverDriveAutoSyncEntity.builder().userId(userId).build());
         entity.setAutoImportLoans(importLoans);
         entity.setAutoBorrowHolds(borrowHolds);
+
+        int minAgeDays = Math.max(0, settings.autoReturnMinAgeDays());
+        int maxDelayHours = Math.max(0, settings.autoReturnMaxDelayHours());
+        boolean returnWindowChanged = entity.isAutoReturnEnabled() != settings.autoReturnEnabled()
+                || entity.getAutoReturnMinAgeDays() != minAgeDays
+                || entity.getAutoReturnMaxDelayHours() != maxDelayHours;
+        entity.setAutoReturnEnabled(settings.autoReturnEnabled());
+        entity.setAutoReturnMinAgeDays(minAgeDays);
+        entity.setAutoReturnMaxDelayHours(maxDelayHours);
+        entity.setAutoReturnPromptWhenWaitlisted(settings.autoReturnPromptWhenWaitlisted());
         autoSyncRepository.save(entity);
-        log.info("OverDrive auto-sync settings for user {}: importLoans={} borrowHolds={}",
-                userId, importLoans, borrowHolds);
-        return new OverDriveAutoSyncSettings(importLoans, borrowHolds);
+
+        // Due times were drawn against the old window, so they no longer mean anything. Clearing them
+        // makes the next pass redraw against the new configuration rather than acting on a schedule
+        // the user has just changed out from under.
+        if (returnWindowChanged) {
+            clearAutoReturnDueDates(userId);
+        }
+
+        log.info("OverDrive auto-sync settings for user {}: importLoans={} borrowHolds={} autoReturn={} "
+                        + "(minAge={}d, window={}h, promptWhenWaitlisted={})",
+                userId, importLoans, borrowHolds, settings.autoReturnEnabled(), minAgeDays, maxDelayHours,
+                settings.autoReturnPromptWhenWaitlisted());
+        return new OverDriveAutoSyncSettings(importLoans, borrowHolds, settings.autoReturnEnabled(),
+                minAgeDays, maxDelayHours, settings.autoReturnPromptWhenWaitlisted());
+      }
+
+      /** Forget every drawn auto-return due date for a user, so the next pass redraws them. */
+      private void clearAutoReturnDueDates(Long userId) {
+        List<OverDriveLoanEntity> loans = loanRepository.findByUserId(userId).stream()
+                .filter(loan -> loan.getAutoReturnDueAt() != null)
+                .toList();
+        loans.forEach(loan -> loan.setAutoReturnDueAt(null));
+        if (!loans.isEmpty()) {
+            loanRepository.saveAll(loans);
+        }
       }
 
       /** The user ids that opted into at least one automated action — the poller's work list. */
@@ -2205,10 +2245,11 @@ public class OverDriveService {
       }
 
       /** What one user's automation pass did, for the task's summary log. */
-      public record AutoSyncOutcome(int cardsSynced, int holdsBorrowed, int loansImported, int failures) {
+      public record AutoSyncOutcome(int cardsSynced, int holdsBorrowed, int loansImported,
+                                    int loansReturned, int failures) {
 
         static AutoSyncOutcome none() {
-            return new AutoSyncOutcome(0, 0, 0, 0);
+            return new AutoSyncOutcome(0, 0, 0, 0, 0);
         }
       }
 
@@ -2288,7 +2329,14 @@ public class OverDriveService {
             }
         }
 
-        return new AutoSyncOutcome(identities.size(), borrowed, imported, failures);
+        int returned = 0;
+        if (settings.autoReturnEnabled()) {
+            AutoReturnOutcome autoReturn = runAutoReturn(userId, settings, holdsCountByTitle(syncs));
+            returned = autoReturn.returned();
+            failures += autoReturn.failures();
+        }
+
+        return new AutoSyncOutcome(identities.size(), borrowed, imported, returned, failures);
       }
 
       /**
@@ -2311,6 +2359,136 @@ public class OverDriveService {
             Thread.currentThread().interrupt();
             throw ApiError.INTERNAL_SERVER_ERROR.createException("OverDrive auto-sync interrupted between titles");
         }
+      }
+
+      /** What one user's auto-return pass did. */
+      record AutoReturnOutcome(int returned, int failures) {} // package-private for testing
+
+      /**
+       * Return loans that have been held long enough, per the user's configured window.
+       *
+       * <p>Only loans Grimmory has already fulfilled are considered. Returning a loan that was never
+       * imported would hand back a book the user has no copy of — irreversible, and the opposite of
+       * what "I already have this, free the copy" means. A loan borrowed and read in the Libby app is
+       * therefore left alone.
+       *
+       * <p>Each eligible loan gets a due time drawn once and persisted, rather than being returned on
+       * the first pass after it ages out. Returning everything the instant it crosses the threshold
+       * would stamp a uniform "returned at exactly N days" pattern on the account; spreading returns
+       * across a window after the threshold does not.
+       *
+       * <p>That spreading is dropped when somebody is waiting for the title. A queued hold means a
+       * real person's wait is being extended purely so the return looks less regular, which is not a
+       * trade worth making — those go back as soon as the minimum age is reached.
+       */
+      AutoReturnOutcome runAutoReturn(Long userId, OverDriveAutoSyncSettings settings,
+                                      Map<String, Integer> holdsByTitle) { // package-private for testing
+        Instant now = Instant.now();
+        int returned = 0;
+        int failures = 0;
+
+        for (OverDriveLoanEntity loan : loanRepository.findByUserId(userId)) {
+            int holds = holdsByTitle.getOrDefault(loan.getOverdriveLoanId(), 0);
+            if (!autoReturnDue(loan, settings, holds, now)) {
+                continue;
+            }
+            boolean waitlisted = settings.autoReturnPromptWhenWaitlisted() && holds > 0;
+
+            try {
+                pauseBetweenTitles(returned);
+                returnBook(loan.getIdentity(), loan.getOverdriveLoanId());
+                returned++;
+                log.info("OverDrive auto-return: returned loan {} (\"{}\") for user {}{}",
+                        loan.getOverdriveLoanId(), loan.getTitle(), userId,
+                        waitlisted ? " — promptly, the title has holds waiting" : "");
+            } catch (Exception e) {
+                failures++;
+                log.warn("OverDrive auto-return: loan {} (\"{}\") failed for user {}: {}",
+                        loan.getOverdriveLoanId(), loan.getTitle(), userId, e.getMessage());
+                recordAuditFailure(OverDriveAuditAction.AUTO_RETURN, loan.getIdentity(), null,
+                        loan.getOverdriveLoanId(), "Automatic return failed: " + e.getMessage());
+            }
+        }
+        return new AutoReturnOutcome(returned, failures);
+      }
+
+      /**
+       * Whether this loan should be returned now.
+       *
+       * <p>Eligible loans normally come due at a randomly drawn point inside the window after the
+       * minimum age, so returns are not all stamped at exactly N days. When the title has holds
+       * queued and the user asked for it, that delay is skipped and the loan comes due the moment it
+       * reaches the minimum age — a real person waiting outweighs the pattern.
+       *
+       * <p>The minimum age itself is never skipped: holds waiting do not shorten the time the user
+       * chose to keep the book for.
+       */
+      boolean autoReturnDue(OverDriveLoanEntity loan, OverDriveAutoSyncSettings settings,
+                            int holdsCount, Instant now) { // package-private for testing
+        if (!eligibleForAutoReturn(loan)) {
+            return false;
+        }
+        Instant borrowedAt = loan.getCreatedAt();
+        if (borrowedAt == null) {
+            return false;
+        }
+        Instant minReturnAt = borrowedAt.plus(settings.autoReturnMinAgeDays(), ChronoUnit.DAYS);
+        boolean waitlisted = settings.autoReturnPromptWhenWaitlisted() && holdsCount > 0;
+        Instant dueAt = waitlisted ? minReturnAt : autoReturnDueAt(loan, minReturnAt, settings);
+        return !now.isBefore(dueAt);
+      }
+
+      /**
+       * Whether a loan is a candidate for automatic return at all: still on loan, and already
+       * fulfilled, so returning it gives up the library's copy rather than the user's only access.
+       */
+      private boolean eligibleForAutoReturn(OverDriveLoanEntity loan) {
+        return Boolean.TRUE.equals(loan.getFulfilled())
+                && loan.getIdentity() != null
+                && loan.getOverdriveLoanId() != null
+                && !"RETURNED".equals(loan.getState());
+      }
+
+      /**
+       * This loan's persisted return-due time, drawing one on first evaluation.
+       *
+       * <p>Drawn once and stored rather than recomputed per pass: a fresh random delay on every poll
+       * would move the target continuously, and a loan could stay perpetually not-yet-due.
+       */
+      Instant autoReturnDueAt(OverDriveLoanEntity loan, Instant minReturnAt,
+                              OverDriveAutoSyncSettings settings) { // package-private for testing
+        if (loan.getAutoReturnDueAt() != null) {
+            return loan.getAutoReturnDueAt();
+        }
+        long windowHours = Math.max(0, settings.autoReturnMaxDelayHours());
+        Instant due = windowHours == 0
+                ? minReturnAt
+                : minReturnAt.plusSeconds(ThreadLocalRandom.current().nextLong(windowHours * 3600 + 1));
+        loan.setAutoReturnDueAt(due);
+        loanRepository.save(loan);
+        log.debug("OverDrive auto-return: loan {} due at {}", loan.getOverdriveLoanId(), due);
+        return due;
+      }
+
+      /**
+       * How many holders are queued for each title across a pass's syncs. The sync feed already
+       * carries the count for the loan's own library, so knowing whether somebody is waiting costs no
+       * extra call.
+       */
+      private Map<String, Integer> holdsCountByTitle(Map<String, OverDriveSyncResponse> syncs) {
+        Map<String, Integer> out = new HashMap<>();
+        for (OverDriveSyncResponse sync : syncs.values()) {
+            if (sync == null || sync.getLoans() == null) {
+                continue;
+            }
+            for (OverDriveLoan loan : sync.getLoans()) {
+                if (loan.getId() == null || loan.getHoldsCount() == null) {
+                    continue;
+                }
+                out.merge(loan.getId(), loan.getHoldsCount(), Math::max);
+            }
+        }
+        return out;
       }
 
       /**

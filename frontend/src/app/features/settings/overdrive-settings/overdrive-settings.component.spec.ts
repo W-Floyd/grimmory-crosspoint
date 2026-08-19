@@ -10,6 +10,19 @@ import {LibraryService} from '../../../features/book/service/library.service';
 import {ConfirmationService} from '@openng/optimus-ui/api';
 import {OverdriveSettingsComponent} from './overdrive-settings.component';
 
+/** Auto-sync settings with everything off, overridable per test. */
+function autoSync(overrides: Partial<OverDriveAutoSyncSettings> = {}): OverDriveAutoSyncSettings {
+  return {
+    autoImportLoans: false,
+    autoBorrowHolds: false,
+    autoReturnEnabled: false,
+    autoReturnMinAgeDays: 14,
+    autoReturnMaxDelayHours: 48,
+    autoReturnPromptWhenWaitlisted: true,
+    ...overrides,
+  };
+}
+
 const overdriveService = {
   cards: vi.fn(() => of([] as OverDriveCard[])),
   capabilities: vi.fn(() => of({acsmHandlerConfigured: false, credentialStorageEnabled: false, audiobookHandlerConfigured: false, magazineHandlerConfigured: false, ebookHandlerConfigured: false})),
@@ -19,8 +32,8 @@ const overdriveService = {
   linkCard: vi.fn(() => of([] as OverDriveCard[])),
   importDestinations: vi.fn(() => of({} as OverDriveImportDestinations)),
   setImportDestinations: vi.fn(() => of(void 0)),
-  autoSyncSettings: vi.fn(() => of({autoImportLoans: false, autoBorrowHolds: false} as OverDriveAutoSyncSettings)),
-  setAutoSyncSettings: vi.fn((s: OverDriveAutoSyncSettings) => of({autoImportLoans: s.autoImportLoans || s.autoBorrowHolds, autoBorrowHolds: s.autoBorrowHolds})),
+  autoSyncSettings: vi.fn(() => of(autoSync({autoImportLoans: false, autoBorrowHolds: false}) )),
+  setAutoSyncSettings: vi.fn((s: OverDriveAutoSyncSettings) => of(autoSync({...s, autoImportLoans: s.autoImportLoans || s.autoBorrowHolds}))),
   refreshCard: vi.fn(() => of(void 0)),
   removeCard: vi.fn(() => of(void 0)),
 };
@@ -238,13 +251,13 @@ describe('OverdriveSettingsComponent bulk card actions', () => {
 describe('OverdriveSettingsComponent auto-sync opt-in', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    overdriveService.autoSyncSettings.mockReturnValue(of({autoImportLoans: false, autoBorrowHolds: false}));
+    overdriveService.autoSyncSettings.mockReturnValue(of(autoSync({autoImportLoans: false, autoBorrowHolds: false})));
     overdriveService.setAutoSyncSettings.mockImplementation((s: OverDriveAutoSyncSettings) =>
-      of({autoImportLoans: s.autoImportLoans || s.autoBorrowHolds, autoBorrowHolds: s.autoBorrowHolds}));
+      of(autoSync({...s, autoImportLoans: s.autoImportLoans || s.autoBorrowHolds})));
   });
 
   it('starts opted out and loads the stored opt-in', () => {
-    overdriveService.autoSyncSettings.mockReturnValue(of({autoImportLoans: true, autoBorrowHolds: false}));
+    overdriveService.autoSyncSettings.mockReturnValue(of(autoSync({autoImportLoans: true, autoBorrowHolds: false})));
     const c = setup();
 
     expect(c.autoImportLoans()).toBe(true);
@@ -264,18 +277,18 @@ describe('OverdriveSettingsComponent auto-sync opt-in', () => {
 
     c.onAutoBorrowHoldsChange(true);
 
-    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith({autoImportLoans: true, autoBorrowHolds: true});
+    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith(autoSync({autoImportLoans: true, autoBorrowHolds: true}));
     expect(c.autoImportLoans()).toBe(true);
     expect(c.autoBorrowHolds()).toBe(true);
   });
 
   it('turning auto-import off also turns auto-borrow off', () => {
-    overdriveService.autoSyncSettings.mockReturnValue(of({autoImportLoans: true, autoBorrowHolds: true}));
+    overdriveService.autoSyncSettings.mockReturnValue(of(autoSync({autoImportLoans: true, autoBorrowHolds: true})));
     const c = setup();
 
     c.onAutoImportLoansChange(false);
 
-    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith({autoImportLoans: false, autoBorrowHolds: false});
+    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith(autoSync({autoImportLoans: false, autoBorrowHolds: false}));
     expect(c.autoBorrowHolds()).toBe(false);
   });
 
@@ -284,7 +297,7 @@ describe('OverdriveSettingsComponent auto-sync opt-in', () => {
 
     c.onAutoImportLoansChange(true);
 
-    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith({autoImportLoans: true, autoBorrowHolds: false});
+    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith(autoSync({autoImportLoans: true, autoBorrowHolds: false}));
     expect(c.autoImportLoans()).toBe(true);
     expect(c.autoBorrowHolds()).toBe(false);
   });
@@ -292,7 +305,7 @@ describe('OverdriveSettingsComponent auto-sync opt-in', () => {
   it('a failed save reverts the switches to what the server holds', () => {
     const c = setup();
     overdriveService.setAutoSyncSettings.mockReturnValue(throwError(() => ({error: {message: 'nope'}})));
-    overdriveService.autoSyncSettings.mockReturnValue(of({autoImportLoans: false, autoBorrowHolds: false}));
+    overdriveService.autoSyncSettings.mockReturnValue(of(autoSync({autoImportLoans: false, autoBorrowHolds: false})));
 
     c.onAutoBorrowHoldsChange(true);
 
@@ -301,5 +314,51 @@ describe('OverdriveSettingsComponent auto-sync opt-in', () => {
     expect(c.autoBorrowHolds()).toBe(false);
     expect(c.autoImportLoans()).toBe(false);
     expect(c.setupError()).toBe('nope');
+  });
+
+  it('loads the auto-return window from the server', () => {
+    overdriveService.autoSyncSettings.mockReturnValue(of(autoSync({
+      autoReturnEnabled: true, autoReturnMinAgeDays: 7, autoReturnMaxDelayHours: 12,
+      autoReturnPromptWhenWaitlisted: false,
+    })));
+    const c = setup();
+
+    expect(c.autoReturnEnabled()).toBe(true);
+    expect(c.autoReturnMinAgeDays()).toBe(7);
+    expect(c.autoReturnMaxDelayHours()).toBe(12);
+    expect(c.autoReturnPromptWhenWaitlisted()).toBe(false);
+  });
+
+  it('saves the auto-return window', () => {
+    const c = setup();
+    c.autoReturnMinAgeDays.set(21);
+    c.autoReturnMaxDelayHours.set(6);
+    c.onAutoReturnWindowChange();
+
+    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith(
+      expect.objectContaining({autoReturnMinAgeDays: 21, autoReturnMaxDelayHours: 6}));
+  });
+
+  it('clamps a negative or fractional window before saving', () => {
+    const c = setup();
+    c.autoReturnMinAgeDays.set(-5);
+    c.autoReturnMaxDelayHours.set(2.7);
+    c.onAutoReturnWindowChange();
+
+    // A negative minimum age would make every loan instantly due.
+    expect(c.autoReturnMinAgeDays()).toBe(0);
+    expect(c.autoReturnMaxDelayHours()).toBe(3);
+  });
+
+  it('toggles auto-return and the waitlist exception independently', () => {
+    const c = setup();
+
+    c.onAutoReturnEnabledChange(true);
+    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith(
+      expect.objectContaining({autoReturnEnabled: true}));
+
+    c.onAutoReturnPromptWhenWaitlistedChange(false);
+    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith(
+      expect.objectContaining({autoReturnPromptWhenWaitlisted: false}));
   });
 });

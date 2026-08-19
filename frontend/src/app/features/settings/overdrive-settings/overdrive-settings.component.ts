@@ -21,6 +21,16 @@ import { LibraryService } from '../../../features/book/service/library.service';
 import { OverdriveCardAdminComponent } from './card-admin/overdrive-card-admin.component';
 import { Library, LibraryPath } from '../../../features/book/model/library.model';
 
+/** Everything off, matching the server's defaults for a user who has never opted in. */
+const AUTO_SYNC_DEFAULTS: OverDriveAutoSyncSettings = {
+  autoImportLoans: false,
+  autoBorrowHolds: false,
+  autoReturnEnabled: false,
+  autoReturnMinAgeDays: 14,
+  autoReturnMaxDelayHours: 48,
+  autoReturnPromptWhenWaitlisted: true
+};
+
 @Component({
   selector: 'app-overdrive-settings',
   standalone: true,
@@ -63,6 +73,10 @@ export class OverdriveSettingsComponent {
   // (and how often) is the operator's OverDrive Auto-Sync task, not something settable from here.
   autoImportLoans = signal(false);
   autoBorrowHolds = signal(false);
+  autoReturnEnabled = signal(false);
+  autoReturnMinAgeDays = signal(14);
+  autoReturnMaxDelayHours = signal(48);
+  autoReturnPromptWhenWaitlisted = signal(true);
 
   // The list of OverDrive library keys to search for metadata (source of truth).
   libraryKeys = signal<string[]>([]);
@@ -157,7 +171,7 @@ export class OverdriveSettingsComponent {
   private loadAutoSyncSettings(): void {
     this.overdriveService.autoSyncSettings().subscribe({
       next: (s) => this.applyAutoSync(s),
-      error: () => this.applyAutoSync({ autoImportLoans: false, autoBorrowHolds: false })
+      error: () => this.applyAutoSync(AUTO_SYNC_DEFAULTS)
     });
   }
 
@@ -184,7 +198,11 @@ export class OverdriveSettingsComponent {
   private saveAutoSyncSettings(): void {
     const payload: OverDriveAutoSyncSettings = {
       autoImportLoans: this.autoImportLoans(),
-      autoBorrowHolds: this.autoBorrowHolds()
+      autoBorrowHolds: this.autoBorrowHolds(),
+      autoReturnEnabled: this.autoReturnEnabled(),
+      autoReturnMinAgeDays: Math.max(0, Math.round(Number(this.autoReturnMinAgeDays()) || 0)),
+      autoReturnMaxDelayHours: Math.max(0, Math.round(Number(this.autoReturnMaxDelayHours()) || 0)),
+      autoReturnPromptWhenWaitlisted: this.autoReturnPromptWhenWaitlisted()
     };
     this.setupError.set(null);
     this.overdriveService.setAutoSyncSettings(payload).subscribe({
@@ -201,6 +219,27 @@ export class OverdriveSettingsComponent {
   private applyAutoSync(settings: OverDriveAutoSyncSettings): void {
     this.autoImportLoans.set(!!settings?.autoImportLoans);
     this.autoBorrowHolds.set(!!settings?.autoBorrowHolds);
+    this.autoReturnEnabled.set(!!settings?.autoReturnEnabled);
+    this.autoReturnMinAgeDays.set(settings?.autoReturnMinAgeDays ?? 14);
+    this.autoReturnMaxDelayHours.set(settings?.autoReturnMaxDelayHours ?? 48);
+    this.autoReturnPromptWhenWaitlisted.set(settings?.autoReturnPromptWhenWaitlisted ?? true);
+  }
+
+  onAutoReturnEnabledChange(enabled: boolean): void {
+    this.autoReturnEnabled.set(enabled);
+    this.saveAutoSyncSettings();
+  }
+
+  onAutoReturnPromptWhenWaitlistedChange(enabled: boolean): void {
+    this.autoReturnPromptWhenWaitlisted.set(enabled);
+    this.saveAutoSyncSettings();
+  }
+
+  /** Persist the return window after an edit, clamping to sane values first. */
+  onAutoReturnWindowChange(): void {
+    this.autoReturnMinAgeDays.set(Math.max(0, Math.round(Number(this.autoReturnMinAgeDays()) || 0)));
+    this.autoReturnMaxDelayHours.set(Math.max(0, Math.round(Number(this.autoReturnMaxDelayHours()) || 0)));
+    this.saveAutoSyncSettings();
   }
 
   onEbookLibraryChange(library: Library | null): void {

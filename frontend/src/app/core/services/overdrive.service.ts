@@ -71,6 +71,14 @@ export interface OverDriveAutoSyncSettings {
   autoImportLoans: boolean;
   /** Borrow holds that have become available. Implies autoImportLoans (the server normalises this). */
   autoBorrowHolds: boolean;
+  /** Return loans automatically once they have been held long enough. */
+  autoReturnEnabled: boolean;
+  /** How long a loan must be held before it is eligible for automatic return. */
+  autoReturnMinAgeDays: number;
+  /** Width of the random window after that age; 0 returns exactly at the minimum age. */
+  autoReturnMaxDelayHours: number;
+  /** Skip that random delay when the title has holds queued, so waiters are not held up. */
+  autoReturnPromptWhenWaitlisted: boolean;
 }
 
 /** One entry in a user's OverDrive activity history. */

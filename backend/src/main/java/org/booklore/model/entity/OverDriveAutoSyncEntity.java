@@ -33,4 +33,27 @@ public class OverDriveAutoSyncEntity {
     @Column(name = "auto_borrow_holds", nullable = false)
     @Builder.Default
     private boolean autoBorrowHolds = false;
+
+    /** Return loans automatically once they have been held long enough. */
+    @Column(name = "auto_return_enabled", nullable = false)
+    @Builder.Default
+    private boolean autoReturnEnabled = false;
+
+    /** How long a loan must be held before it is eligible for automatic return. */
+    @Column(name = "auto_return_min_age_days", nullable = false)
+    @Builder.Default
+    private int autoReturnMinAgeDays = 14;
+
+    /**
+     * Width of the random window after the minimum age within which the return actually happens.
+     * 0 returns exactly at the minimum age.
+     */
+    @Column(name = "auto_return_max_delay_hours", nullable = false)
+    @Builder.Default
+    private int autoReturnMaxDelayHours = 48;
+
+    /** Skip the random delay when the title has holds queued, so waiters are not held up. */
+    @Column(name = "auto_return_prompt_when_waitlisted", nullable = false)
+    @Builder.Default
+    private boolean autoReturnPromptWhenWaitlisted = true;
 }
