@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestClient;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -1513,5 +1514,31 @@ class OverDriveServiceTest {
                 .extracting(OverDriveLoanEntity::getOverdriveLoanId, OverDriveLoanEntity::getIdentity)
                 .contains(org.assertj.core.groups.Tuple.tuple("loan-1", "card-a"),
                           org.assertj.core.groups.Tuple.tuple("loan-2", "card-b"));
+    }
+
+    // ── Sharing a Libby chip between cards ───────────────────────────────
+
+    @Test
+    void sharingAChipRequiresTheCardToBeLinkedForThatUser() {
+        when(tokenRepository.findByUserIdAndIdentity(7L, "not-mine")).thenReturn(Optional.empty());
+
+        // Otherwise a link could be pointed at a card id the user does not hold.
+        assertThatThrownBy(() -> service.chipTokenOf("not-mine", 7L))
+                .isInstanceOf(org.booklore.exception.APIException.class)
+                .hasMessageContaining("not linked");
+    }
+
+    @Test
+    void sharingAChipUsesTheExistingCardsToken() {
+        authAsOverdriveUser(7L);
+        OverDriveTokenEntity row = new OverDriveTokenEntity();
+        row.setUserId(7L);
+        row.setIdentity("card-a");
+        row.setToken("token-a");
+        row.setExpiresAt(Instant.now().getEpochSecond() + 3600);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(row));
+
+        // The link call has to go out on the identity the other card already sits on.
+        assertThat(service.chipTokenOf("card-a", 7L)).isEqualTo("token-a");
     }
 }

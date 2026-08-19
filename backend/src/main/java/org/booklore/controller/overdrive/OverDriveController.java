@@ -139,7 +139,8 @@ public class OverDriveController {
         }
         try {
             return ResponseEntity.ok(overDriveService.linkCard(
-                    request.getLibraryKey(), request.getCardNumber(), request.getPin(), request.getUserId()));
+                    request.getLibraryKey(), request.getCardNumber(), request.getPin(), request.getUserId(),
+                    request.getLinkToCardId()));
         } catch (APIException e) {
             throw e;
         } catch (Exception e) {

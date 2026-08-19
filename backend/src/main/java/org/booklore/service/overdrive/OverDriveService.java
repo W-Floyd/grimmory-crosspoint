@@ -862,7 +862,11 @@ public class OverDriveService {
        * @return the linked cards
        */
       public List<OverDriveCard> linkCard(String libraryKey, String cardNumber, String pin) {
-        return linkCard(libraryKey, cardNumber, pin, null);
+        return linkCard(libraryKey, cardNumber, pin, null, null);
+      }
+
+      public List<OverDriveCard> linkCard(String libraryKey, String cardNumber, String pin, Long ownerUserId) {
+        return linkCard(libraryKey, cardNumber, pin, ownerUserId, null);
       }
 
       /**
@@ -870,7 +874,8 @@ public class OverDriveService {
        * cross-user card permission — the card+PIN flow is the only link method that can be delegated, as
        * a setup code or identity token comes from the user's own Libby app or browser session.
        */
-      public List<OverDriveCard> linkCard(String libraryKey, String cardNumber, String pin, Long ownerUserId) {
+      public List<OverDriveCard> linkCard(String libraryKey, String cardNumber, String pin, Long ownerUserId,
+                                          String linkToCardId) {
         Long owner = resolveCardOwner(ownerUserId);
         String key = libraryKey != null ? libraryKey.trim() : "";
         String cn = cardNumber != null ? cardNumber.trim() : "";
@@ -886,7 +891,13 @@ public class OverDriveService {
             throw ApiError.GENERIC_BAD_REQUEST.createException("Could not read the sign-in form for this library; card+PIN link unsupported.");
         }
 
-        String token = requestChip().token();
+        // Reuse an existing card's chip when asked, mint a fresh one otherwise. This mirrors the Libby
+        // web client: it only calls POST /chip when the account has no identity yet, and otherwise
+        // posts the link with the token it already holds, which adds the card to that same chip. Cards
+        // sharing a chip then sync in one upstream call instead of one each.
+        String token = linkToCardId == null || linkToCardId.isBlank()
+                ? requestChip().token()
+                : chipTokenOf(linkToCardId, owner);
         submitLocalAuthentication(websiteId, ilsName, cn, pin, token);
         token = refreshIdentity(token);
 
@@ -894,16 +905,44 @@ public class OverDriveService {
         if (cards.isEmpty()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException("Card linked but no library card was returned; check the number and PIN.");
         }
+        // On a shared chip, fetchCards returns the chip's other cards too. Their token has just been
+        // re-minted along with the new card's, so every row is updated — but only the card actually
+        // being linked gets these credentials, or a sibling's stored number + PIN would be silently
+        // overwritten with someone else's.
+        Set<String> alreadyLinked = tokenRepository.findByUserId(owner).stream()
+                .map(OverDriveTokenEntity::getIdentity)
+                .collect(Collectors.toSet());
         String encCard = credentialCipher.encrypt(cn);
         String encPin = credentialCipher.encrypt(pin);
         for (OverDriveCard card : cards) {
             storeToken(card.cardId(), card.name(), card.libraryKey(), token, owner);
+            if (alreadyLinked.contains(card.cardId())) {
+                continue;
+            }
             storeCardCredentials(card.cardId(), websiteId, ilsName, encCard, encPin, owner);
-            recordCardLinked(owner, card.cardId(), "Linked via card + PIN");
+            recordCardLinked(owner, card.cardId(), linkToCardId == null || linkToCardId.isBlank()
+                    ? "Linked via card + PIN"
+                    : "Linked via card + PIN, sharing the Libby account of card " + linkToCardId);
         }
         log.info("Libby card linked by number for user {} (by user {}): {} card(s){}", owner, currentUserId(),
                 cards.size(), credentialCipher.isEnabled() ? " (credentials stored for auto-relink)" : "");
         return cards;
+      }
+
+      /**
+       * The live chip token of a card the owner already has, for linking another card onto the same
+       * Libby identity. Renews it first if it has expired, since the link call needs a usable bearer.
+       */
+      String chipTokenOf(String cardId, Long owner) { // package-private for testing
+        OverDriveTokenEntity row = tokenRepository.findByUserIdAndIdentity(owner, cardId)
+                .orElseThrow(() -> ApiError.GENERIC_BAD_REQUEST.createException(
+                        "Cannot share the Libby account of card " + cardId + ": it is not linked for this user."));
+        String token = tokenRenewedIfExpired(row.getIdentity());
+        if (token == null || token.isBlank()) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException(
+                    "Card " + cardId + " has no usable sign-in to share; refresh or re-link it first.");
+        }
+        return token;
       }
 
       /**

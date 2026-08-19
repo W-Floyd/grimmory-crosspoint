@@ -246,6 +246,21 @@
             />
           <p-button label="Link card" [loading]="linkingCard()" (onClick)="onLinkCard()" severity="help" />
         </div>
+        @if (shareableChipCards().length > 0) {
+          <div class="link-chip-row">
+            <span class="link-chip-label">Libby account</span>
+            <p-select [options]="shareableChipCards()" optionLabel="name" optionValue="cardId"
+              [ngModel]="linkToCardId()" (ngModelChange)="linkToCardId.set($event)"
+              [ngModelOptions]="{ standalone: true }" [showClear]="true" appendTo="body"
+              placeholder="New Libby account" styleClass="link-chip-select" />
+            <small>
+              Leave empty if this card belongs to a different Libby account. Picking an existing card
+              adds this one to the same account, exactly as the Libby app does — they then sync in a
+              single request instead of one each. The trade-off is shared fate: if that account's
+              sign-in lapses, every card on it stops working together.
+            </small>
+          </div>
+        }
       </div>
 
       <div class="link-card-section">

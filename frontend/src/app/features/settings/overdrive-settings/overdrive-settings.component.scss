@@ -431,3 +431,21 @@
 .auto-return-hint {
   opacity: 0.75;
 }
+
+.link-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+
+  small {
+    flex-basis: 100%;
+    opacity: 0.75;
+  }
+}
+
+.link-chip-label {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}

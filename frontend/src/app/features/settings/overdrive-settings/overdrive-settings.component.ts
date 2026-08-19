@@ -71,6 +71,13 @@ export class OverdriveSettingsComponent {
 
   // Unattended automation opt-in. Off unless this user turns it on; whether the poller runs at all
   // (and how often) is the operator's OverDrive Auto-Sync task, not something settable from here.
+  /**
+   * Card whose Libby identity a newly linked card should join, or null to create a separate one.
+   * Cards on one identity sync in a single upstream call — this is what the Libby client itself does
+   * when an account already has a card.
+   */
+  linkToCardId = signal<string | null>(null);
+
   autoImportLoans = signal(false);
   autoBorrowHolds = signal(false);
   autoReturnEnabled = signal(false);
@@ -224,6 +231,9 @@ export class OverdriveSettingsComponent {
     this.autoReturnMaxDelayHours.set(settings?.autoReturnMaxDelayHours ?? 48);
     this.autoReturnPromptWhenWaitlisted.set(settings?.autoReturnPromptWhenWaitlisted ?? true);
   }
+
+  /** Cards this user owns, as options for sharing a Libby identity with a new card. */
+  readonly shareableChipCards = computed(() => this.linkedCards().filter(c => c.owned !== false));
 
   onAutoReturnEnabledChange(enabled: boolean): void {
     this.autoReturnEnabled.set(enabled);
@@ -752,7 +762,7 @@ export class OverdriveSettingsComponent {
     }
     this.linkingCard.set(true);
     this.setupError.set(null);
-    this.overdriveService.linkCard(key, card, this.pin().trim()).subscribe({
+    this.overdriveService.linkCard(key, card, this.pin().trim(), undefined, this.linkToCardId()).subscribe({
       next: (cards) => {
         this.reloadLinkedCards();
         this.messageService.add({

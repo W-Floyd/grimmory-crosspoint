@@ -377,11 +377,15 @@ export class OverDriveService {
    * Link a library card by number + PIN. Produces a fulfillment-capable (primary) card, unlike a
    * setup code (browse-only). Returns the linked cards.
    */
-  linkCard(libraryKey: string, cardNumber: string, pin: string, ownerUserId?: number): Observable<OverDriveCard[]> {
+  linkCard(libraryKey: string, cardNumber: string, pin: string, ownerUserId?: number,
+           linkToCardId?: string | null): Observable<OverDriveCard[]> {
     // userId links the card for another user — the only link flow that can be delegated, since a setup
     // code or identity token comes from that user's own Libby app or browser session.
-    return this.http.post<OverDriveCard[]>(`${this.baseUrl}/link-card`,
-      ownerUserId == null ? { libraryKey, cardNumber, pin } : { libraryKey, cardNumber, pin, userId: ownerUserId });
+    // linkToCardId adds the card to an existing card's Libby identity, so they sync in one call.
+    const body: Record<string, unknown> = { libraryKey, cardNumber, pin };
+    if (ownerUserId != null) body['userId'] = ownerUserId;
+    if (linkToCardId) body['linkToCardId'] = linkToCardId;
+    return this.http.post<OverDriveCard[]>(`${this.baseUrl}/link-card`, body);
   }
 
   /**
