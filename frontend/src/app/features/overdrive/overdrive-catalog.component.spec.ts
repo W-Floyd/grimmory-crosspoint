@@ -870,4 +870,66 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     });
   });
 
+  describe('paginator offsets when a filter shrinks the table', () => {
+    /** n search results, all matching the default filters. */
+    function results(n: number) {
+      return Array.from({length: n}, (_, i) => ({
+        id: `title-${i}`,
+        title: `Book ${i}`,
+        author: 'Someone',
+        language: 'en',
+        availability: [],
+      })) as never[];
+    }
+
+    it('snaps back to the last page that still has rows', () => {
+      setup();
+      component.results.set(results(60));
+      component.searchFirst.set(50);           // page 6 of 6
+      TestBed.tick();
+
+      component.results.set(results(34));      // filter down to 4 pages
+      TestBed.tick();
+
+      // Stranded at 50 the table would read "51-34 / 34" over an empty body.
+      expect(component.searchFirst()).toBe(30);
+    });
+
+    it('leaves a still-valid offset alone', () => {
+      setup();
+      component.results.set(results(60));
+      component.searchFirst.set(20);
+      TestBed.tick();
+
+      component.results.set(results(34));
+      TestBed.tick();
+
+      // Page 3 still has rows, so the user stays where they were.
+      expect(component.searchFirst()).toBe(20);
+    });
+
+    it('returns to the first page when nothing matches', () => {
+      setup();
+      component.results.set(results(60));
+      component.searchFirst.set(50);
+      TestBed.tick();
+
+      component.results.set(results(0));
+      TestBed.tick();
+
+      expect(component.searchFirst()).toBe(0);
+    });
+
+    it('snaps to the start of the last page, not the last row', () => {
+      setup();
+      component.results.set(results(60));
+      component.searchFirst.set(50);
+      TestBed.tick();
+
+      component.results.set(results(31));      // one row on the final page
+      TestBed.tick();
+
+      expect(component.searchFirst()).toBe(30);
+    });
+  });
 });

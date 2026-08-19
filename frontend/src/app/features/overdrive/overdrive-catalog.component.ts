@@ -1,4 +1,4 @@
-import { Component, computed, DestroyRef, effect, ElementRef, inject, signal, untracked, viewChild } from '@angular/core';
+import { Component, computed, DestroyRef, effect, ElementRef, inject, signal, untracked, viewChild, WritableSignal } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -173,6 +173,38 @@ export class OverdriveCatalogComponent {
   sortOrder = signal<1 | -1>(1);
 
   /** Search results with the active facet filters and column sort applied. */
+  // Paginator offsets, bound so they can be corrected when a filter shrinks the table underneath
+  // them. PrimeNG otherwise keeps its internal offset, stranding the user on a page that no longer
+  // has rows — the paginator reads "51-34 / 34" and the body is empty.
+  readonly searchFirst = signal(0);
+  readonly loansFirst = signal(0);
+  readonly holdsFirst = signal(0);
+  /** Rows per page, matching the [rows] bindings on each table. */
+  readonly resultsPageSize = 10;
+
+  /**
+   * The largest offset that still lands on a page with rows. Snaps back to the last non-empty page
+   * rather than to the first: a user who filtered from page 4 to 2 pages of results is more likely to
+   * want the end of what remains than to be thrown back to the start.
+   */
+  private clampFirst(first: number, total: number, rows: number): number {
+    if (total <= 0) return 0;
+    if (first < total) return first;
+    return Math.max(0, (Math.ceil(total / rows) - 1) * rows);
+  }
+
+  /** Keep a paginator offset inside its table, without depending on the offset itself. */
+  private keepPageInRange(first: WritableSignal<number>, total: () => number): void {
+    effect(() => {
+      const rows = total();
+      const current = untracked(first);
+      const clamped = this.clampFirst(current, rows, this.resultsPageSize);
+      if (clamped !== current) {
+        first.set(clamped);
+      }
+    });
+  }
+
   readonly filteredResults = computed(() => {
     const format = this.filterFormat();
     const availableOnly = this.filterAvailableNow();
@@ -489,6 +521,11 @@ export class OverdriveCatalogComponent {
   private dismissTimer: ReturnType<typeof setTimeout> | null = null;
 
    constructor() {
+     // Filters shrink these tables underneath their paginators, so each offset is kept in range.
+     this.keepPageInRange(this.searchFirst, () => this.filteredResults().length);
+     this.keepPageInRange(this.loansFirst, () => this.filteredLoans().length);
+     this.keepPageInRange(this.holdsFirst, () => this.filteredHolds().length);
+
      // Stream handler output to a console popup. A new import resets the log; a line auto-opens the popup.
      this.rxStompService.watch('/user/queue/overdrive-tool-log')
        .pipe(takeUntilDestroyed(this.destroyRef))
