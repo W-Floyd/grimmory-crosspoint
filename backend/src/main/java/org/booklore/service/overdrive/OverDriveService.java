@@ -984,6 +984,16 @@ public class OverDriveService {
        * the cards that did move, for the caller to persist the shared token against.
        */
       private List<OverDriveTokenEntity> addCardsToChip(List<OverDriveTokenEntity> cards, String token) {
+        return addCardsToChip(cards, token, false);
+      }
+
+      /**
+       * @param persistAsMoved commit each card's new token as soon as it joins, instead of leaving that
+       *                       to the caller. The join is a remote change that cannot be rolled back, so
+       *                       a caller that might fail afterwards should record progress as it happens.
+       */
+      private List<OverDriveTokenEntity> addCardsToChip(List<OverDriveTokenEntity> cards, String token,
+                                                        boolean persistAsMoved) {
         List<OverDriveTokenEntity> moved = new ArrayList<>();
         for (OverDriveTokenEntity card : cards) {
             if (card.getCredCard() == null || card.getWebsiteId() == null || card.getIlsName() == null) {
@@ -999,6 +1009,11 @@ public class OverDriveService {
                 submitLocalAuthentication(card.getWebsiteId(), card.getIlsName(), cn,
                         credentialCipher.decrypt(card.getCredPin()), token);
                 moved.add(card);
+                if (persistAsMoved) {
+                    // The pre-refresh token already covers the card now that it is on the chip (the
+                    // Libby client keeps using it after a link), so this is a usable state to stop in.
+                    persistChipToken(List.of(card), token);
+                }
             } catch (Exception e) {
                 log.warn("OverDrive: could not move card {} onto the shared chip: {}",
                         card.getIdentity(), e.getMessage());
@@ -1029,8 +1044,13 @@ public class OverDriveService {
        *
        * <p>Cards already on the target chip are left alone. Nothing is unlinked — a card that fails
        * to move keeps working exactly as it did, on its own chip.
+       *
+       * <p>Deliberately not transactional. Joining a chip is a remote change at Libby that no rollback
+       * can undo, so each card's new token is committed the moment it moves. Wrapping the whole thing
+       * in one transaction meant a later failure discarded every local record of moves that had really
+       * happened, leaving Grimmory and Libby disagreeing about which chip a card sits on — which is
+       * exactly what a failed run produced.
        */
-      @Transactional
       public OverDriveChipUnifyResult unifyChips(String targetCardId) {
         Long owner = currentUserId();
         OverDriveTokenEntity target = ownedCardForChip(targetCardId, owner);
@@ -1060,7 +1080,7 @@ public class OverDriveService {
             candidates.add(card);
         }
 
-        List<OverDriveTokenEntity> moved = addCardsToChip(candidates, token);
+        List<OverDriveTokenEntity> moved = addCardsToChip(candidates, token, true);
         for (OverDriveTokenEntity card : candidates) {
             if (!moved.contains(card)) {
                 skipped.add(skipped(card, "The library rejected the stored card + PIN"));
@@ -1069,11 +1089,18 @@ public class OverDriveService {
 
         if (!moved.isEmpty()) {
             // Re-mint once the chip holds everything, then put that token on every card on it —
-            // including the target, whose own token is now stale.
-            String refreshed = refreshIdentity(token);
-            List<OverDriveTokenEntity> onChip = new ArrayList<>(moved);
-            onChip.add(target);
-            persistChipToken(onChip, refreshed);
+            // including the target, whose own token is now stale. Best-effort: the cards are already
+            // recorded on the shared chip above, so a failed re-mint costs a fresher token, not the
+            // consolidation itself.
+            try {
+                String refreshed = refreshIdentity(token);
+                List<OverDriveTokenEntity> onChip = new ArrayList<>(moved);
+                onChip.add(target);
+                persistChipToken(onChip, refreshed);
+            } catch (Exception e) {
+                log.warn("OverDrive: cards joined card {}'s chip but the token re-mint failed ({}); "
+                        + "they are on the shared chip with its existing token", targetCardId, e.getMessage());
+            }
             recordAudit(OverDriveAuditAction.CARD_REFRESHED, targetCardId, null, null, null, null,
                     "Unified " + moved.size() + " card(s) onto this Libby account");
         }
