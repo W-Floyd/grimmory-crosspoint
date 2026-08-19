@@ -379,6 +379,12 @@
                       pTooltip="Re-link from stored card + PIN to get a fresh token"
                       (onClick)="onRefreshCard(card)" />
                   }
+                  @if (shareableChipCards().length > 1) {
+                    <p-button label="Unify" icon="pi pi-link" severity="secondary" size="small" [text]="true"
+                      [loading]="unifyingChip() === card.cardId"
+                      pTooltip="Move your other cards onto this card's Libby account, so they all sync in one request"
+                      (onClick)="onUnifyChip(card)" />
+                  }
                   <p-button label="Unlink" icon="pi pi-times" severity="danger" size="small" [text]="true"
                     pTooltip="Clear this card's stored token/credentials" (onClick)="onUnlinkCard(card)" />
                 </span>

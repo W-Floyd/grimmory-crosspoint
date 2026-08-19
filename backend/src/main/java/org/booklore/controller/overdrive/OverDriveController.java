@@ -333,6 +333,21 @@ public class OverDriveController {
         return ResponseEntity.ok(overDriveService.setAutoSyncSettings(settings));
     }
 
+    /**
+     * POST /api/overdrive/{identity}/unify-chip — move the caller's other cards onto this card's
+     * Libby identity.
+     */
+    @Operation(summary = "Consolidate cards onto one Libby account",
+               description = "Signs the caller's other cards into the identity this card sits on, so they sync in a single upstream call. Only cards with a stored number + PIN can move; the rest are returned as skipped, with a reason. Nothing is unlinked.")
+    @ApiResponse(responseCode = "200", description = "Consolidation attempted; see moved and skipped")
+    @PostMapping("/{identity}/unify-chip")
+    public ResponseEntity<OverDriveChipUnifyResult> unifyChip(
+            @Parameter(description = "Card whose Libby account the others should join") @PathVariable String identity
+    ) {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.unifyChips(identity));
+    }
+
     // ── Sync ────────────────────────────────────────────────────────────
 
     /**

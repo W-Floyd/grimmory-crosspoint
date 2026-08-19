@@ -77,6 +77,8 @@ export class OverdriveSettingsComponent {
    * when an account already has a card.
    */
   linkToCardId = signal<string | null>(null);
+  /** Card whose unify action is in flight, so only its button spins. */
+  unifyingChip = signal<string | null>(null);
 
   autoImportLoans = signal(false);
   autoBorrowHolds = signal(false);
@@ -641,6 +643,47 @@ export class OverdriveSettingsComponent {
   }
 
   /** Refresh a card+PIN card's token by re-linking from its stored credentials. */
+  /**
+   * Move this user's other cards onto the given card's Libby account. Confirmed first: it signs those
+   * cards in again and, once they share an identity, a lapsed sign-in takes them all out together
+   * rather than one at a time.
+   */
+  onUnifyChip(card: OverDriveCard): void {
+    const others = this.shareableChipCards().filter(c => c.cardId !== card.cardId).length;
+    this.confirmationService.confirm({
+      header: 'Use one Libby account for these cards?',
+      message: `Your other ${others} card(s) will be signed in to the same Libby account as `
+        + `"${card.name}", so they sync in a single request instead of one each. Cards without a `
+        + `stored number + PIN cannot move and will be left as they are. Nothing is unlinked, but `
+        + `cards sharing an account also fail together if that sign-in lapses.`,
+      icon: 'pi pi-link',
+      acceptIcon: 'pi pi-check',
+      rejectIcon: 'pi pi-times',
+      accept: () => this.runUnifyChip(card)
+    });
+  }
+
+  private runUnifyChip(card: OverDriveCard): void {
+    this.unifyingChip.set(card.cardId);
+    this.setupError.set(null);
+    this.overdriveService.unifyChip(card.cardId).subscribe({
+      next: (result) => {
+        this.reloadLinkedCards();
+        const skipped = result.skipped ?? [];
+        this.messageService.add({
+          severity: skipped.length > 0 ? 'warn' : 'success',
+          summary: `${result.moved?.length ?? 0} card(s) now share this account`,
+          // Name what did not move and why — the fix is usually to re-link that card by number.
+          detail: skipped.length > 0
+            ? skipped.map(sk => `${sk.cardName || sk.cardId}: ${sk.reason}`).join(' · ')
+            : 'They now sync in a single request.'
+        });
+      },
+      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Could not unify these cards'),
+      complete: () => this.unifyingChip.set(null)
+    });
+  }
+
   onRefreshCard(card: OverDriveCard): void {
     this.overdriveService.refreshCard(card.cardId).subscribe({
       next: () => this.messageService.add({ severity: 'success', summary: 'Refreshed', detail: `Re-linked ${this.cardLabel(card)}` }),

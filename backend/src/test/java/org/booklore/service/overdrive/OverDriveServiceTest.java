@@ -4,6 +4,7 @@ import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.model.dto.BookLoreUser;
 import org.booklore.model.dto.overdrive.OverDriveLoan;
 import org.booklore.model.dto.overdrive.OverDriveSyncResponse;
+import org.booklore.model.entity.OverDriveCardShareEntity;
 import org.booklore.model.entity.OverDriveLoanEntity;
 import org.booklore.model.entity.OverDriveTokenEntity;
 import org.booklore.repository.OverDriveLoanRepository;
@@ -1523,9 +1524,11 @@ class OverDriveServiceTest {
         when(tokenRepository.findByUserIdAndIdentity(7L, "not-mine")).thenReturn(Optional.empty());
 
         // Otherwise a link could be pointed at a card id the user does not hold.
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+
         assertThatThrownBy(() -> service.chipTokenOf("not-mine", 7L))
                 .isInstanceOf(org.booklore.exception.APIException.class)
-                .hasMessageContaining("not linked");
+                .hasMessageContaining("No such card");
     }
 
     @Test
@@ -1540,5 +1543,102 @@ class OverDriveServiceTest {
 
         // The link call has to go out on the identity the other card already sits on.
         assertThat(service.chipTokenOf("card-a", 7L)).isEqualTo("token-a");
+    }
+
+    /** A linked card row, with stored credentials unless {@code withCredentials} is false. */
+    private OverDriveTokenEntity cardRow(String id, String token, boolean withCredentials) {
+        OverDriveTokenEntity row = new OverDriveTokenEntity();
+        row.setUserId(7L);
+        row.setIdentity(id);
+        row.setCardName("Card " + id);
+        row.setToken(token);
+        row.setExpiresAt(Instant.now().getEpochSecond() + 3600);
+        if (withCredentials) {
+            row.setWebsiteId("100614");
+            row.setIlsName("ils");
+            row.setCredCard("enc-card");
+            row.setCredPin("enc-pin");
+        }
+        return row;
+    }
+
+    @Test
+    void unifyingReportsCardsThatCannotMoveInsteadOfSilentlySkippingThem() {
+        authAsOverdriveUser(7L);
+        OverDriveTokenEntity target = cardRow("card-a", "token-a", true);
+        // Linked by setup code, so there is no card + PIN to sign it in with again.
+        OverDriveTokenEntity noCreds = cardRow("card-b", "token-b", false);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(target));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(target, noCreds));
+
+        var result = serviceWith(enabledCipher()).unifyChips("card-a");
+
+        assertThat(result.moved()).isEmpty();
+        assertThat(result.skipped()).singleElement()
+                .satisfies(sk -> {
+                    assertThat(sk.cardId()).isEqualTo("card-b");
+                    assertThat(sk.reason()).contains("No stored card + PIN");
+                });
+    }
+
+    @Test
+    void unifyingLeavesCardsAlreadyOnTheChipAlone() {
+        authAsOverdriveUser(7L);
+        OverDriveTokenEntity target = cardRow("card-a", "token-a", true);
+        OverDriveTokenEntity sibling = cardRow("card-b", "token-a", true); // same chip already
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(target));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(target, sibling));
+
+        var result = serviceWith(enabledCipher()).unifyChips("card-a");
+
+        // Nothing to do, and nothing to complain about.
+        assertThat(result.moved()).isEmpty();
+        assertThat(result.skipped()).isEmpty();
+    }
+
+    @Test
+    void unifyingRejectsACardTheUserDoesNotHave() {
+        authAsOverdriveUser(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "nope")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.unifyChips("nope"))
+                .isInstanceOf(org.booklore.exception.APIException.class);
+    }
+
+    @Test
+    void aCardSharedWithYouCannotBeUsedAsAChipTarget() {
+        // Owned by user 9 and shared with 7: borrowable, but not theirs to extend.
+        OverDriveTokenEntity shared = cardRow("card-shared", "token-x", true);
+        shared.setUserId(9L);
+        shared.setId(55L);
+        OverDriveCardShareEntity share = new OverDriveCardShareEntity();
+        share.setTokenId(55L);
+        share.setSharedWithUserId(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-shared")).thenReturn(Optional.empty());
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of(share));
+        when(tokenRepository.findById(55L)).thenReturn(Optional.of(shared));
+
+        // Joining it would put the caller's card on somebody else's Libby account.
+        assertThatThrownBy(() -> service.chipTokenOf("card-shared", 7L))
+                .isInstanceOf(org.booklore.exception.APIException.class)
+                .hasMessageContaining("shared with you");
+    }
+
+    @Test
+    void unifyingOntoACardSharedWithYouIsRefused() {
+        authAsOverdriveUser(7L);
+        OverDriveTokenEntity shared = cardRow("card-shared", "token-x", true);
+        shared.setUserId(9L);
+        shared.setId(55L);
+        OverDriveCardShareEntity share = new OverDriveCardShareEntity();
+        share.setTokenId(55L);
+        share.setSharedWithUserId(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-shared")).thenReturn(Optional.empty());
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of(share));
+        when(tokenRepository.findById(55L)).thenReturn(Optional.of(shared));
+
+        assertThatThrownBy(() -> service.unifyChips("card-shared"))
+                .isInstanceOf(org.booklore.exception.APIException.class)
+                .hasMessageContaining("shared with you");
     }
 }

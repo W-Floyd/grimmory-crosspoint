@@ -81,6 +81,13 @@ export interface OverDriveAutoSyncSettings {
   autoReturnPromptWhenWaitlisted: boolean;
 }
 
+/** Outcome of consolidating cards onto one Libby account. */
+export interface OverDriveChipUnifyResult {
+  targetCardId: string;
+  moved: string[];
+  skipped: { cardId: string; cardName?: string | null; reason: string }[];
+}
+
 /** One page of a user's OverDrive activity history. */
 export interface OverDriveHistoryPage {
   entries: OverDriveAuditEntry[];
@@ -479,6 +486,14 @@ export class OverDriveService {
   /** Save the current user's per-document-type import destinations. */
   setImportDestinations(destinations: OverDriveImportDestinations): Observable<void> {
     return this.http.put<void>(`${this.baseUrl}/import-destinations`, destinations);
+  }
+
+  /**
+   * Move the caller's other cards onto this card's Libby account, so they sync in one call.
+   * Returns which cards moved and which could not, with reasons.
+   */
+  unifyChip(cardId: string): Observable<OverDriveChipUnifyResult> {
+    return this.http.post<OverDriveChipUnifyResult>(`${this.baseUrl}/${cardId}/unify-chip`, null);
   }
 
   /** The caller's automation opt-in. */

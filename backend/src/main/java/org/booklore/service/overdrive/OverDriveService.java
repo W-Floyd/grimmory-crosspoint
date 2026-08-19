@@ -934,15 +934,158 @@ public class OverDriveService {
        * Libby identity. Renews it first if it has expired, since the link call needs a usable bearer.
        */
       String chipTokenOf(String cardId, Long owner) { // package-private for testing
-        OverDriveTokenEntity row = tokenRepository.findByUserIdAndIdentity(owner, cardId)
-                .orElseThrow(() -> ApiError.GENERIC_BAD_REQUEST.createException(
-                        "Cannot share the Libby account of card " + cardId + ": it is not linked for this user."));
+        OverDriveTokenEntity row = ownedCardForChip(cardId, owner);
         String token = tokenRenewedIfExpired(row.getIdentity());
         if (token == null || token.isBlank()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException(
                     "Card " + cardId + " has no usable sign-in to share; refresh or re-link it first.");
         }
         return token;
+      }
+
+      /**
+       * The user's own card row for a chip operation.
+       *
+       * <p>A card shared with you is borrowable but is not yours to extend: joining a card to its chip
+       * would put that card on somebody else's Libby account, where they could see and use it and
+       * where their sign-in governs it. Only the owner may decide what sits on their identity, so a
+       * shared card is refused outright rather than treated as missing.
+       */
+      private OverDriveTokenEntity ownedCardForChip(String cardId, Long owner) {
+        OverDriveTokenEntity row = tokenRepository.findByUserIdAndIdentity(owner, cardId).orElse(null);
+        if (row != null) {
+            return row;
+        }
+        if (accessibleTokenRow(owner, cardId).isPresent()) {
+            throw ApiError.FORBIDDEN.createException("Card " + cardId + " was shared with you rather than "
+                    + "linked by you, so cards cannot be added to its Libby account. Choose a card you own.");
+        }
+        throw ApiError.GENERIC_NOT_FOUND.createException("No such card: " + cardId);
+      }
+
+      /** The owner's other cards sitting on the same chip token as this row. */
+      private List<OverDriveTokenEntity> chipMatesOf(OverDriveTokenEntity row) {
+        String token = row.getToken();
+        if (token == null || token.isBlank() || row.getUserId() == null) {
+            return List.of();
+        }
+        return tokenRepository.findByUserId(row.getUserId()).stream()
+                .filter(other -> !other.getIdentity().equals(row.getIdentity()))
+                .filter(other -> token.equals(other.getToken()))
+                .toList();
+      }
+
+      /**
+       * Sign each card into the chip behind {@code token}, from its own stored credentials, so they
+       * end up on one identity.
+       *
+       * <p>Best-effort per card: a card that cannot be moved (no stored credentials, or the library
+       * rejects it) is skipped and left where it was rather than failing the whole operation. Returns
+       * the cards that did move, for the caller to persist the shared token against.
+       */
+      private List<OverDriveTokenEntity> addCardsToChip(List<OverDriveTokenEntity> cards, String token) {
+        List<OverDriveTokenEntity> moved = new ArrayList<>();
+        for (OverDriveTokenEntity card : cards) {
+            if (card.getCredCard() == null || card.getWebsiteId() == null || card.getIlsName() == null) {
+                log.info("OverDrive: card {} has no stored card + PIN, so it cannot join another chip",
+                        card.getIdentity());
+                continue;
+            }
+            String cn = credentialCipher.decrypt(card.getCredCard());
+            if (cn == null) {
+                continue;
+            }
+            try {
+                submitLocalAuthentication(card.getWebsiteId(), card.getIlsName(), cn,
+                        credentialCipher.decrypt(card.getCredPin()), token);
+                moved.add(card);
+            } catch (Exception e) {
+                log.warn("OverDrive: could not move card {} onto the shared chip: {}",
+                        card.getIdentity(), e.getMessage());
+            }
+        }
+        return moved;
+      }
+
+      /** Persist one chip token against every card now sitting on it. */
+      private void persistChipToken(List<OverDriveTokenEntity> cards, String token) {
+        for (OverDriveTokenEntity card : cards) {
+            card.setToken(token);
+            card.setExpiresAt(tokenExpiryEpoch(token));
+        }
+        if (!cards.isEmpty()) {
+            tokenRepository.saveAll(cards);
+        }
+      }
+
+      /**
+       * Move the caller's other cards onto one card's Libby identity, so they sync in a single call
+       * instead of one per card.
+       *
+       * <p>Only cards with a stored number + PIN can move: joining a chip means signing into the
+       * library again, and a setup-code or pasted-token link never gave us credentials to do that
+       * with. Those are reported back rather than silently ignored, since the fix is to re-link them
+       * by number.
+       *
+       * <p>Cards already on the target chip are left alone. Nothing is unlinked — a card that fails
+       * to move keeps working exactly as it did, on its own chip.
+       */
+      @Transactional
+      public OverDriveChipUnifyResult unifyChips(String targetCardId) {
+        Long owner = currentUserId();
+        OverDriveTokenEntity target = ownedCardForChip(targetCardId, owner);
+        String token = tokenRenewedIfExpired(target.getIdentity());
+        if (token == null || token.isBlank()) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException(
+                    "Card " + targetCardId + " has no usable sign-in to share; refresh or re-link it first.");
+        }
+
+        List<OverDriveTokenEntity> candidates = new ArrayList<>();
+        List<OverDriveChipUnifyResult.Skipped> skipped = new ArrayList<>();
+        for (OverDriveTokenEntity card : tokenRepository.findByUserId(owner)) {
+            if (card.getIdentity().equals(targetCardId)) {
+                continue;
+            }
+            if (token.equals(card.getToken())) {
+                continue; // already on this chip
+            }
+            if (!credentialCipher.isEnabled()) {
+                skipped.add(skipped(card, "Credential storage is off (set OVERDRIVE_CREDENTIAL_KEY)"));
+                continue;
+            }
+            if (card.getCredCard() == null || card.getWebsiteId() == null || card.getIlsName() == null) {
+                skipped.add(skipped(card, "No stored card + PIN — re-link this card by number to move it"));
+                continue;
+            }
+            candidates.add(card);
+        }
+
+        List<OverDriveTokenEntity> moved = addCardsToChip(candidates, token);
+        for (OverDriveTokenEntity card : candidates) {
+            if (!moved.contains(card)) {
+                skipped.add(skipped(card, "The library rejected the stored card + PIN"));
+            }
+        }
+
+        if (!moved.isEmpty()) {
+            // Re-mint once the chip holds everything, then put that token on every card on it —
+            // including the target, whose own token is now stale.
+            String refreshed = refreshIdentity(token);
+            List<OverDriveTokenEntity> onChip = new ArrayList<>(moved);
+            onChip.add(target);
+            persistChipToken(onChip, refreshed);
+            recordAudit(OverDriveAuditAction.CARD_REFRESHED, targetCardId, null, null, null, null,
+                    "Unified " + moved.size() + " card(s) onto this Libby account");
+        }
+
+        log.info("OverDrive: unified {} card(s) onto card {} for user {} ({} skipped)",
+                moved.size(), targetCardId, owner, skipped.size());
+        return new OverDriveChipUnifyResult(targetCardId,
+                moved.stream().map(OverDriveTokenEntity::getIdentity).toList(), skipped);
+      }
+
+      private OverDriveChipUnifyResult.Skipped skipped(OverDriveTokenEntity card, String reason) {
+        return new OverDriveChipUnifyResult.Skipped(card.getIdentity(), card.getCardName(), reason);
       }
 
       /**
@@ -1096,15 +1239,22 @@ public class OverDriveService {
         if (cn == null) {
             return null;
         }
+        // Cards that shared this row's chip, captured before it is replaced. A re-link mints a brand
+        // new identity holding only this card, so without moving them across they are orphaned — and
+        // propagateReMintedToken would then hand them a token for a chip they are not on.
+        List<OverDriveTokenEntity> chipMates = chipMatesOf(row);
         try {
             String token = requestChip().token();
             submitLocalAuthentication(row.getWebsiteId(), row.getIlsName(), cn, pin, token);
+            List<OverDriveTokenEntity> moved = addCardsToChip(chipMates, token);
             token = refreshIdentity(token);
             row.setToken(token);
             row.setExpiresAt(tokenExpiryEpoch(token));
             tokenRepository.save(row);
-            log.info("OverDrive: re-linked card {} from stored credentials (owner user {}, renewed by user {})",
-                    cardId, row.getUserId(), currentUserId());
+            persistChipToken(moved, token);
+            log.info("OverDrive: re-linked card {} from stored credentials (owner user {}, renewed by user {}){}",
+                    cardId, row.getUserId(), currentUserId(),
+                    moved.isEmpty() ? "" : " — kept " + moved.size() + " chip-mate(s) on the same identity");
             return token;
         } catch (Exception e) {
             log.warn("OverDrive: auto-relink failed for card {}: {}", cardId, e.getMessage());
