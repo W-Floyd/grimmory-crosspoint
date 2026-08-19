@@ -182,7 +182,7 @@
         <p-table [value]="filteredResults()" [customSort]="true" (sortFunction)="onSortResults($event)"
           [sortField]="sortField()" [sortOrder]="sortOrder()" [rowTrackBy]="trackRow"
           [paginator]="true" [rows]="resultsPageSize" [showCurrentPageReport]="true" [pageLinks]="paginatorPageLinks()"
-          [first]="searchFirst()" (onPage)="searchFirst.set($event.first ?? 0)"
+          [first]="searchFirst()" (onPage)="searchFirst.set($event.first)"
           currentPageReportTemplate="{first}-{last} / {totalRecords}">
           <ng-template pTemplate="header">
             <tr>
@@ -484,7 +484,7 @@
       </div>
     }
     <p-table [value]="filteredLoans()" [paginator]="true" [rows]="resultsPageSize"
-      [first]="loansFirst()" (onPage)="loansFirst.set($event.first ?? 0)" [showCurrentPageReport]="true" [pageLinks]="paginatorPageLinks()"
+      [first]="loansFirst()" (onPage)="loansFirst.set($event.first)" [showCurrentPageReport]="true" [pageLinks]="paginatorPageLinks()"
       [scrollable]="true" scrollHeight="flex" [customSort]="true" (sortFunction)="onSortLoans($event)"
       [sortField]="loanSortField()" [sortOrder]="loanSortOrder()" [rowTrackBy]="trackRow"
       currentPageReportTemplate="{first}-{last} / {totalRecords}">
@@ -618,7 +618,7 @@
       </div>
     }
     <p-table [value]="filteredHolds()" [paginator]="true" [rows]="resultsPageSize"
-      [first]="holdsFirst()" (onPage)="holdsFirst.set($event.first ?? 0)" [showCurrentPageReport]="true" [pageLinks]="paginatorPageLinks()"
+      [first]="holdsFirst()" (onPage)="holdsFirst.set($event.first)" [showCurrentPageReport]="true" [pageLinks]="paginatorPageLinks()"
       [scrollable]="true" scrollHeight="flex" [customSort]="true" (sortFunction)="onSortHolds($event)"
       [sortField]="holdSortField()" [sortOrder]="holdSortOrder()" [rowTrackBy]="trackRow"
       currentPageReportTemplate="{first}-{last} / {totalRecords}">
