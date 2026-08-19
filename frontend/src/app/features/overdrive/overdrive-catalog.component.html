@@ -728,7 +728,8 @@
         </p-tabpanel>
 
         <p-tabpanel value="history">
-    <p-table [value]="history()" [paginator]="true" [rows]="15" [showCurrentPageReport]="true"
+    <p-table [value]="history()" [paginator]="true" [rows]="historyPageSize" [showCurrentPageReport]="true"
+      [lazy]="true" (onLazyLoad)="onHistoryPage($event)" [totalRecords]="historyTotal()"
       [scrollable]="true" scrollHeight="flex" [loading]="loadingHistory()"
       currentPageReportTemplate="{first}-{last} / {totalRecords}">
       <ng-template pTemplate="header">

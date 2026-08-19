@@ -25,6 +25,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -367,5 +368,60 @@ class OverDriveAutoSyncSettingsTest {
         verify(auditRepository).save(captor.capture());
         // A leaked flag would misattribute every later interactive action on this thread.
         assertThat(captor.getValue().isAutomated()).isFalse();
+    }
+
+    // ── History paging ───────────────────────────────────────────────────
+
+    @SuppressWarnings("unchecked")
+    private ArgumentCaptor<org.springframework.data.domain.Pageable> stubHistoryPage() {
+        ArgumentCaptor<org.springframework.data.domain.Pageable> captor =
+                ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        when(auditRepository.findByUserIdOrderByCreatedAtDesc(eq(7L), captor.capture()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+        return captor;
+    }
+
+    @Test
+    void historyDefaultsToTheFirstPage() {
+        authAs(7L);
+        var captor = stubHistoryPage();
+
+        service.listHistory(null, null);
+
+        assertThat(captor.getValue().getPageNumber()).isZero();
+        assertThat(captor.getValue().getPageSize()).isEqualTo(50);
+    }
+
+    @Test
+    void historyPageSizeIsCappedSoOneRequestCannotAskForEverything() {
+        authAs(7L);
+        var captor = stubHistoryPage();
+
+        service.listHistory(0, 100_000);
+
+        assertThat(captor.getValue().getPageSize()).isEqualTo(200);
+    }
+
+    @Test
+    void nonsensicalPagingIsClampedRatherThanRejected() {
+        authAs(7L);
+        var captor = stubHistoryPage();
+
+        // A paginator can ask for a negative offset or a zero size; an empty page beats a 400.
+        service.listHistory(-3, 0);
+
+        assertThat(captor.getValue().getPageNumber()).isZero();
+        assertThat(captor.getValue().getPageSize()).isEqualTo(1);
+    }
+
+    @Test
+    void historyReportsTheServerSideTotalNotThePageLength() {
+        authAs(7L);
+        when(auditRepository.findByUserIdOrderByCreatedAtDesc(eq(7L), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(
+                        List.of(), org.springframework.data.domain.PageRequest.of(0, 25), 130));
+
+        // The paginator sizes itself from this, so it must be the full count.
+        assertThat(service.listHistory(0, 25).total()).isEqualTo(130);
     }
 }

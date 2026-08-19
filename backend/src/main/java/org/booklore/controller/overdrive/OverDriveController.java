@@ -213,14 +213,18 @@ public class OverDriveController {
     }
 
     /**
-     * GET /api/overdrive/history — the current user's recent OverDrive activity (newest first).
+     * GET /api/overdrive/history — a page of the current user's OverDrive activity (newest first).
      */
-    @Operation(summary = "List the current user's OverDrive activity history")
+    @Operation(summary = "List a page of the current user's OverDrive activity history",
+               description = "Newest first. Page and size are clamped server-side; a page past the end comes back empty rather than as an error.")
     @ApiResponse(responseCode = "200", description = "History listed")
     @GetMapping("/history")
-    public ResponseEntity<List<OverDriveAuditEntry>> history() {
+    public ResponseEntity<OverDriveHistoryPage> history(
+            @Parameter(description = "Zero-based page index") @RequestParam(required = false) Integer page,
+            @Parameter(description = "Page size (clamped server-side)") @RequestParam(required = false) Integer size
+    ) {
         requireEnabled();
-        return ResponseEntity.ok(overDriveService.listHistory());
+        return ResponseEntity.ok(overDriveService.listHistory(page, size));
     }
 
     /**

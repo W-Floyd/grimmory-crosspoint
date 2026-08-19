@@ -324,7 +324,14 @@ public class OverDriveService {
     // ── Activity history (per-user) ──────────────────────────────────────
 
     /** Cap on how many recent history entries the History tab loads. */
-    private static final int HISTORY_LIMIT = 500;
+    /**
+     * Largest page of history that may be requested at once. The history is no longer capped at a
+     * fixed newest-N — the automation writes entries unattended, so a cap would quietly bury the
+     * user's own actions — but a page size still needs bounding so one request cannot ask for
+     * everything.
+     */
+    private static final int HISTORY_MAX_PAGE_SIZE = 200;
+    private static final int HISTORY_DEFAULT_PAGE_SIZE = 50;
 
     /**
      * Record one OverDrive history entry, best-effort — never throws, so it can't break the action it
@@ -417,15 +424,26 @@ public class OverDriveService {
         return s.length() <= max ? s : s.substring(0, max);
     }
 
-    /** The current user's recent OverDrive activity, newest first (capped at {@link #HISTORY_LIMIT}). */
-    public List<OverDriveAuditEntry> listHistory() {
-        return auditRepository.findByUserIdOrderByCreatedAtDesc(currentUserId(), PageRequest.of(0, HISTORY_LIMIT))
+    /**
+     * One page of the current user's OverDrive activity, newest first.
+     *
+     * <p>Page and size are clamped rather than rejected: a paginator asking for a page past the end
+     * (after entries were trimmed, say) should get an empty page, not an error.
+     */
+    public OverDriveHistoryPage listHistory(Integer page, Integer size) {
+        int pageIndex = page == null ? 0 : Math.max(0, page);
+        int pageSize = size == null ? HISTORY_DEFAULT_PAGE_SIZE
+                : Math.min(HISTORY_MAX_PAGE_SIZE, Math.max(1, size));
+        var result = auditRepository.findByUserIdOrderByCreatedAtDesc(
+                currentUserId(), PageRequest.of(pageIndex, pageSize));
+        List<OverDriveAuditEntry> entries = result.getContent()
                 .stream()
                 .map(a -> new OverDriveAuditEntry(a.getId(), a.getAction(), a.getIdentity(), a.getLibraryKey(),
                         a.getCardName(), a.getTitleId(), a.getLoanId(), a.getBookId(), a.getTitle(), a.getDetail(),
                         a.isSuccess(), a.isAutomated(),
                         a.getCreatedAt() != null ? a.getCreatedAt().toString() : null))
                 .toList();
+        return new OverDriveHistoryPage(entries, pageIndex, pageSize, result.getTotalElements());
     }
 
     // Mirror the Libby web client exactly (verified against a working browser HAR): a normal desktop

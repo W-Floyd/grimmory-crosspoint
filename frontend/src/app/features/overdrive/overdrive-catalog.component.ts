@@ -9,7 +9,7 @@ import { OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogI
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { MessageModule } from '@openng/optimus-ui/message';
 import { CardModule } from '@openng/optimus-ui/card';
-import { TableModule } from '@openng/optimus-ui/table';
+import { TableModule, TableLazyLoadEvent } from '@openng/optimus-ui/table';
 import { SelectModule } from '@openng/optimus-ui/select';
 import { MultiSelectModule } from '@openng/optimus-ui/multiselect';
 import { CheckboxModule } from '@openng/optimus-ui/checkbox';
@@ -104,6 +104,9 @@ export class OverdriveCatalogComponent {
   activeTab = signal<string | number>('search');
   // OverDrive activity history (newest first), loaded when the History tab is opened.
   history = signal<OverDriveAuditEntry[]>([]);
+  /** Total history rows on the server, so the paginator can size itself past the loaded page. */
+  historyTotal = signal(0);
+  readonly historyPageSize = 25;
   loadingHistory = signal(false);
   // Whether the Library Cards + capacity section is folded away to give the loans/holds tables room.
   // Remembered across sessions (localStorage); with no saved preference, defaults to folded on short
@@ -2058,17 +2061,32 @@ export class OverdriveCatalogComponent {
      const next = tab ?? 'search';
      this.activeTab.set(next);
      if (next === 'history') {
-       this.loadHistory();
+       // Only the first page; the table asks for the rest as the user pages.
+       this.loadHistory(0);
      }
    }
 
-   /** Load the current user's OverDrive activity history. */
-   loadHistory(): void {
+   /**
+    * Load one page of history. Paged server-side rather than fetching everything: the automation
+    * writes entries unattended, so the table grows on its own and a single fetch would eventually
+    * pull a lot of rows the user never scrolls to.
+    */
+   loadHistory(page = 0): void {
      this.loadingHistory.set(true);
-     this.overdriveService.history().subscribe({
-       next: (entries) => { this.history.set(entries ?? []); this.loadingHistory.set(false); },
+     this.overdriveService.history(page, this.historyPageSize).subscribe({
+       next: (result) => {
+         this.history.set(result?.entries ?? []);
+         this.historyTotal.set(result?.total ?? 0);
+         this.loadingHistory.set(false);
+       },
        error: () => { this.loadingHistory.set(false); }
      });
+   }
+
+   /** PrimeNG lazy-load hook: first/rows come from the paginator, so translate them to a page index. */
+   onHistoryPage(event: TableLazyLoadEvent): void {
+     const rows = event.rows || this.historyPageSize;
+     this.loadHistory(Math.floor((event.first ?? 0) / rows));
    }
 
    private static readonly ACTION_LABELS: Record<string, string> = {

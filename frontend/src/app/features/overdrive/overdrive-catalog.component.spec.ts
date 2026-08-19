@@ -1,6 +1,6 @@
 import {TestBed} from '@angular/core/testing';
 import {beforeEach, afterEach, describe, expect, it, vi} from 'vitest';
-import {of} from 'rxjs';
+import {of, throwError} from 'rxjs';
 
 import {ConfirmationService, MessageService} from '@openng/optimus-ui/api';
 import {OverdriveCatalogComponent, toolProgressPct} from './overdrive-catalog.component';
@@ -39,7 +39,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     borrowAndImport: vi.fn(),
     titleAvailability: vi.fn(),
     titleAvailabilityBatch: vi.fn(),
-    history: vi.fn(() => of([] as OverDriveAuditEntry[])),
+    history: vi.fn(() => of({entries: [] as OverDriveAuditEntry[], page: 0, size: 25, total: 0})),
     returnBook: vi.fn(() => of(void 0)),
   };
   const libraryService = {libraries: () => []};
@@ -369,17 +369,52 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
 
   it('lazy-loads history only when the History tab is opened', () => {
     setup();
-    overdriveService.history.mockReturnValue(of([
-      {id: 1, action: 'BORROW', title: 'Dune', cardName: 'JoCo', success: true, createdAt: '2026-07-18T20:00:00Z'},
-    ]));
+    overdriveService.history.mockReturnValue(of({
+      entries: [
+        {id: 1, action: 'BORROW', title: 'Dune', cardName: 'JoCo', success: true, createdAt: '2026-07-18T20:00:00Z'},
+      ],
+      page: 0,
+      size: 25,
+      total: 130,
+    }));
 
     component.onTabChange('loans');
     expect(overdriveService.history).not.toHaveBeenCalled();
 
     component.onTabChange('history');
     expect(component.activeTab()).toBe('history');
-    expect(overdriveService.history).toHaveBeenCalledTimes(1);
+    // Only the first page, not the whole history.
+    expect(overdriveService.history).toHaveBeenCalledWith(0, component.historyPageSize);
     expect(component.history()).toHaveLength(1);
+    // The paginator needs the server-side total, not the loaded row count.
+    expect(component.historyTotal()).toBe(130);
+  });
+
+  it('translates paginator offsets into page indexes', () => {
+    setup();
+    overdriveService.history.mockReturnValue(of({entries: [], page: 2, size: 25, total: 130}));
+
+    component.onHistoryPage({first: 50, rows: 25});
+
+    expect(overdriveService.history).toHaveBeenCalledWith(2, 25);
+  });
+
+  it('falls back to the configured page size when the paginator omits one', () => {
+    setup();
+    overdriveService.history.mockReturnValue(of({entries: [], page: 0, size: 25, total: 0}));
+
+    component.onHistoryPage({first: 0});
+
+    expect(overdriveService.history).toHaveBeenCalledWith(0, component.historyPageSize);
+  });
+
+  it('leaves the table empty when history cannot be loaded', () => {
+    setup();
+    overdriveService.history.mockReturnValue(throwError(() => new Error('nope')));
+
+    component.loadHistory(0);
+
+    expect(component.loadingHistory()).toBe(false);
   });
 
   it('maps history action codes to friendly labels and colour groups', () => {

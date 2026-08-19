@@ -81,6 +81,14 @@ export interface OverDriveAutoSyncSettings {
   autoReturnPromptWhenWaitlisted: boolean;
 }
 
+/** One page of a user's OverDrive activity history. */
+export interface OverDriveHistoryPage {
+  entries: OverDriveAuditEntry[];
+  page: number;
+  size: number;
+  total: number;
+}
+
 /** One entry in a user's OverDrive activity history. */
 export interface OverDriveAuditEntry {
   id: number;
@@ -452,9 +460,11 @@ export class OverDriveService {
     return this.http.put<void>(`${this.baseUrl}/${cardId}/shares`, { userIds }, { params: this.ownerParams({}, ownerUserId) });
   }
 
-  /** The current user's recent OverDrive activity history (newest first). */
-  history(): Observable<OverDriveAuditEntry[]> {
-    return this.http.get<OverDriveAuditEntry[]>(`${this.baseUrl}/history`);
+  /** One page of the current user's OverDrive activity history (newest first). */
+  history(page = 0, size = 50): Observable<OverDriveHistoryPage> {
+    return this.http.get<OverDriveHistoryPage>(`${this.baseUrl}/history`, {
+      params: {page, size}
+    });
   }
 
   /** The current user's per-document-type import destinations. */
