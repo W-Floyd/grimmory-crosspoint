@@ -81,6 +81,52 @@
     }
   }
 
+  // Narrow screens: everything above the table was taking roughly two thirds of the viewport before a
+  // single result was visible. Reclaim that height rather than shrinking the rows.
+  @media (width <= 640px) {
+    // The destination hint is three lines of prose the user only needs once. Keep it available but
+    // out of the way — it explains a setting, it is not part of searching.
+    .dest-hint {
+      display: none;
+    }
+
+    // Search field and button on their own line each, instead of a cramped side-by-side split.
+    .search-row {
+      flex-wrap: wrap;
+      gap: 0.4rem;
+
+      input {
+        flex: 1 1 100%;
+      }
+    }
+
+    .search-filters {
+      gap: 0.4rem 0.75rem;
+      margin: 0.25rem 0 0.5rem;
+
+      // The vertical rule reads as clutter once the row wraps over several lines.
+      .filter-divider {
+        display: none;
+      }
+    }
+
+    // Four columns inside ~380px squeezes every one of them — the Availability header truncates and
+    // its values wrap mid-phrase. Give the table a floor and let the container scroll sideways
+    // instead, so each column stays readable rather than hiding data the user searched for.
+    ::ng-deep .p-datatable-table {
+      min-width: 32rem;
+    }
+
+    // Trim the Library Cards block: it is a status line above the thing the user came for.
+    .collapsed-summary {
+      font-size: 0.8rem;
+    }
+
+    ::ng-deep .p-card .p-card-body {
+      padding: 0.5rem 0.75rem;
+    }
+  }
+
   // Library Cards header: title on the left, a fold toggle on the right so the whole card (selector +
   // capacity meters) can collapse to reclaim vertical space on short screens.
   .card-title-row {
@@ -405,8 +451,15 @@
       color: var(--text-color-secondary);
     }
 
+    // A checkbox and its label are one unit. As flex siblings they wrapped independently, so on a
+    // narrow screen a label could end up on a different line from the box it belongs to.
+    .filter-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
     label {
-      margin-right: 0.4rem;
       font-size: 0.85rem;
       cursor: pointer;
       user-select: none;
