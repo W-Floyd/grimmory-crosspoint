@@ -617,13 +617,41 @@
       display: none;
     }
 
-    // Search field and button on their own line each, instead of a cramped side-by-side split.
+    // Keep the field and button on one line. A flex item defaults to min-width:auto, so the input
+    // refuses to shrink below its intrinsic width and pushes the button off the row — min-width:0 is
+    // what actually lets it give way.
     .search-row {
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       gap: 0.4rem;
 
       input {
-        flex: 1 1 100%;
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      ::ng-deep .p-button {
+        flex: 0 0 auto;
+      }
+    }
+
+    // Same rule for the collapsed card header: ellipsise the summary rather than wrapping it and the
+    // fold toggle onto a second row.
+    .card-title-row {
+      flex-wrap: nowrap;
+
+      > span:first-child {
+        flex: 0 0 auto;
+      }
+    }
+
+    // The paginator's first/last jumps are the least useful controls on a phone and the ones that
+    // push the row over the edge. Prev/next plus the page numbers reach every page anyway.
+    // Wrapping stays on, so the "1-10 / 50" report keeps its own centered line (see the earlier
+    // paginator rule); only the controls that overflow are dropped.
+    ::ng-deep .p-paginator {
+      .p-paginator-first,
+      .p-paginator-last {
+        display: none;
       }
     }
 
