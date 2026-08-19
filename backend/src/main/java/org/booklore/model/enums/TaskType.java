@@ -51,6 +51,14 @@ public enum TaskType {
             "Cleanup Temporary Metadata",
             "Removes temporary metadata files created during the bookdrop and manual metadata review processes."
     ),
+    OVERDRIVE_AUTO_SYNC(
+            false,
+            true,
+            true,
+            false,
+            "OverDrive Auto-Sync",
+            "Syncs OverDrive cards for users who opted in, borrows holds that have become available, and imports borrowed titles into their libraries."
+    ),
     REFRESH_METADATA_MANUAL(
             false,
             true,

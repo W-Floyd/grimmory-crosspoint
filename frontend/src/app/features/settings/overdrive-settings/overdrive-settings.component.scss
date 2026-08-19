@@ -382,3 +382,23 @@
   flex: 0 0 auto;
   width: 1.25rem;
 }
+
+.auto-sync-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.auto-sync-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    cursor: pointer;
+  }
+}

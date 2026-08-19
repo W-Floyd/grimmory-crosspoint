@@ -75,4 +75,13 @@ public class OverDriveLoanEntity {
       /** Last sync time from OverDrive. */
     @Column(name = "last_sync")
     private Instant lastSync;
+
+      /**
+       * Consecutive failed automatic import attempts, for loans the auto-import poller picks up. Past a
+       * small threshold the poller stops retrying a loan it can never import (e.g. an audiobook with no
+       * external handler configured) instead of re-running it on every tick. Reset on success.
+       */
+    @Column(name = "auto_import_failures", nullable = false)
+    @Builder.Default
+    private int autoImportFailures = 0;
 }

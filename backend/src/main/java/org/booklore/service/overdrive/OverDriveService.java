@@ -8,6 +8,7 @@ import org.booklore.model.dto.overdrive.*;
 import org.booklore.model.dto.response.OverDriveApiResponse;
 import org.booklore.model.entity.BookLoreUserEntity;
 import org.booklore.model.entity.OverDriveAuditEntity;
+import org.booklore.model.entity.OverDriveAutoSyncEntity;
 import org.booklore.model.entity.OverDriveCardShareEntity;
 import org.booklore.model.entity.OverDriveImportDestinationEntity;
 import org.booklore.model.entity.OverDriveLoanEntity;
@@ -20,6 +21,7 @@ import org.booklore.model.dto.BookLoreUser;
 import org.booklore.model.dto.settings.MetadataProviderSettings;
 import org.booklore.repository.BookRepository;
 import org.booklore.repository.OverDriveAuditRepository;
+import org.booklore.repository.OverDriveAutoSyncRepository;
 import org.booklore.repository.OverDriveCardShareRepository;
 import org.booklore.repository.OverDriveImportDestinationRepository;
 import org.booklore.repository.OverDriveLoanRepository;
@@ -101,6 +103,7 @@ public class OverDriveService {
     private final OverDriveCardShareRepository cardShareRepository;
     private final OverDriveAuditRepository auditRepository;
     private final OverDriveImportDestinationRepository importDestinationRepository;
+    private final OverDriveAutoSyncRepository autoSyncRepository;
     private final UserRepository userRepository;
     private final AuthenticationService authenticationService;
     private final AppSettingService appSettingService;
@@ -2152,6 +2155,191 @@ public class OverDriveService {
         importDestinationRepository.save(entity);
       }
 
+      // ── Unattended automation (per-user opt-in) ──────────────────────────
+
+      /**
+       * How many consecutive automatic import failures a loan may accumulate before the poller stops
+       * picking it up. Some titles can never import unattended (an audiobook with no external handler,
+       * a format the user's libraries won't keep); retrying those on every tick burns the external
+       * handler's time and floods the history for no gain. The user can still import them by hand.
+       */
+      private static final int MAX_AUTO_IMPORT_FAILURES = 3;
+
+      /** The current user's automation opt-in — both false when they have never opted in. */
+      public OverDriveAutoSyncSettings getAutoSyncSettings() {
+        return autoSyncRepository.findByUserId(currentUserId())
+                .map(a -> new OverDriveAutoSyncSettings(a.isAutoImportLoans(), a.isAutoBorrowHolds()))
+                .orElseGet(() -> new OverDriveAutoSyncSettings(false, false));
+      }
+
+      /**
+       * Store the current user's automation opt-in (an upsert). Auto-borrow implies auto-import:
+       * borrowing a ready hold and then not fetching the book would consume the hold — and a checkout
+       * slot — for nothing. Normalised on the way in so every reader sees a coherent pair rather than
+       * each having to re-derive it.
+       */
+      @Transactional
+      public OverDriveAutoSyncSettings setAutoSyncSettings(OverDriveAutoSyncSettings settings) {
+        Long userId = currentUserId();
+        boolean borrowHolds = settings.autoBorrowHolds();
+        boolean importLoans = settings.autoImportLoans() || borrowHolds;
+        OverDriveAutoSyncEntity entity = autoSyncRepository.findByUserId(userId)
+                .orElseGet(() -> OverDriveAutoSyncEntity.builder().userId(userId).build());
+        entity.setAutoImportLoans(importLoans);
+        entity.setAutoBorrowHolds(borrowHolds);
+        autoSyncRepository.save(entity);
+        log.info("OverDrive auto-sync settings for user {}: importLoans={} borrowHolds={}",
+                userId, importLoans, borrowHolds);
+        return new OverDriveAutoSyncSettings(importLoans, borrowHolds);
+      }
+
+      /** The user ids that opted into at least one automated action — the poller's work list. */
+      public List<Long> autoSyncOptedInUserIds() {
+        return autoSyncRepository.findAllOptedIn().stream()
+                .map(OverDriveAutoSyncEntity::getUserId)
+                .toList();
+      }
+
+      /** What one user's automation pass did, for the task's summary log. */
+      public record AutoSyncOutcome(int cardsSynced, int holdsBorrowed, int loansImported, int failures) {
+
+        static AutoSyncOutcome none() {
+            return new AutoSyncOutcome(0, 0, 0, 0);
+        }
+      }
+
+      /**
+       * Run one automation pass for the currently authenticated user: sync their cards, borrow any
+       * holds that came in, and import loans that aren't in the library yet.
+       *
+       * <p>The caller must have installed the target user's security context — everything below resolves
+       * cards, loans and import destinations through {@link #currentUserId()}, exactly as a request from
+       * that user would. This deliberately reuses the interactive paths rather than a parallel
+       * "automatic" implementation, so an automated import lands in the same destination, records the
+       * same history entry, and honours the same format rules as one the user clicked.
+       *
+       * <p>Per-title failures are contained: one title that won't import must not cost the user the rest
+       * of the pass, so each is caught, counted against the loan, and logged.
+       */
+      public AutoSyncOutcome runAutoSync() {
+        OverDriveAutoSyncSettings settings = getAutoSyncSettings();
+        if (!settings.autoImportLoans() && !settings.autoBorrowHolds()) {
+            return AutoSyncOutcome.none();
+        }
+        Long userId = currentUserId();
+        List<String> identities = listCards().stream().map(OverDriveCard::cardId).filter(Objects::nonNull).toList();
+        if (identities.isEmpty()) {
+            return AutoSyncOutcome.none();
+        }
+
+        // One call per chip rather than per card, and it persists the loans this pass then works from.
+        Map<String, OverDriveSyncResponse> syncs = syncAll(identities);
+        int failures = 0;
+        int borrowed = 0;
+
+        if (settings.autoBorrowHolds()) {
+            for (Map.Entry<String, List<OverDriveHold>> entry : readyHoldsByCard(syncs).entrySet()) {
+                for (OverDriveHold hold : entry.getValue()) {
+                    try {
+                        borrowAndImport(entry.getKey(), hold.getId(), null, null,
+                                hold.getTitle(), hold.getFirstCreatorName(), null, null, null, null, null);
+                        borrowed++;
+                    } catch (Exception e) {
+                        failures++;
+                        log.warn("OverDrive auto-borrow: hold {} (\"{}\") on card {} failed for user {}: {}",
+                                hold.getId(), hold.getTitle(), entry.getKey(), userId, e.getMessage());
+                        recordAuditFailure(OverDriveAuditAction.AUTO_BORROW, entry.getKey(), hold.getId(), null,
+                                "Automatic borrow failed: " + e.getMessage());
+                    }
+                }
+            }
+        }
+
+        int imported = 0;
+        if (settings.autoImportLoans()) {
+            // Read the loans back from the database rather than the sync payload: syncAll has just
+            // written this pass's loans, and the rows carry the import state (fulfilled, failure count)
+            // that decides what still needs doing. Holds borrowed above are already imported by
+            // borrowAndImport, and their rows now say so, so they aren't picked up twice.
+            for (OverDriveLoanEntity loan : loanRepository.findByUserId(userId)) {
+                if (!pendingAutoImport(loan)) {
+                    continue;
+                }
+                try {
+                    borrowAndImport(loan.getIdentity(), loan.getOverdriveLoanId(), null, null,
+                            loan.getTitle(), loan.getAuthor(), null, loan.getIsbn(), null, null, null);
+                    imported++;
+                } catch (Exception e) {
+                    failures++;
+                    noteAutoImportFailure(loan);
+                    log.warn("OverDrive auto-import: loan {} (\"{}\") failed for user {} (attempt {}): {}",
+                            loan.getOverdriveLoanId(), loan.getTitle(), userId, loan.getAutoImportFailures(),
+                            e.getMessage());
+                    recordAuditFailure(OverDriveAuditAction.AUTO_IMPORT, loan.getIdentity(),
+                            loan.getOverdriveLoanId(), loan.getOverdriveLoanId(),
+                            "Automatic import failed: " + e.getMessage());
+                }
+            }
+        }
+
+        return new AutoSyncOutcome(identities.size(), borrowed, imported, failures);
+      }
+
+      /**
+       * The ready-to-borrow holds in a set of syncs, keyed by the card each sits on. A chip's sync
+       * carries every card on that chip, so holds are attributed by their own {@code cardId} (falling
+       * back to the card we synced with) — the same rule the interactive sync view uses.
+       */
+      private Map<String, List<OverDriveHold>> readyHoldsByCard(Map<String, OverDriveSyncResponse> syncs) {
+        Map<String, List<OverDriveHold>> byCard = new LinkedHashMap<>();
+        Set<String> seen = new HashSet<>();
+        for (Map.Entry<String, OverDriveSyncResponse> entry : syncs.entrySet()) {
+            OverDriveSyncResponse sync = entry.getValue();
+            if (sync == null || sync.getHolds() == null) {
+                continue;
+            }
+            for (OverDriveHold hold : sync.getHolds()) {
+                if (!Boolean.TRUE.equals(hold.getAvailable()) || hold.getId() == null) {
+                    continue;
+                }
+                String card = hold.getCardId() != null && !hold.getCardId().isBlank()
+                        ? hold.getCardId()
+                        : entry.getKey();
+                // Cards sharing a chip see the same hold list; borrow each ready hold once.
+                if (seen.add(card + ":" + hold.getId())) {
+                    byCard.computeIfAbsent(card, k -> new ArrayList<>()).add(hold);
+                }
+            }
+        }
+        return byCard;
+      }
+
+      /** Whether a loan row is still waiting to be imported automatically. */
+      private boolean pendingAutoImport(OverDriveLoanEntity loan) {
+        return !Boolean.TRUE.equals(loan.getFulfilled())
+                && loan.getIdentity() != null
+                && loan.getOverdriveLoanId() != null
+                && loan.getAutoImportFailures() < MAX_AUTO_IMPORT_FAILURES;
+      }
+
+      /**
+       * Count a failed automatic import against the loan so a title that can never import stops being
+       * retried. Best-effort: the pass has already failed once here, and losing the counter must not
+       * also abort the remaining loans.
+       */
+      private void noteAutoImportFailure(OverDriveLoanEntity loan) {
+        try {
+            loanRepository.findByUserIdAndOverdriveLoanId(loan.getUserId(), loan.getOverdriveLoanId())
+                    .ifPresent(row -> {
+                        row.setAutoImportFailures(row.getAutoImportFailures() + 1);
+                        loanRepository.save(row);
+                    });
+        } catch (Exception e) {
+            log.debug("OverDrive auto-import: could not record failure for loan {}: {}",
+                    loan.getOverdriveLoanId(), e.getMessage());
+        }
+      }
+
       /** A resolved import destination (either may be null when nothing routes the type). */
       private record ImportDestination(Long libraryId, Long pathId) {}
 
@@ -2440,6 +2628,7 @@ public class OverDriveService {
         entity.setState("ACTIVE");
         entity.setFulfilled(true);
         entity.setBookId(book != null ? book.getId() : null);
+        entity.setAutoImportFailures(0);
         entity.setLastSync(Instant.now());
         loanRepository.save(entity);
 
@@ -2692,6 +2881,7 @@ public class OverDriveService {
             entity.setState("ACTIVE");
             entity.setFulfilled(true);
             entity.setBookId(book != null ? book.getId() : null);
+            entity.setAutoImportFailures(0);
             entity.setLastSync(Instant.now());
             loanRepository.save(entity);
 

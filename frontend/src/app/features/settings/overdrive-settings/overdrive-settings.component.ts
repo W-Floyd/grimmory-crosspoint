@@ -8,7 +8,7 @@ import { MessageModule } from '@openng/optimus-ui/message';
 import { CardModule } from '@openng/optimus-ui/card';
 import { MessageService } from '@openng/optimus-ui/api';
 
-import { OverDriveService, OverDriveCard, OverDriveImportDestinations, OverDriveLibraryResolution, OverDriveShareUser } from '../../../core/services/overdrive.service';
+import { OverDriveService, OverDriveCard, OverDriveAutoSyncSettings, OverDriveImportDestinations, OverDriveLibraryResolution, OverDriveShareUser } from '../../../core/services/overdrive.service';
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { TooltipModule } from '@openng/optimus-ui/tooltip';
 import { OrderListModule } from '@openng/optimus-ui/orderlist';
@@ -58,6 +58,11 @@ export class OverdriveSettingsComponent {
   audiobookPath = signal<LibraryPath | null>(null);
   magazineLibrary = signal<Library | null>(null);
   magazinePath = signal<LibraryPath | null>(null);
+
+  // Unattended automation opt-in. Off unless this user turns it on; whether the poller runs at all
+  // (and how often) is the operator's OverDrive Auto-Sync task, not something settable from here.
+  autoImportLoans = signal(false);
+  autoBorrowHolds = signal(false);
 
   // The list of OverDrive library keys to search for metadata (source of truth).
   libraryKeys = signal<string[]>([]);
@@ -126,6 +131,7 @@ export class OverdriveSettingsComponent {
       }
     });
     this.loadImportDestinations();
+    this.loadAutoSyncSettings();
   }
 
   /** Load the per-document-type import destinations and resolve their ids to library/path objects. */
@@ -145,6 +151,56 @@ export class OverdriveSettingsComponent {
       },
       error: () => { /* leave unset (Bookdrop) */ }
     });
+  }
+
+  /** Load this user's automation opt-in (defaults to off if it can't be read). */
+  private loadAutoSyncSettings(): void {
+    this.overdriveService.autoSyncSettings().subscribe({
+      next: (s) => this.applyAutoSync(s),
+      error: () => this.applyAutoSync({ autoImportLoans: false, autoBorrowHolds: false })
+    });
+  }
+
+  onAutoImportLoansChange(enabled: boolean): void {
+    this.autoImportLoans.set(enabled);
+    // Auto-borrow can't stand without auto-import — borrowing a hold with nothing fetching the book
+    // just consumes it. The server enforces this too; mirroring it here keeps the checkboxes honest
+    // instead of letting them show a state the server would not have stored.
+    if (!enabled) {
+      this.autoBorrowHolds.set(false);
+    }
+    this.saveAutoSyncSettings();
+  }
+
+  onAutoBorrowHoldsChange(enabled: boolean): void {
+    this.autoBorrowHolds.set(enabled);
+    if (enabled) {
+      this.autoImportLoans.set(true);
+    }
+    this.saveAutoSyncSettings();
+  }
+
+  /** Persist the opt-in, adopting the server's normalised answer rather than assuming ours stuck. */
+  private saveAutoSyncSettings(): void {
+    const payload: OverDriveAutoSyncSettings = {
+      autoImportLoans: this.autoImportLoans(),
+      autoBorrowHolds: this.autoBorrowHolds()
+    };
+    this.setupError.set(null);
+    this.overdriveService.setAutoSyncSettings(payload).subscribe({
+      next: (saved) => this.applyAutoSync(saved),
+      error: (err) => {
+        // Put the checkboxes back to what the server actually holds, so a failed save can't leave the
+        // user believing automation is on when it isn't.
+        this.loadAutoSyncSettings();
+        this.setupError.set(err?.error?.message || err?.message || 'Failed to save auto-sync settings');
+      }
+    });
+  }
+
+  private applyAutoSync(settings: OverDriveAutoSyncSettings): void {
+    this.autoImportLoans.set(!!settings?.autoImportLoans);
+    this.autoBorrowHolds.set(!!settings?.autoBorrowHolds);
   }
 
   onEbookLibraryChange(library: Library | null): void {

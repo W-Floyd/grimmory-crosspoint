@@ -5,7 +5,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {AppSettings} from '../../../shared/model/app-settings.model';
 import {AppSettingsService} from '../../../shared/service/app-settings.service';
-import {OverDriveService, OverDriveCard, OverDriveImportDestinations, OverDriveShareUser} from '../../../core/services/overdrive.service';
+import {OverDriveService, OverDriveAutoSyncSettings, OverDriveCard, OverDriveImportDestinations, OverDriveShareUser} from '../../../core/services/overdrive.service';
 import {LibraryService} from '../../../features/book/service/library.service';
 import {ConfirmationService} from '@openng/optimus-ui/api';
 import {OverdriveSettingsComponent} from './overdrive-settings.component';
@@ -19,6 +19,8 @@ const overdriveService = {
   linkCard: vi.fn(() => of([] as OverDriveCard[])),
   importDestinations: vi.fn(() => of({} as OverDriveImportDestinations)),
   setImportDestinations: vi.fn(() => of(void 0)),
+  autoSyncSettings: vi.fn(() => of({autoImportLoans: false, autoBorrowHolds: false} as OverDriveAutoSyncSettings)),
+  setAutoSyncSettings: vi.fn((s: OverDriveAutoSyncSettings) => of({autoImportLoans: s.autoImportLoans || s.autoBorrowHolds, autoBorrowHolds: s.autoBorrowHolds})),
   refreshCard: vi.fn(() => of(void 0)),
   removeCard: vi.fn(() => of(void 0)),
 };
@@ -230,5 +232,74 @@ describe('OverdriveSettingsComponent bulk card actions', () => {
 
     expect(c.bulkShare()).toBe(false);
     expect(c.shareCard()?.cardId).toBe('a');
+  });
+});
+
+describe('OverdriveSettingsComponent auto-sync opt-in', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    overdriveService.autoSyncSettings.mockReturnValue(of({autoImportLoans: false, autoBorrowHolds: false}));
+    overdriveService.setAutoSyncSettings.mockImplementation((s: OverDriveAutoSyncSettings) =>
+      of({autoImportLoans: s.autoImportLoans || s.autoBorrowHolds, autoBorrowHolds: s.autoBorrowHolds}));
+  });
+
+  it('starts opted out and loads the stored opt-in', () => {
+    overdriveService.autoSyncSettings.mockReturnValue(of({autoImportLoans: true, autoBorrowHolds: false}));
+    const c = setup();
+
+    expect(c.autoImportLoans()).toBe(true);
+    expect(c.autoBorrowHolds()).toBe(false);
+  });
+
+  it('defaults to opted out when the settings cannot be read', () => {
+    overdriveService.autoSyncSettings.mockReturnValue(throwError(() => new Error('nope')));
+    const c = setup();
+
+    expect(c.autoImportLoans()).toBe(false);
+    expect(c.autoBorrowHolds()).toBe(false);
+  });
+
+  it('enabling auto-borrow also enables auto-import', () => {
+    const c = setup();
+
+    c.onAutoBorrowHoldsChange(true);
+
+    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith({autoImportLoans: true, autoBorrowHolds: true});
+    expect(c.autoImportLoans()).toBe(true);
+    expect(c.autoBorrowHolds()).toBe(true);
+  });
+
+  it('turning auto-import off also turns auto-borrow off', () => {
+    overdriveService.autoSyncSettings.mockReturnValue(of({autoImportLoans: true, autoBorrowHolds: true}));
+    const c = setup();
+
+    c.onAutoImportLoansChange(false);
+
+    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith({autoImportLoans: false, autoBorrowHolds: false});
+    expect(c.autoBorrowHolds()).toBe(false);
+  });
+
+  it('auto-import can be enabled on its own', () => {
+    const c = setup();
+
+    c.onAutoImportLoansChange(true);
+
+    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith({autoImportLoans: true, autoBorrowHolds: false});
+    expect(c.autoImportLoans()).toBe(true);
+    expect(c.autoBorrowHolds()).toBe(false);
+  });
+
+  it('a failed save reverts the switches to what the server holds', () => {
+    const c = setup();
+    overdriveService.setAutoSyncSettings.mockReturnValue(throwError(() => ({error: {message: 'nope'}})));
+    overdriveService.autoSyncSettings.mockReturnValue(of({autoImportLoans: false, autoBorrowHolds: false}));
+
+    c.onAutoBorrowHoldsChange(true);
+
+    // The optimistic flip must not survive a failed save — otherwise the user believes automation is
+    // on when the server never stored it.
+    expect(c.autoBorrowHolds()).toBe(false);
+    expect(c.autoImportLoans()).toBe(false);
+    expect(c.setupError()).toBe('nope');
   });
 });

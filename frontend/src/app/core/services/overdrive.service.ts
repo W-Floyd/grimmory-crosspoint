@@ -62,6 +62,17 @@ export interface OverDriveImportDestinations {
   magazinePathId?: number | null;
 }
 
+/**
+ * A user's opt-in for unattended OverDrive activity. The schedule itself is an operator-controlled
+ * task; these flags decide only whether this user's own cards are in scope for it.
+ */
+export interface OverDriveAutoSyncSettings {
+  /** Import loans found on sync — including titles borrowed in the Libby app — into the library. */
+  autoImportLoans: boolean;
+  /** Borrow holds that have become available. Implies autoImportLoans (the server normalises this). */
+  autoBorrowHolds: boolean;
+}
+
 /** One entry in a user's OverDrive activity history. */
 export interface OverDriveAuditEntry {
   id: number;
@@ -444,6 +455,19 @@ export class OverDriveService {
   /** Save the current user's per-document-type import destinations. */
   setImportDestinations(destinations: OverDriveImportDestinations): Observable<void> {
     return this.http.put<void>(`${this.baseUrl}/import-destinations`, destinations);
+  }
+
+  /** The caller's automation opt-in. */
+  autoSyncSettings(): Observable<OverDriveAutoSyncSettings> {
+    return this.http.get<OverDriveAutoSyncSettings>(`${this.baseUrl}/auto-sync`);
+  }
+
+  /**
+   * Store the caller's automation opt-in. Returns what was actually stored — enabling auto-borrow also
+   * enables auto-import server-side, so the response can differ from the request.
+   */
+  setAutoSyncSettings(settings: OverDriveAutoSyncSettings): Observable<OverDriveAutoSyncSettings> {
+    return this.http.put<OverDriveAutoSyncSettings>(`${this.baseUrl}/auto-sync`, settings);
   }
 
   /** Report which OverDrive features are available (e.g. whether an ACSM handler is configured). */

@@ -299,6 +299,35 @@ public class OverDriveController {
     /** Request body for {@link #setShares}: the full set of user ids to share a card with. */
     record OverDriveShareRequest(List<Long> userIds) {}
 
+    // ── Automation opt-in ───────────────────────────────────────────────
+
+    /**
+     * GET /api/overdrive/auto-sync — the caller's opt-in for unattended borrow/import.
+     */
+    @Operation(summary = "Get OverDrive automation opt-in",
+               description = "Whether the caller has opted into automatic import of loans and automatic borrowing of holds that come in. Both are off unless the user turned them on; the schedule itself is an operator-controlled task.")
+    @ApiResponse(responseCode = "200", description = "Settings returned")
+    @GetMapping("/auto-sync")
+    public ResponseEntity<OverDriveAutoSyncSettings> getAutoSync() {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.getAutoSyncSettings());
+    }
+
+    /**
+     * PUT /api/overdrive/auto-sync — set the caller's opt-in.
+     *
+     * <p>Returns the stored settings rather than 204: auto-borrow implies auto-import, so what is saved
+     * is not always what was sent and the client should show what actually took effect.
+     */
+    @Operation(summary = "Set OverDrive automation opt-in",
+               description = "Opts the caller in or out of automatic loan import and automatic borrowing of available holds. Enabling auto-borrow also enables auto-import, since a borrowed hold with nothing fetching it just consumes the hold.")
+    @ApiResponse(responseCode = "200", description = "Settings stored (as normalised)")
+    @PutMapping("/auto-sync")
+    public ResponseEntity<OverDriveAutoSyncSettings> setAutoSync(@RequestBody OverDriveAutoSyncSettings settings) {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.setAutoSyncSettings(settings));
+    }
+
     // ── Sync ────────────────────────────────────────────────────────────
 
     /**

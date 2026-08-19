@@ -8,6 +8,11 @@ public enum OverDriveAuditAction {
     BORROW,
     BORROW_AND_IMPORT,
     IMPORT,
+    /** An unattended borrow of a hold that came in (per-user opt-in). Only failures are logged here —
+      * a successful automatic borrow records BORROW_AND_IMPORT like any other. */
+    AUTO_BORROW,
+    /** An unattended import of an existing loan. As above, only failures use this action. */
+    AUTO_IMPORT,
     RETURN,
     HOLD_PLACED,
     HOLD_CANCELLED,

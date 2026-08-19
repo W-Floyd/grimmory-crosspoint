@@ -51,6 +51,7 @@ class OverDriveServiceTest {
     @Mock private org.booklore.repository.OverDriveCardShareRepository cardShareRepository;
     @Mock private org.booklore.repository.OverDriveAuditRepository auditRepository;
     @Mock private org.booklore.repository.OverDriveImportDestinationRepository importDestinationRepository;
+    @Mock private org.booklore.repository.OverDriveAutoSyncRepository autoSyncRepository;
     @Mock private org.booklore.repository.UserRepository userRepository;
     @Mock private AuthenticationService authenticationService;
     @Mock private org.booklore.service.appsettings.AppSettingService appSettingService;
@@ -66,7 +67,7 @@ class OverDriveServiceTest {
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                importDestinationRepository, userRepository, authenticationService, appSettingService, cipher,
+                importDestinationRepository, autoSyncRepository, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
     }
 
@@ -734,7 +735,7 @@ class OverDriveServiceTest {
         return new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                importDestinationRepository, userRepository, authenticationService, appSettingService, cipher,
+                importDestinationRepository, autoSyncRepository, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
     }
 
@@ -1431,7 +1432,7 @@ class OverDriveServiceTest {
         OverDriveService svc = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler,
                 magazineHandler, ebookHandler, bookService,
                 client, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                importDestinationRepository, userRepository, authenticationService, appSettingService,
+                importDestinationRepository, autoSyncRepository, userRepository, authenticationService, appSettingService,
                 new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService);
         return new SyncHarness(svc, calls);
     }

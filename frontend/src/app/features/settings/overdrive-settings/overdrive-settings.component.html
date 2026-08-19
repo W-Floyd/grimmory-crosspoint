@@ -99,6 +99,31 @@
       </div>
     </div>
 
+    <div class="field">
+      <span class="field-label">Automatic Borrowing &amp; Importing</span>
+      <small>Lets Grimmory act on your cards unattended, using the import destinations above. Your administrator controls whether this runs at all and how often (the "OverDrive Auto-Sync" task); these switches decide only whether your cards are included.</small>
+      <div class="auto-sync-options">
+        <div class="auto-sync-option">
+          <p-checkbox [binary]="true" [ngModel]="autoImportLoans()" (onChange)="onAutoImportLoansChange($event.checked)"
+            [ngModelOptions]="{ standalone: true }" inputId="auto-import-loans"
+            ariaLabel="Automatically import borrowed titles" />
+          <label for="auto-import-loans">
+            Import borrowed titles automatically
+            <small>Any title you have on loan — including ones you borrowed in the Libby app — is fetched and imported without you clicking anything.</small>
+          </label>
+        </div>
+        <div class="auto-sync-option">
+          <p-checkbox [binary]="true" [ngModel]="autoBorrowHolds()" (onChange)="onAutoBorrowHoldsChange($event.checked)"
+            [ngModelOptions]="{ standalone: true }" inputId="auto-borrow-holds"
+            ariaLabel="Automatically borrow holds that come in" />
+          <label for="auto-borrow-holds">
+            Borrow holds as soon as they come in
+            <small>Claims a hold the moment it becomes available, then imports it. Turning this on also turns on automatic importing. Note that this spends a checkout slot without asking you.</small>
+          </label>
+        </div>
+      </div>
+    </div>
+
     @if (setupError()) {
       <p-message severity="error">{{ setupError() }}</p-message>
     }

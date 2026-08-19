@@ -396,7 +396,7 @@ describe('TaskManagementComponent', () => {
     expect(component.getMetadataReplaceDescription(MetadataReplaceMode.REPLACE_MISSING)).toBe('settingsTasks.metadataReplace.replaceMissingDesc');
     expect(component.getTaskDisplayName(TaskType.CLEAR_PDF_CACHE)).toBe('Clear PDF cache');
     expect(component.getTaskDescription(TaskType.CLEAR_PDF_CACHE)).toBe('Clear the cached PDF files.');
-    expect(component.getTaskLabel(TaskType.CLEAR_PDF_CACHE)).toBe('8. Clear PDF cache');
+    expect(component.getTaskLabel(TaskType.CLEAR_PDF_CACHE)).toBe('9. Clear PDF cache');
     expect(component.getTaskIcon(TaskType.CLEAR_PDF_CACHE)).toBe('pi-database');
     expect(component.getMetadataIcon(TaskType.CLEAR_PDF_CACHE)).toBe('pi-database');
     expect(component.hasMetadata(TaskType.CLEAR_PDF_CACHE)).toBe(true);
