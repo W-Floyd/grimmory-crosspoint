@@ -56,7 +56,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.Duration;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -104,6 +103,13 @@ public class OverDriveService {
     private final OverDriveAuditRepository auditRepository;
     private final OverDriveImportDestinationRepository importDestinationRepository;
     private final OverDriveAutoSyncRepository autoSyncRepository;
+    /**
+     * The fulfill hop uses a plain JDK client rather than Spring's {@link RestClient}, which trips the
+     * fulfillment WAF and mishandles its redirects. This is the application-wide {@code HttpClient}
+     * bean (HTTP/2, virtual-thread executor, 10s connect timeout, follows redirects) rather than one
+     * built here, so OverDrive picks up the same outbound settings as every other integration.
+     */
+    private final HttpClient httpClient;
     private final UserRepository userRepository;
     private final AuthenticationService authenticationService;
     private final AppSettingService appSettingService;
@@ -1547,12 +1553,6 @@ public class OverDriveService {
         return null;
       }
 
-      // Plain JDK clients for the fulfill hop (Spring's RestClient trips the fulfillment WAF/redirects).
-      private static final HttpClient FULFILL_CLIENT_FOLLOW = HttpClient.newBuilder()
-              .followRedirects(HttpClient.Redirect.NORMAL)
-              .connectTimeout(Duration.ofSeconds(30))
-              .build();
-
       /** Browser-like Libby API request (Accept: application/json + Origin), optional bearer. */
       private static HttpRequest.Builder apiRequest(String url, String bearerToken) {
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
@@ -1586,7 +1586,7 @@ public class OverDriveService {
       private byte[] fetchFulfillment(String cardId, String authToken, String loanId, String formatId) {
         String url = sentryBaseUrl + "/card/" + cardId + "/loan/" + loanId + "/fulfill/" + formatId;
         try {
-            HttpResponse<byte[]> resp = FULFILL_CLIENT_FOLLOW.send(
+            HttpResponse<byte[]> resp = httpClient.send(
                     apiRequest(url, authToken).build(), HttpResponse.BodyHandlers.ofByteArray());
             String body = resp.body() != null ? new String(resp.body(), StandardCharsets.UTF_8) : "";
             String result = firstMatch(RESULT_PATTERN, body);
@@ -1601,7 +1601,7 @@ public class OverDriveService {
                 String refreshed = refreshIdentity(authToken);
                 persistReMintedToken(cardId, refreshed);
                 authToken = refreshed;
-                resp = FULFILL_CLIENT_FOLLOW.send(
+                resp = httpClient.send(
                         apiRequest(url, refreshed).build(), HttpResponse.BodyHandlers.ofByteArray());
                 body = resp.body() != null ? new String(resp.body(), StandardCharsets.UTF_8) : "";
                 result = firstMatch(RESULT_PATTERN, body);
@@ -1614,7 +1614,7 @@ public class OverDriveService {
                 // credentials (if available) to mint a fresh primary token, then retry once more.
                 String relinked = relinkCard(cardId);
                 if (relinked != null) {
-                    resp = FULFILL_CLIENT_FOLLOW.send(
+                    resp = httpClient.send(
                             apiRequest(url, relinked).build(), HttpResponse.BodyHandlers.ofByteArray());
                     body = resp.body() != null ? new String(resp.body(), StandardCharsets.UTF_8) : "";
                     result = firstMatch(RESULT_PATTERN, body);
@@ -1668,7 +1668,7 @@ public class OverDriveService {
                 .header("Accept", "*/*")
                 .GET()
                 .build();
-        HttpResponse<byte[]> resp = FULFILL_CLIENT_FOLLOW.send(req, HttpResponse.BodyHandlers.ofByteArray());
+        HttpResponse<byte[]> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofByteArray());
         log.info("OverDrive content download ({}): status {}", safeHost(href), resp.statusCode());
         if (resp.statusCode() >= 400 || resp.body() == null || resp.body().length == 0) {
             throw new RestClientException("OverDrive content download failed (" + resp.statusCode()

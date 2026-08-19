@@ -1,6 +1,8 @@
 package org.booklore.service.opds.optimization;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.booklore.util.epub.CoverDetectorService;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
 import org.jsoup.Jsoup;
@@ -34,11 +36,13 @@ import java.util.zip.ZipEntry;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class EpubCoverReplacer {
+
+    private final CoverDetectorService coverDetectorService;
 
     private static final String MIMETYPE_ENTRY = "mimetype";
     private static final String CONTAINER_ENTRY = "META-INF/container.xml";
-    private static final Pattern IMAGE_EXT = Pattern.compile("\\.(png|gif|webp|bmp|jpg|jpeg)$", Pattern.CASE_INSENSITIVE);
 
     /**
      * Write a copy of {@code sourceEpub} to {@code target} with the embedded cover replaced by
@@ -59,7 +63,7 @@ public class EpubCoverReplacer {
             if (opfPath == null) {
                 return false;
             }
-            String coverEntry = findCoverEntry(entries, opfPath);
+            String coverEntry = findCoverEntry(entries, sourceEpub);
             if (coverEntry == null || !entries.containsKey(coverEntry)) {
                 log.debug("No cover entry resolved for EPUB {}; leaving cover unchanged", sourceEpub.getFileName());
                 return false;
@@ -109,77 +113,25 @@ public class EpubCoverReplacer {
     }
 
     /**
-     * Resolve the zip path of the cover image entry: manifest {@code properties="cover-image"} →
-     * {@code <meta name="cover">} manifest id → guide {@code <reference type="cover">} (only when it
-     * points at an image) → an image item whose id/href contains "cover".
+     * Resolve the zip path of the cover image entry, delegating to the shared
+     * {@link CoverDetectorService}. Its strict variant is used deliberately: it stops once the
+     * declared-cover and id/filename conventions are exhausted rather than inferring a cover from
+     * content (largest image, first spine image), because guessing wrong here would swap an
+     * unrelated illustration for the book's cover in the file the reader downloads. When nothing
+     * declares a cover we leave the EPUB alone instead.
      */
-    private String findCoverEntry(Map<String, byte[]> entries, String opfPath) {
-        Document opf;
-        try {
-            opf = Jsoup.parse(new String(entries.get(opfPath), StandardCharsets.UTF_8), "", Parser.xmlParser());
-        } catch (Exception e) {
+    private String findCoverEntry(Map<String, byte[]> entries, Path sourceEpub) {
+        String detected = coverDetectorService.detectDeclaredCoverImagePath(sourceEpub);
+        if (detected == null || detected.isBlank()) {
             return null;
         }
-        String baseDir = parentDir(opfPath);
-
-        String href = null;
-
-        for (Element item : opf.getElementsByTag("item")) {
-            if (item.attr("properties").contains("cover-image") && isImage(item)) {
-                href = item.attr("href");
-                break;
-            }
+        if (entries.containsKey(detected)) {
+            return detected;
         }
-        if (href == null) {
-            String coverId = null;
-            for (Element meta : opf.getElementsByTag("meta")) {
-                if ("cover".equals(meta.attr("name")) && !meta.attr("content").isBlank()) {
-                    coverId = meta.attr("content");
-                    break;
-                }
-            }
-            if (coverId != null) {
-                href = manifestHrefById(opf, coverId);
-            }
-        }
-        if (href == null) {
-            for (Element ref : opf.getElementsByTag("reference")) {
-                if ("cover".equalsIgnoreCase(ref.attr("type")) && IMAGE_EXT.matcher(ref.attr("href")).find()) {
-                    href = ref.attr("href");
-                    break;
-                }
-            }
-        }
-        if (href == null) {
-            for (Element item : opf.getElementsByTag("item")) {
-                if (!isImage(item)) continue;
-                if (item.attr("id").toLowerCase(Locale.ROOT).contains("cover")
-                        || item.attr("href").toLowerCase(Locale.ROOT).contains("cover")) {
-                    href = item.attr("href");
-                    break;
-                }
-            }
-        }
-        if (href == null || href.isBlank()) {
-            return null;
-        }
-
-        String resolved = resolveZipPath(baseDir, decode(href));
-        return IMAGE_EXT.matcher(resolved).find() ? resolved : null;
-    }
-
-    private static String manifestHrefById(Document opf, String id) {
-        for (Element item : opf.getElementsByTag("item")) {
-            if (id.equals(item.attr("id")) && isImage(item)) {
-                return item.attr("href");
-            }
-        }
-        return null;
-    }
-
-    private static boolean isImage(Element item) {
-        String type = item.attr("media-type");
-        return type.startsWith("image/") || IMAGE_EXT.matcher(item.attr("href")).find();
+        // epub4j hands back the href as written in the OPF; a percent-encoded one (spaces, accents)
+        // will not match the raw zip entry name until it is decoded.
+        String decoded = decode(detected);
+        return entries.containsKey(decoded) ? decoded : null;
     }
 
     /**

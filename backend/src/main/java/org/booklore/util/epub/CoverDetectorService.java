@@ -60,23 +60,12 @@ public class CoverDetectorService {
     }
 
     private Resource detectCoverImageResource(Book book) {
-        if (book.getCoverImage() != null) {
-            return book.getCoverImage();
+        Resource declared = detectDeclaredCoverImageResource(book);
+        if (declared != null) {
+            return declared;
         }
 
         var resources = book.getResources().getAll();
-
-        Resource byId = findCoverById(resources);
-        if (byId != null) {
-            log.debug("Cover detected by resource id: {}", byId.getHref());
-            return byId;
-        }
-
-        Resource byName = findCoverByName(resources);
-        if (byName != null) {
-            log.debug("Cover detected by filename: {}", byName.getHref());
-            return byName;
-        }
 
         Resource fromSpine = findCoverFromFirstSpineItem(book);
         if (fromSpine != null) {
@@ -139,6 +128,60 @@ public class CoverDetectorService {
         }
 
         return null;
+    }
+
+    /**
+     * The half of the cascade that relies on the book <em>declaring</em> its cover: the OPF's own
+     * declaration ({@code properties="cover-image"}, {@code <meta name="cover">}, guide reference),
+     * then the near-universal id/filename conventions.
+     *
+     * <p>Split out from {@link #detectCoverImageResource} because not every caller may guess. The
+     * stages that follow this one — first spine image, largest image, first manifest image — infer a
+     * cover from content when nothing declares one, which is right when the alternative is showing no
+     * cover at all, and wrong when the alternative is leaving the book alone.
+     */
+    private Resource detectDeclaredCoverImageResource(Book book) {
+        if (book.getCoverImage() != null) {
+            return book.getCoverImage();
+        }
+
+        var resources = book.getResources().getAll();
+
+        Resource byId = findCoverById(resources);
+        if (byId != null) {
+            log.debug("Cover detected by resource id: {}", byId.getHref());
+            return byId;
+        }
+
+        Resource byName = findCoverByName(resources);
+        if (byName != null) {
+            log.debug("Cover detected by filename: {}", byName.getHref());
+            return byName;
+        }
+
+        return null;
+    }
+
+    /**
+     * The zip entry path of the cover image, but only when the book declares one — see
+     * {@link #detectDeclaredCoverImageResource}. Returns null rather than guessing, for callers that
+     * must not touch a book whose cover cannot be identified with confidence.
+     */
+    public String detectDeclaredCoverImagePath(Path path) {
+        try {
+            Book book = new EpubReader().readEpubLazy(path, "UTF-8");
+            Resource resource = detectDeclaredCoverImageResource(book);
+            if (resource == null) {
+                return null;
+            }
+            Resource opfResource = book.getOpfResource();
+            String opfPath = opfResource != null ? opfResource.getHref() : "";
+            String rootPath = opfPath.contains("/") ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : "";
+            return rootPath + resource.getHref();
+        } catch (IOException e) {
+            log.debug("Failed to read epub for declared cover detection: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**

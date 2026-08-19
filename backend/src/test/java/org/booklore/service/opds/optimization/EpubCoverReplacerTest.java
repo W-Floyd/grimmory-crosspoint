@@ -22,6 +22,9 @@ import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import org.booklore.service.ArchiveService;
+import org.booklore.util.epub.CoverDetectorService;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class EpubCoverReplacerTest {
@@ -29,7 +32,8 @@ class EpubCoverReplacerTest {
     @TempDir
     Path tempDir;
 
-    private final EpubCoverReplacer replacer = new EpubCoverReplacer();
+    private final EpubCoverReplacer replacer =
+            new EpubCoverReplacer(new CoverDetectorService(new ArchiveService()));
 
     @Test
     void replacesJpegCoverViaCoverImageProperty_keepingBytesExactAndOtherEntriesIntact() throws Exception {
