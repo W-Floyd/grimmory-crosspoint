@@ -7,8 +7,6 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 import org.grimmory.epub4j.domain.Book;
 import org.grimmory.epub4j.epub.EpubReader;
-import org.grimmory.epub4j.archive.EpubContainer;
-import org.grimmory.epub4j.archive.EpubContainers;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -22,12 +20,8 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
 import javax.xml.parsers.ParserConfigurationException;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
@@ -519,61 +513,4 @@ public class EpubMetadataExtractor implements FileMetadataExtractor {
         log.warn("Failed to parse date from string: {}", value);
         return null;
     }
-
-    private String findOpfPath(EpubContainer container) throws IOException, ParserConfigurationException, SAXException {
-        String containerXmlPath = "META-INF/container.xml";
-        if (!container.exists(containerXmlPath)) {
-            return "OEBPS/content.opf";
-        }
-
-        Document containerDoc = parseXmlFromContainer(container, containerXmlPath);
-        NodeList rootfiles = containerDoc.getElementsByTagNameNS("urn:oasis:names:tc:opendocument:xmlns:container", "rootfile");
-        if (rootfiles.getLength() == 0) {
-            throw new IOException("No <rootfile> found in container.xml");
-        }
-
-        // EPUB spec §3.5.1: first rootfile is the default rendition
-        String opfPath = ((Element) rootfiles.item(0)).getAttribute("full-path");
-        if (StringUtils.isBlank(opfPath)) {
-            throw new IOException("Empty full-path in container.xml");
-        }
-
-        return URLDecoder.decode(opfPath, StandardCharsets.UTF_8);
-    }
-
-    private Document parseXmlFromContainer(EpubContainer container, String path) throws IOException, ParserConfigurationException, SAXException {
-        if (!container.exists(path)) {
-            throw new IOException("File not found: " + path);
-        }
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
-        container.streamTo(path, baos);
-
-        return SecureXmlUtils.createSecureDocumentBuilder(true).parse(new ByteArrayInputStream(baos.toByteArray()));
-    }
-
-    private String resolvePath(String opfPath, String href) {
-        if (href == null || href.isEmpty()) return null;
-
-        // If href is absolute within the zip (starts with /), return it without leading /
-        if (href.startsWith("/")) return href.substring(1);
-
-        int lastSlash = opfPath.lastIndexOf('/');
-        String basePath = (lastSlash == -1) ? "" : opfPath.substring(0, lastSlash + 1);
-
-        String combined = basePath + href;
-
-        // Normalize path components to handle ".." and "."
-        LinkedList<String> parts = new LinkedList<>();
-        for (String part : combined.split("/")) {
-            if ("..".equals(part)) {
-                if (!parts.isEmpty()) parts.removeLast();
-            } else if (!".".equals(part) && !part.isEmpty()) {
-                parts.add(part);
-            }
-        }
-
-        return String.join("/", parts);
-    }
-
 }

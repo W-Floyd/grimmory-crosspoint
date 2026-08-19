@@ -100,8 +100,8 @@ public class BookFileDetachmentService {
         sourceBook.getBookFiles().remove(targetFile);
         newBook.getBookFiles().add(targetFile);
 
-        bookRepository.saveAndFlush(sourceBook);
         newBook = bookRepository.saveAndFlush(newBook);
+        bookRepository.saveAndFlush(sourceBook);
 
         // Only save changes to the target file after the shift in relationship
         // via source & new book or else we get a hibernate error.

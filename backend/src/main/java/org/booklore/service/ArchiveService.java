@@ -48,6 +48,7 @@ public class ArchiveService {
             return file.stream()
                     .toList()
                     .stream()
+                    .filter(e -> !e.isDirectory())
                     .map(e -> new Entry(e.getName(), e.getSize()));
         }
     }

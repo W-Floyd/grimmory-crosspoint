@@ -7,8 +7,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.web.client.RestClient;
 
 import java.util.List;
 
@@ -20,12 +22,15 @@ class HardcoverBookSearchServiceTest {
     @Mock
     private AppSettingService appSettingService;
 
+    @Mock
+    private RestClient restClient;
+
+    @InjectMocks
     private HardcoverBookSearchService searchService;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        searchService = new HardcoverBookSearchService(appSettingService);
     }
 
     private void setupAppSettingsWithToken(String token) {

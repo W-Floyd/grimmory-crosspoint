@@ -198,6 +198,7 @@
     "readyToSearchHint": "Enter your search criteria above and click Search to find metadata",
     "noResultsFound": "No Results Found",
     "noResultsHint": "Try adjusting your search criteria or selecting different providers",
+    "unknownProvider": "Unknown Provider",
     "selectOverlay": "Select"
   },
   "tabs": {

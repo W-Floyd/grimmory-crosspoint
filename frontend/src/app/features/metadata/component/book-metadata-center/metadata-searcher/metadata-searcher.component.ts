@@ -461,36 +461,94 @@ export class MetadataSearcherComponent implements OnDestroy, OnChanges {
     return safeText.length > length ? safeText.substring(0, length) + '...' : safeText;
   }
 
-  buildProviderLink(metadata: BookMetadata): string {
+  getProviderHref(metadata: BookMetadata): string | null {
+    if (metadata.externalUrl) {
+      return metadata.externalUrl;
+    }
+
     if (metadata.audibleId) {
       // Audible has to come before Amazon because they both have an ASIN.
-      return `<a href="https://www.audible.com/pd/${metadata.audibleId}" target="_blank">Audible</a>`;
-    } else if (metadata.asin) {
-      return `<a href="https://www.amazon.com/dp/${metadata.asin}" target="_blank">Amazon</a>`;
-    } else if (metadata.goodreadsId) {
-      return `<a href="https://www.goodreads.com/book/show/${metadata.goodreadsId}" target="_blank">Goodreads</a>`;
-    } else if (metadata.googleId) {
-      return `<a href="https://books.google.com/books?id=${metadata.googleId}" target="_blank">Google</a>`;
-    } else if (metadata.hardcoverId) {
-      return `<a href="https://hardcover.app/books/${metadata.hardcoverId}" target="_blank">Hardcover</a>`;
-    } else if (metadata['doubanId']) {
-      return `<a href="https://book.douban.com/subject/${metadata['doubanId']}" target="_blank">Douban</a>`;
-    } else if (metadata['lubimyczytacId']) {
-      return `<a href="https://lubimyczytac.pl/ksiazka/${metadata['lubimyczytacId']}/ksiazka" target="_blank">Lubimyczytac</a>`;
-    } else if (metadata.comicvineId) {
-      if (metadata.externalUrl) {
-        return `<a href="${metadata.externalUrl}" target="_blank">Comicvine</a>`;
-      }
-      return `<a href="https://comicvine.gamespot.com/4050-${metadata.comicvineId}/" target="_blank">Comicvine</a>`;
-    } else if (metadata.ranobedbId) {
-      return `<a href="https://ranobedb.org/book/${metadata.ranobedbId}" target="_blank">RanobeDB</a>`;
-    } else if (metadata.externalUrl) {
-      const providerName = metadata.provider || 'Link';
-      return `<a href="${metadata.externalUrl}" target="_blank">${providerName}</a>`;
+      return `https://www.audible.com/pd/${metadata.audibleId}`;
     }
-    // No linkable id or URL: show the provider name as plain text rather than throwing, which would
-    // break rendering of the entire results list.
-    return metadata.provider ?? '';
+
+    if (metadata.asin) {
+      return `https://www.amazon.com/dp/${metadata.asin}`;
+    }
+
+    if (metadata.goodreadsId) {
+      return `https://www.goodreads.com/book/show/${metadata.goodreadsId}`;
+    }
+
+    if (metadata.googleId) {
+      return `https://books.google.com/books?id=${metadata.googleId}`;
+    }
+
+    if (metadata.hardcoverId) {
+      return `https://hardcover.app/books/${metadata.hardcoverId}`;
+    }
+
+    if (metadata['doubanId']) {
+      return `https://book.douban.com/subject/${metadata['doubanId']}`;
+    }
+
+    if (metadata['lubimyczytacId']) {
+      return `https://lubimyczytac.pl/ksiazka/${metadata['lubimyczytacId']}/ksiazka`;
+    }
+
+    if (metadata.comicvineId) {
+      return `https://comicvine.gamespot.com/4050-${metadata.comicvineId}/`;
+    }
+
+    if (metadata.ranobedbId) {
+      return `https://ranobedb.org/book/${metadata.ranobedbId}`;
+    }
+
+    return null;
+  }
+
+  getProviderName(metadata: BookMetadata): string | null {
+    if (metadata.provider) {
+      return metadata.provider;
+    }
+
+    if (metadata.audibleId) {
+      // Audible has to come before Amazon because they both have an ASIN.
+      return 'Audible';
+    }
+
+    if (metadata.asin) {
+      return 'Amazon';
+    }
+
+    if (metadata.goodreadsId) {
+      return 'Goodreads';
+    }
+
+    if (metadata.googleId) {
+      return 'Google';
+    }
+
+    if (metadata.hardcoverId) {
+      return 'Hardcover';
+    }
+
+    if (metadata['doubanId']) {
+      return 'Douban';
+    }
+
+    if (metadata['lubimyczytacId']) {
+      return 'Lubimyczytac';
+    }
+
+    if (metadata.comicvineId) {
+      return 'Comicvine';
+    }
+
+    if (metadata.ranobedbId) {
+      return 'RanobeDB';
+    }
+
+    return null;
   }
 
   trackByMetadata(index: number, metadata: BookMetadata): string {

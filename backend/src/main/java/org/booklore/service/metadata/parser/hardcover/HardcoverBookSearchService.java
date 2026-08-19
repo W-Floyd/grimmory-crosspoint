@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
 @Slf4j
 @Service
 public class HardcoverBookSearchService {
-
+    private static final String GRAPHQL_URI = "https://api.hardcover.app/v1/graphql";
     public static final int DEFAULT_PER_PAGE = 10;
     private static final long INITIAL_DELAY_MS = 1000;
     private static final long MAX_DELAY_MS = 15000;
@@ -27,11 +27,9 @@ public class HardcoverBookSearchService {
     private final AtomicLong lastRequestTime = new AtomicLong(0);
     private final AtomicLong successCount = new AtomicLong(0);
 
-    public HardcoverBookSearchService(AppSettingService appSettingService) {
+    public HardcoverBookSearchService(AppSettingService appSettingService, RestClient restClient) {
         this.appSettingService = appSettingService;
-        this.restClient = RestClient.builder()
-                .baseUrl("https://api.hardcover.app/v1/graphql")
-                .build();
+        this.restClient = restClient;
     }
 
     public List<GraphQLResponse.BookWithEditions> searchBookByIsbn(List<String> isbn) {
@@ -169,7 +167,7 @@ public class HardcoverBookSearchService {
 
         try {
             T response = restClient.post()
-                    .uri("")
+                    .uri(GRAPHQL_URI)
                     .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiToken)
                     .body(body)
