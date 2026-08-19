@@ -20,7 +20,12 @@
         "validationPrefix": "L'expression cron doit avoir exactement 6 champs (secondes, minutes, heures, jour, mois, jour de la semaine)",
         "invalidField": "Champ {{name}} invalide : {{value}}",
         "updateSuccess": "La configuration de la tâche planifiée a été mise à jour avec succès.",
-        "updateError": "Échec de la mise à jour de la configuration de la tâche planifiée."
+        "updateError": "Échec de la mise à jour de la configuration de la tâche planifiée.",
+        "jitterLabel": "Jitter",
+        "jitterPlaceholder": "0",
+        "jitterUnit": "min",
+        "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
+        "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
     },
     "buttons": {
         "run": "Exécuter",

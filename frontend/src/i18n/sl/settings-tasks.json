@@ -20,7 +20,12 @@
         "validationPrefix": "Cron izraz mora imeti natanko 6 polj (sekunde, minute, ure, dan, mesec, dan v tednu)",
         "invalidField": "Neveljavno polje {{name}}: {{value}}",
         "updateSuccess": "Konfiguracija načrtovanega opravila je bila uspešno posodobljena.",
-        "updateError": "Posodobitev načrtovanega opravila ni uspela."
+        "updateError": "Posodobitev načrtovanega opravila ni uspela.",
+        "jitterLabel": "Jitter",
+        "jitterPlaceholder": "0",
+        "jitterUnit": "min",
+        "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
+        "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
     },
     "buttons": {
         "run": "Zaženi",

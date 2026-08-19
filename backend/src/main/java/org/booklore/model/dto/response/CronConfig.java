@@ -17,6 +17,8 @@ public class CronConfig {
     private TaskType taskType;
     private String cronExpression;
     private Boolean enabled;
+    /** Random delay in seconds added to each firing; 0 = fire exactly on the cron slot. */
+    private Integer jitterSeconds;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

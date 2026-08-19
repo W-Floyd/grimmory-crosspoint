@@ -20,7 +20,12 @@
         "validationPrefix": "Cron-вираз має містити рівно 6 полів (секунди, хвилини, години, день, місяць, день тижня)",
         "invalidField": "Недійсне поле {{name}}: {{value}}",
         "updateSuccess": "Конфігурацію запланованого завдання успішно оновлено.",
-        "updateError": "Не вдалося оновити конфігурацію запланованого завдання."
+        "updateError": "Не вдалося оновити конфігурацію запланованого завдання.",
+        "jitterLabel": "Jitter",
+        "jitterPlaceholder": "0",
+        "jitterUnit": "min",
+        "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
+        "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
     },
     "buttons": {
         "run": "Запустити",

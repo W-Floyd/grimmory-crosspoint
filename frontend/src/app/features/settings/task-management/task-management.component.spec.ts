@@ -54,6 +54,7 @@ describe('TaskManagementComponent', () => {
       taskType: TaskType.CLEAR_PDF_CACHE,
       cronExpression: '0 0 * * * *',
       enabled: true,
+      jitterSeconds: 0,
       options: null,
       createdAt: '2026-03-27T03:00:00Z',
       updatedAt: '2026-03-27T03:00:00Z',
@@ -362,8 +363,10 @@ describe('TaskManagementComponent', () => {
     component.onCronExpressionChange();
     component.saveCronExpression(TaskType.CLEAR_PDF_CACHE);
 
+    // Schedule and jitter save together as one patch, so the task reschedules once.
     expect(taskService.updateCronConfig).toHaveBeenCalledWith(TaskType.CLEAR_PDF_CACHE, {
       cronExpression: '0 15 * * * *',
+      jitterSeconds: 0,
     });
     expect(component.isEditingCron(TaskType.CLEAR_PDF_CACHE)).toBe(false);
     expect(component.cronValidationError).toBeNull();
@@ -391,6 +394,7 @@ describe('TaskManagementComponent', () => {
     expect(component.getCronConfig(TaskType.CLEAR_PDF_CACHE)).toEqual({
       enabled: true,
       cronExpression: '0 0 * * * *',
+      jitterSeconds: 0,
     });
     expect(component.getMetadataReplaceDescription(MetadataReplaceMode.REPLACE_ALL)).toBe('settingsTasks.metadataReplace.replaceAllDesc');
     expect(component.getMetadataReplaceDescription(MetadataReplaceMode.REPLACE_MISSING)).toBe('settingsTasks.metadataReplace.replaceMissingDesc');

@@ -19,8 +19,11 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Polls OverDrive for the users who opted into unattended activity: syncs their cards, borrows holds
@@ -45,6 +48,10 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Slf4j
 public class OverDriveAutoSyncTask implements Task {
+
+    /** Bounds on the randomised gap between one user's sync and the next. */
+    private static final long MIN_USER_GAP_MILLIS = 3_000;
+    private static final long MAX_USER_GAP_MILLIS = 15_000;
 
     private final OverDriveService overDriveService;
     private final OverdriveProperties overdriveProperties;
@@ -73,13 +80,28 @@ public class OverDriveAutoSyncTask implements Task {
         List<Long> userIds = overDriveService.autoSyncOptedInUserIds();
         log.info("{}: Task started for {} opted-in user(s)", getTaskType(), userIds.size());
 
+        // Shuffle so the same user is not always first. A fixed id order makes every poll a
+        // recognisable, repeating sequence against Libby, and consistently front-loads whoever
+        // happens to hold the lowest user id.
+        List<Long> shuffled = new ArrayList<>(userIds);
+        Collections.shuffle(shuffled);
+
         int borrowed = 0;
         int imported = 0;
         int failures = 0;
         // The security context is per-thread and this task owns its thread for the whole pass, so it is
         // restored to empty at the end rather than saved and put back.
         try {
-            for (Long userId : userIds) {
+            boolean first = true;
+            for (Long userId : shuffled) {
+                // Space the users out instead of firing every account's sync back-to-back. A burst of
+                // chip syncs from one address in the same second is both a poor neighbour and the most
+                // machine-like thing this task does; the poll has hours of headroom, so waiting costs
+                // nothing. Skipped before the first user, where there is nothing to space from.
+                if (!first) {
+                    pauseBetweenUsers();
+                }
+                first = false;
                 OverDriveService.AutoSyncOutcome outcome = runForUser(userId);
                 borrowed += outcome.holdsBorrowed();
                 imported += outcome.loansImported();
@@ -125,6 +147,21 @@ public class OverDriveAutoSyncTask implements Task {
             return new OverDriveService.AutoSyncOutcome(0, 0, 0, 1);
         } finally {
             SecurityContextHolder.clearContext();
+        }
+    }
+
+    /**
+     * Wait a random few seconds before starting the next user's sync. Interruption ends the pass
+     * rather than being swallowed: an interrupt here means the application is shutting down, and
+     * carrying on would hold it open for the rest of the users.
+     */
+    private void pauseBetweenUsers() {
+        long millis = ThreadLocalRandom.current().nextLong(MIN_USER_GAP_MILLIS, MAX_USER_GAP_MILLIS + 1);
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("OverDrive auto-sync interrupted between users", e);
         }
     }
 

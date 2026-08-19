@@ -20,7 +20,12 @@
         "validationPrefix": "Cron式はちょうど6つのフィールド（秒、分、時、日、月、曜日）が必要です",
         "invalidField": "無効な{{name}}フィールド: {{value}}",
         "updateSuccess": "スケジュールタスクの設定が正常に更新されました。",
-        "updateError": "スケジュールタスクの設定の更新に失敗しました。"
+        "updateError": "スケジュールタスクの設定の更新に失敗しました。",
+        "jitterLabel": "Jitter",
+        "jitterPlaceholder": "0",
+        "jitterUnit": "min",
+        "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
+        "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
     },
     "buttons": {
         "run": "実行",

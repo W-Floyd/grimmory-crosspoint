@@ -487,3 +487,25 @@
   min-width: 40px;
   flex-shrink: 0;
 }
+
+.cron-jitter {
+  font-size: 0.75rem;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.cron-jitter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.cron-jitter-input {
+  width: 4.5rem;
+}
+
+.cron-jitter-unit {
+  opacity: 0.7;
+}

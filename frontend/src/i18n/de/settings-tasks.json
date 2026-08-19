@@ -20,7 +20,12 @@
         "validationPrefix": "Der Cron-Ausdruck muss genau 6 Felder haben (Sekunden, Minuten, Stunden, Tag, Monat, Wochentag)",
         "invalidField": "Ungültiges {{name}}-Feld: {{value}}",
         "updateSuccess": "Geplante Aufgabenkonfiguration wurde erfolgreich aktualisiert.",
-        "updateError": "Geplante Aufgabenkonfiguration konnte nicht aktualisiert werden."
+        "updateError": "Geplante Aufgabenkonfiguration konnte nicht aktualisiert werden.",
+        "jitterLabel": "Jitter",
+        "jitterPlaceholder": "0",
+        "jitterUnit": "min",
+        "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
+        "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
     },
     "buttons": {
         "run": "Ausführen",

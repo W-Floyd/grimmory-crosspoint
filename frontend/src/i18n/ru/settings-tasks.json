@@ -20,7 +20,12 @@
         "validationPrefix": "Cron-выражение должно содержать ровно 6 полей (секунды, минуты, часы, день, месяц, день недели)",
         "invalidField": "Неверное поле {{name}}: {{value}}",
         "updateSuccess": "Конфигурация запланированной задачи успешно обновлена.",
-        "updateError": "Не удалось обновить конфигурацию запланированной задачи."
+        "updateError": "Не удалось обновить конфигурацию запланированной задачи.",
+        "jitterLabel": "Jitter",
+        "jitterPlaceholder": "0",
+        "jitterUnit": "min",
+        "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
+        "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
     },
     "buttons": {
         "run": "Запустить",

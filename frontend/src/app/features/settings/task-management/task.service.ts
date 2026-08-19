@@ -69,6 +69,7 @@ export interface CronConfig {
   taskType: string;
   cronExpression: string | null;
   enabled: boolean;
+  jitterSeconds: number | null;
   options: Record<string, unknown> | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -105,6 +106,8 @@ export interface TaskCancelResponse {
 export interface TaskCronConfigRequest {
   cronExpression?: string | null;
   enabled?: boolean | null;
+  /** Random delay in seconds added to each firing; 0 fires exactly on the cron slot. */
+  jitterSeconds?: number | null;
 }
 
 export interface TaskProgressPayload {

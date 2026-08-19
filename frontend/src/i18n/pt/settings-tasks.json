@@ -20,7 +20,12 @@
         "validationPrefix": "A expressão cron deve ter exatamente 6 campos (segundos, minutos, horas, dia, mês, dia da semana)",
         "invalidField": "Campo {{name}} inválido: {{value}}",
         "updateSuccess": "A configuração da tarefa agendada foi atualizada com sucesso.",
-        "updateError": "Falha ao atualizar a configuração da tarefa agendada."
+        "updateError": "Falha ao atualizar a configuração da tarefa agendada.",
+        "jitterLabel": "Jitter",
+        "jitterPlaceholder": "0",
+        "jitterUnit": "min",
+        "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
+        "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
     },
     "buttons": {
         "run": "Executar",

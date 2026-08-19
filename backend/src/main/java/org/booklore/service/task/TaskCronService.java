@@ -24,6 +24,7 @@ import java.util.regex.Pattern;
 public class TaskCronService {
 
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
+    private static final int MAX_JITTER_SECONDS = 24 * 60 * 60;
     private final TaskCronConfigurationRepository repository;
     private final AuthenticationService authService;
 
@@ -40,6 +41,7 @@ public class TaskCronService {
                 .orElse(CronConfig.builder()
                         .taskType(taskType)
                         .enabled(false)
+                        .jitterSeconds(0)
                         .build());
     }
 
@@ -60,6 +62,10 @@ public class TaskCronService {
         if (request.getEnabled() != null) {
             config.setEnabled(request.getEnabled());
         }
+        if (request.getJitterSeconds() != null) {
+            validateJitter(request.getJitterSeconds());
+            config.setJitterSeconds(request.getJitterSeconds());
+        }
         config = repository.save(config);
         log.info("Updated cron configuration for task type: {}", taskType);
         return mapToResponse(config);
@@ -71,6 +77,20 @@ public class TaskCronService {
         }
         if (!taskType.isCronSupported()) {
             throw new APIException("Task type " + taskType + " does not support cron scheduling", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    /**
+     * A jitter must be non-negative (the trigger only ever delays a firing) and is capped at a day —
+     * beyond that it would overrun any realistic cron interval and start skipping slots entirely.
+     */
+    private void validateJitter(int jitterSeconds) {
+        if (jitterSeconds < 0) {
+            throw new APIException("Jitter cannot be negative", HttpStatus.BAD_REQUEST);
+        }
+        if (jitterSeconds > MAX_JITTER_SECONDS) {
+            throw new APIException("Jitter cannot exceed " + MAX_JITTER_SECONDS + " seconds (24 hours)",
+                    HttpStatus.BAD_REQUEST);
         }
     }
 
@@ -95,6 +115,7 @@ public class TaskCronService {
                 .taskType(config.getTaskType())
                 .cronExpression(config.getCronExpression())
                 .enabled(config.getEnabled())
+                .jitterSeconds(config.getJitterSeconds() == null ? 0 : config.getJitterSeconds())
                 .createdAt(config.getCreatedAt())
                 .updatedAt(config.getUpdatedAt())
                 .build();

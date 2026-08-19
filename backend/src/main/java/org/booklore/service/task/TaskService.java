@@ -10,13 +10,13 @@ import org.booklore.model.dto.response.TaskCancelResponse;
 import org.booklore.model.dto.response.TaskCreateResponse;
 import org.booklore.model.entity.TaskCronConfigurationEntity;
 import org.booklore.model.enums.TaskType;
+import org.booklore.task.JitteredCronTrigger;
 import org.booklore.task.TaskCancellationManager;
 import org.booklore.task.TaskStatus;
 import org.booklore.task.tasks.Task;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -84,6 +84,7 @@ public class TaskService {
                     .taskType(taskType)
                     .cronExpression(cronConfig.getCronExpression())
                     .enabled(cronConfig.getEnabled())
+                    .jitterSeconds(cronConfig.getJitterSeconds() == null ? 0 : cronConfig.getJitterSeconds())
                     .build();
             scheduleTask(config);
         }
@@ -93,14 +94,20 @@ public class TaskService {
         cancelScheduledTask(config.getTaskType());
 
         try {
-            CronTrigger trigger = new CronTrigger(config.getCronExpression());
+            long jitter = config.getJitterSeconds() == null ? 0 : config.getJitterSeconds();
+            JitteredCronTrigger trigger = new JitteredCronTrigger(config.getCronExpression(), jitter);
             ScheduledFuture<?> scheduledTask = taskScheduler.schedule(
                     () -> executeCronTask(config.getTaskType()),
                     trigger
             );
 
             scheduledTasks.put(config.getTaskType(), scheduledTask);
-            log.info("Scheduled task {} with cron expression: {}", config.getTaskType(), config.getCronExpression());
+            if (jitter > 0) {
+                log.info("Scheduled task {} with cron expression: {} (+ up to {}s jitter)",
+                        config.getTaskType(), config.getCronExpression(), jitter);
+            } else {
+                log.info("Scheduled task {} with cron expression: {}", config.getTaskType(), config.getCronExpression());
+            }
         } catch (Exception e) {
             log.error("Failed to schedule task {}", config.getTaskType(), e);
         }

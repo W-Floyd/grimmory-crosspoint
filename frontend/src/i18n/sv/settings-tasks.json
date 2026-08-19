@@ -20,7 +20,12 @@
         "validationPrefix": "Cron-uttrycket måste ha exakt 6 fält (sekunder, minuter, timmar, dag, månad, veckodag)",
         "invalidField": "Ogiltigt {{name}}-fält: {{value}}",
         "updateSuccess": "Schemalagd uppgiftskonfiguration har uppdaterats.",
-        "updateError": "Kunde inte uppdatera schemalagd uppgiftskonfiguration."
+        "updateError": "Kunde inte uppdatera schemalagd uppgiftskonfiguration.",
+        "jitterLabel": "Jitter",
+        "jitterPlaceholder": "0",
+        "jitterUnit": "min",
+        "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
+        "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
     },
     "buttons": {
         "run": "Kör",

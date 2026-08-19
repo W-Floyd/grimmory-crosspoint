@@ -59,6 +59,7 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -2165,6 +2166,10 @@ public class OverDriveService {
        */
       private static final int MAX_AUTO_IMPORT_FAILURES = 3;
 
+      /** Bounds on the randomised gap between two titles handled in the same automation pass. */
+      private static final long TITLE_GAP_MIN_MILLIS = 2_000;
+      private static final long TITLE_GAP_MAX_MILLIS = 8_000;
+
       /** The current user's automation opt-in — both false when they have never opted in. */
       public OverDriveAutoSyncSettings getAutoSyncSettings() {
         return autoSyncRepository.findByUserId(currentUserId())
@@ -2241,6 +2246,7 @@ public class OverDriveService {
             for (Map.Entry<String, List<OverDriveHold>> entry : readyHoldsByCard(syncs).entrySet()) {
                 for (OverDriveHold hold : entry.getValue()) {
                     try {
+                        pauseBetweenTitles(borrowed);
                         borrowAndImport(entry.getKey(), hold.getId(), null, null,
                                 hold.getTitle(), hold.getFirstCreatorName(), null, null, null, null, null);
                         borrowed++;
@@ -2266,6 +2272,7 @@ public class OverDriveService {
                     continue;
                 }
                 try {
+                    pauseBetweenTitles(borrowed + imported);
                     borrowAndImport(loan.getIdentity(), loan.getOverdriveLoanId(), null, null,
                             loan.getTitle(), loan.getAuthor(), null, loan.getIsbn(), null, null, null);
                     imported++;
@@ -2283,6 +2290,28 @@ public class OverDriveService {
         }
 
         return new AutoSyncOutcome(identities.size(), borrowed, imported, failures);
+      }
+
+      /**
+       * Wait a random few seconds before handling the next title, so a user with several waiting loans
+       * does not fire their borrows and imports back-to-back. Each borrow costs an extra chip sync of
+       * its own (borrowAndImport re-syncs to resume an existing loan), so an unspaced run turns one
+       * poll into a rapid volley. Does nothing before the first title of the pass.
+       *
+       * <p>Interruption ends the pass: it means the application is shutting down, and the remaining
+       * titles will be picked up on the next poll.
+       */
+      private void pauseBetweenTitles(int handledSoFar) {
+        if (handledSoFar == 0) {
+            return;
+        }
+        long millis = ThreadLocalRandom.current().nextLong(TITLE_GAP_MIN_MILLIS, TITLE_GAP_MAX_MILLIS + 1);
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RestClientException("OverDrive auto-sync interrupted between titles");
+        }
       }
 
       /**

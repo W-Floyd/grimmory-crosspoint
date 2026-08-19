@@ -30,6 +30,14 @@ public class TaskCronConfigurationEntity {
     @Column(name = "enabled", nullable = false)
     private Boolean enabled;
 
+    /**
+     * Random delay, in seconds, added to each firing (see {@code JitteredCronTrigger}). 0 disables it.
+     * Keep well under the cron interval — a jitter approaching it would skip slots.
+     */
+    @Column(name = "jitter_seconds", nullable = false)
+    @Builder.Default
+    private Integer jitterSeconds = 0;
+
     @Column(name = "created_by", nullable = false)
     private Long createdBy;
 

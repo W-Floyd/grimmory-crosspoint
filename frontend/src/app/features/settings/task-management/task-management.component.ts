@@ -79,6 +79,9 @@ export class TaskManagementComponent implements OnInit {
   editingCronTaskType: string | null = null;
   editingCronExpression: string = '';
   cronValidationError: string | null = null;
+  /** Jitter is edited in minutes — seconds is needless precision for a "roughly when" setting. */
+  editingCronJitterMinutes = 0;
+  jitterValidationError: string | null = null;
 
   // Constants
   private readonly STALE_TASK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
@@ -293,15 +296,21 @@ export class TaskManagementComponent implements OnInit {
     return taskInfo?.cronSupported || false;
   }
 
-  getCronConfig(taskType: string): { enabled?: boolean; cronExpression?: string } | null | undefined {
+  getCronConfig(taskType: string): { enabled?: boolean; cronExpression?: string; jitterSeconds?: number } | null | undefined {
     const taskInfo = this.taskInfos.find(t => t.taskType === taskType);
     if (!taskInfo?.cronConfig) return null;
 
     const cronConfig = taskInfo.cronConfig;
     return {
       enabled: cronConfig.enabled,
-      cronExpression: cronConfig.cronExpression ?? undefined
+      cronExpression: cronConfig.cronExpression ?? undefined,
+      jitterSeconds: cronConfig.jitterSeconds ?? 0
     };
+  }
+
+  /** Jitter as whole minutes for display, or 0 when the task fires exactly on its cron slot. */
+  getCronJitterMinutes(taskType: string): number {
+    return Math.round((this.getCronConfig(taskType)?.jitterSeconds ?? 0) / 60);
   }
 
   toggleCronEnabled(taskType: string): void {
@@ -323,14 +332,25 @@ export class TaskManagementComponent implements OnInit {
     const cronConfig = this.getCronConfig(taskType);
     this.editingCronTaskType = taskType;
     this.editingCronExpression = cronConfig?.cronExpression || '';
+    this.editingCronJitterMinutes = Math.round((cronConfig?.jitterSeconds ?? 0) / 60);
     this.cronValidationError = null;
+    this.jitterValidationError = null;
     this.validateCronExpression(this.editingCronExpression);
   }
 
   cancelEditingCron(): void {
     this.editingCronTaskType = null;
     this.editingCronExpression = '';
+    this.editingCronJitterMinutes = 0;
     this.cronValidationError = null;
+    this.jitterValidationError = null;
+  }
+
+  onCronJitterChange(): void {
+    const minutes = Number(this.editingCronJitterMinutes);
+    this.jitterValidationError = (!Number.isFinite(minutes) || minutes < 0 || minutes > 1440)
+      ? this.t.translate('settingsTasks.cron.jitterInvalid')
+      : null;
   }
 
   onCronExpressionChange(): void {
@@ -338,21 +358,18 @@ export class TaskManagementComponent implements OnInit {
   }
 
   saveCronExpression(taskType: string): void {
-    if (this.cronValidationError) {
+    if (this.cronValidationError || this.jitterValidationError) {
       return;
     }
 
-    const expression = this.editingCronExpression.trim() || null;
-    this.updateCronExpression(taskType, expression);
-    this.cancelEditingCron();
-  }
-
-  updateCronExpression(taskType: string, expression: string | null): void {
+    // Schedule and jitter are edited together and saved as one patch, so the task is only
+    // rescheduled once rather than firing twice on a two-request save.
     const request: TaskCronConfigRequest = {
-      cronExpression: expression
+      cronExpression: this.editingCronExpression.trim() || null,
+      jitterSeconds: Math.round(Number(this.editingCronJitterMinutes) * 60)
     };
-
     this.updateCronConfig(taskType, request);
+    this.cancelEditingCron();
   }
 
   private updateCronConfig(taskType: string, request: TaskCronConfigRequest): void {

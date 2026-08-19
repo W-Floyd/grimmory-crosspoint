@@ -20,7 +20,12 @@
     "validationPrefix": "Cron expression must have exactly 6 fields (seconds, minutes, hours, day, month, weekday)",
     "invalidField": "Invalid {{name}} field: {{value}}",
     "updateSuccess": "Scheduled task configuration has been updated successfully.",
-    "updateError": "Failed to update scheduled task configuration."
+    "updateError": "Failed to update scheduled task configuration.",
+    "jitterLabel": "Jitter",
+    "jitterPlaceholder": "0",
+    "jitterUnit": "min",
+    "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
+    "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
   },
   "buttons": {
     "run": "Run",

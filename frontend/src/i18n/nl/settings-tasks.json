@@ -20,7 +20,12 @@
         "validationPrefix": "Cron-expressie moet precies 6 velden bevatten (seconden, minuten, uren, dag, maand, weekdag)",
         "invalidField": "Ongeldig {{name}}-veld: {{value}}",
         "updateSuccess": "Geplande taakconfiguratie is succesvol bijgewerkt.",
-        "updateError": "Kon geplande taakconfiguratie niet bijwerken."
+        "updateError": "Kon geplande taakconfiguratie niet bijwerken.",
+        "jitterLabel": "Jitter",
+        "jitterPlaceholder": "0",
+        "jitterUnit": "min",
+        "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
+        "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
     },
     "buttons": {
         "run": "Uitvoeren",

@@ -75,6 +75,11 @@
                       @if (!isEditingCron(taskInfo.taskType)) {
                         @if (getCronConfig(taskInfo.taskType)?.cronExpression) {
                           <code class="cron-value">{{ getCronConfig(taskInfo.taskType)!.cronExpression }}</code>
+                          @if (getCronJitterMinutes(taskInfo.taskType) > 0) {
+                            <span class="cron-jitter" [pTooltip]="t('cron.jitterHint')">
+                              +0-{{ getCronJitterMinutes(taskInfo.taskType) }}{{ t('cron.jitterUnit') }}
+                            </span>
+                          }
                         } @else {
                           <span class="cron-empty">{{ t('cron.noSchedule') }}</span>
                         }
@@ -99,12 +104,27 @@
                             [placeholder]="t('cron.placeholder')"
                             (keyup.enter)="saveCronExpression(taskInfo.taskType)"
                             (keyup.escape)="cancelEditingCron()">
+                          <label class="cron-jitter-label" [pTooltip]="t('cron.jitterHint')">
+                            {{ t('cron.jitterLabel') }}
+                            <input
+                              type="number"
+                              min="0"
+                              max="1440"
+                              class="cron-jitter-input"
+                              [class.has-error]="!!jitterValidationError"
+                              [(ngModel)]="editingCronJitterMinutes"
+                              (ngModelChange)="onCronJitterChange()"
+                              [placeholder]="t('cron.jitterPlaceholder')"
+                              (keyup.enter)="saveCronExpression(taskInfo.taskType)"
+                              (keyup.escape)="cancelEditingCron()">
+                            <span class="cron-jitter-unit">{{ t('cron.jitterUnit') }}</span>
+                          </label>
                           <p-button
                             [icon]="cronUpdating ? 'pi pi-spinner pi-spin' : 'pi pi-check'"
                             size="small"
                             [rounded]="true"
                             severity="success"
-                            [disabled]="!!cronValidationError || cronUpdating"
+                            [disabled]="!!cronValidationError || !!jitterValidationError || cronUpdating"
                             (onClick)="saveCronExpression(taskInfo.taskType)">
                           </p-button>
                           <p-button
@@ -122,10 +142,10 @@
                         (ngModelChange)="toggleCronEnabled(taskInfo.taskType)">
                       </p-toggleswitch>
                     </div>
-                    @if (isEditingCron(taskInfo.taskType) && cronValidationError) {
+                    @if (isEditingCron(taskInfo.taskType) && (cronValidationError || jitterValidationError)) {
                       <div class="cron-error">
                         <i class="pi pi-exclamation-circle"></i>
-                        <span>{{ cronValidationError }}</span>
+                        <span>{{ cronValidationError || jitterValidationError }}</span>
                       </div>
                     }
                   </div>
