@@ -13,4 +13,10 @@ public class APIException extends RuntimeException {
         this.status = status;
         this.message = formattedMessage;
     }
+
+    public APIException(String formattedMessage, HttpStatus status, Throwable cause) {
+        super(formattedMessage, cause);
+        this.status = status;
+        this.message = formattedMessage;
+    }
 }

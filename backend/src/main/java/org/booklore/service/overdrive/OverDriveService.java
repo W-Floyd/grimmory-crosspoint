@@ -44,7 +44,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
 import java.io.IOException;
 import java.net.URI;
@@ -129,7 +128,7 @@ public class OverDriveService {
     private BookLoreUser currentUser() {
         BookLoreUser user = authenticationService.getAuthenticatedUser();
         if (user == null || user.getId() == null) {
-            throw new RestClientException("No authenticated user for OverDrive operation");
+            throw ApiError.GENERIC_UNAUTHORIZED.createException("No authenticated user for OverDrive operation");
         }
         return user;
     }
@@ -588,13 +587,13 @@ public class OverDriveService {
             String token = body != null ? body.getIdentity() : null;
             if (token == null || token.isBlank()) {
                 log.error("Chip request returned no identity token");
-                throw new RestClientException("OverDrive chip request failed: no identity token returned");
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive chip request failed: no identity token returned");
              }
 
             return new ChipResult(token, token, body.getAccess_token_expires_in());
          } catch (Exception e) {
             log.error("Failed to obtain OverDrive chip: {}", e.getMessage());
-            throw new RestClientException("OverDrive chip request failed: " + e.getMessage());
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive chip request failed: " + e.getMessage());
          }
       }
 
@@ -726,7 +725,7 @@ public class OverDriveService {
         Long owner = resolveCardOwner(ownerUserId);
         String code = setupCode != null ? setupCode.trim() : "";
         if (!code.matches("\\d{8}")) {
-            throw new RestClientException("Invalid Libby setup code: expected 8 digits");
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Invalid Libby setup code: expected 8 digits");
         }
 
         // 1. Fresh chip identity — this token authenticates everything that follows.
@@ -746,7 +745,7 @@ public class OverDriveService {
                     .toBodilessEntity();
          } catch (Exception e) {
             log.error("Failed to register Libby setup code: {}", e.getMessage());
-            throw new RestClientException("OverDrive setup-code registration failed: " + e.getMessage());
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive setup-code registration failed: " + e.getMessage());
          }
 
         // 2b. Re-mint the identity now that cards are linked, so the stored token is card-bound
@@ -756,7 +755,7 @@ public class OverDriveService {
         // 3. Enumerate all cards on this identity and persist a token row per card for the user.
         List<OverDriveCard> cards = fetchCards(token);
         if (cards.isEmpty()) {
-            throw new RestClientException("Setup code linked no library cards; check the code and try again.");
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Setup code linked no library cards; check the code and try again.");
         }
         for (OverDriveCard card : cards) {
             storeToken(card.cardId(), card.name(), card.libraryKey(), token, owner);
@@ -791,11 +790,11 @@ public class OverDriveService {
             t = t.substring(1, t.length() - 1).trim();
         }
         if (t.isEmpty()) {
-            throw new RestClientException("A Libby identity token is required.");
+            throw ApiError.GENERIC_BAD_REQUEST.createException("A Libby identity token is required.");
         }
         List<OverDriveCard> cards = fetchCards(t);
         if (cards.isEmpty()) {
-            throw new RestClientException("That token linked no library cards; it may be expired or invalid.");
+            throw ApiError.GENERIC_BAD_REQUEST.createException("That token linked no library cards; it may be expired or invalid.");
         }
         for (OverDriveCard card : cards) {
             storeToken(card.cardId(), card.name(), card.libraryKey(), t, owner);
@@ -832,15 +831,15 @@ public class OverDriveService {
         String key = libraryKey != null ? libraryKey.trim() : "";
         String cn = cardNumber != null ? cardNumber.trim() : "";
         if (key.isEmpty() || cn.isEmpty()) {
-            throw new RestClientException("Library and card number are required to link a card.");
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Library and card number are required to link a card.");
         }
         String websiteId = overDriveParser.fetchWebsiteId(key);
         if (websiteId == null) {
-            throw new RestClientException("Could not resolve OverDrive library '" + key + "'. Check the library key.");
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Could not resolve OverDrive library '" + key + "'. Check the library key.");
         }
         String ilsName = fetchIlsName(websiteId);
         if (ilsName == null) {
-            throw new RestClientException("Could not read the sign-in form for this library; card+PIN link unsupported.");
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Could not read the sign-in form for this library; card+PIN link unsupported.");
         }
 
         String token = requestChip().token();
@@ -849,7 +848,7 @@ public class OverDriveService {
 
         List<OverDriveCard> cards = fetchCards(token);
         if (cards.isEmpty()) {
-            throw new RestClientException("Card linked but no library card was returned; check the number and PIN.");
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Card linked but no library card was returned; check the number and PIN.");
         }
         String encCard = credentialCipher.encrypt(cn);
         String encPin = credentialCipher.encrypt(pin);
@@ -918,7 +917,7 @@ public class OverDriveService {
                     .toBodilessEntity();
         } catch (Exception e) {
             log.error("OverDrive card link failed for websiteId {}: {}", websiteId, e.getMessage());
-            throw new RestClientException("OverDrive card link failed (check the card number and PIN): "
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive card link failed (check the card number and PIN): "
                     + e.getMessage());
         }
       }
@@ -960,7 +959,7 @@ public class OverDriveService {
         if (ownerUserId != null && !ownerUserId.equals(currentUserId())) {
             OverDriveTokenEntity card = administrableCard(identity, ownerUserId);
             if (relinkRow(card) == null) {
-                throw new RestClientException("Couldn't refresh this card — it has no stored card+PIN "
+                throw ApiError.GENERIC_BAD_REQUEST.createException("Couldn't refresh this card — it has no stored card+PIN "
                         + "credentials (set OVERDRIVE_CREDENTIAL_KEY and link by card + PIN), or re-linking "
                         + "failed. Unlink it and link again.");
             }
@@ -969,7 +968,7 @@ public class OverDriveService {
             return;
         }
         if (relinkCard(identity) == null) {
-            throw new RestClientException("Couldn't refresh this card — it has no stored card+PIN "
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Couldn't refresh this card — it has no stored card+PIN "
                     + "credentials (set OVERDRIVE_CREDENTIAL_KEY and link by card + PIN), or re-linking "
                     + "failed. Unlink it and link again.");
         }
@@ -1063,7 +1062,7 @@ public class OverDriveService {
                     && "missing_chip".equals(firstMatch(RESULT_PATTERN, r.getResponseBodyAsString()))) {
                 return true;
             }
-            // The Libby call sites wrap their failures in a RestClientException whose message carries the
+            // The Libby call sites wrap their failures in an APIException whose message carries the
             // original 403 body, so match on that too rather than relying on the cause chain surviving.
             if (t.getMessage() != null && t.getMessage().contains("missing_chip")) {
                 return true;
@@ -1108,7 +1107,7 @@ public class OverDriveService {
             }
             String relinked = relinkCard(identity);
             if (relinked == null) {
-                throw new RestClientException("OverDrive rejected this card's saved sign-in (missing_chip) and it "
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive rejected this card's saved sign-in (missing_chip) and it "
                         + "couldn't be renewed automatically — it has no stored card + PIN credentials (set "
                         + "OVERDRIVE_CREDENTIAL_KEY and link by card + PIN), or the re-link failed. Unlink the "
                         + "card and link it again. Original error: " + first.getMessage(), first);
@@ -1318,7 +1317,7 @@ public class OverDriveService {
             throw ApiError.OVERDRIVE_UNREACHABLE.createException(e.getMessage());
          } catch (Exception e) {
             log.error("OverDrive sync failed: {}", e.getMessage());
-            throw new RestClientException("OverDrive sync failed: " + e.getMessage(), e);
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(e, "OverDrive sync failed: " + e.getMessage());
          }
       }
 
@@ -1473,7 +1472,7 @@ public class OverDriveService {
             @SuppressWarnings("unchecked")
             Map<String, Object> bodyMap = (Map<String, Object>) raw;
             if (bodyMap == null || bodyMap.get("id") == null) {
-                throw new RestClientException("OverDrive borrow failed: no loan id returned");
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive borrow failed: no loan id returned");
              }
             // Log the discriminators that tell a genuine new checkout from an idempotent re-borrow of an
             // already-existing loan (borrow is idempotent — re-borrowing a held title returns the
@@ -1487,7 +1486,7 @@ public class OverDriveService {
             return bodyMap;
          } catch (Exception e) {
             log.error("OverDrive borrow failed: {}", e.getMessage());
-            throw new RestClientException("OverDrive borrow failed: " + e.getMessage(), e);
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(e, "OverDrive borrow failed: " + e.getMessage());
          }
       }
 
@@ -1637,7 +1636,7 @@ public class OverDriveService {
                         + "loan {}, format {}, status {}; retry-after={}, x-request-id={}, date={}; body={}; headers={}",
                         loanId, formatId, resp.statusCode(), retryAfter, reqId, date, body,
                         resp.headers().map());
-                throw new RestClientException("OverDrive refused this fulfillment (\"whoa\") for loan " + loanId
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive refused this fulfillment (\"whoa\") for loan " + loanId
                         + ": the identity is not fulfillment-capable (prbn=v). Re-link this card so a fresh "
                         + "identity is minted; if it persists, the chip shibboleth may need updating.");
             }
@@ -1650,14 +1649,14 @@ public class OverDriveService {
             if (resp.statusCode() < 300 && resp.body() != null && resp.body().length > 0 && !body.startsWith("{")) {
                 return resp.body();
             }
-            throw new RestClientException("OverDrive fulfill failed (status " + resp.statusCode()
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive fulfill failed (status " + resp.statusCode()
                     + (result != null ? ", result=" + result : "") + ") for loan " + loanId + bodySnippet(resp.body()));
         } catch (IOException e) {
             log.error("OverDrive fulfill IO error for loan {}: {}", loanId, e.getMessage());
-            throw new RestClientException("OverDrive fulfill failed for loan " + loanId + ": " + e.getMessage());
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive fulfill failed for loan " + loanId + ": " + e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RestClientException("OverDrive fulfill interrupted for loan " + loanId);
+            throw ApiError.INTERNAL_SERVER_ERROR.createException("OverDrive fulfill interrupted for loan " + loanId);
         }
       }
 
@@ -1672,7 +1671,7 @@ public class OverDriveService {
         HttpResponse<byte[]> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofByteArray());
         log.info("OverDrive content download ({}): status {}", safeHost(href), resp.statusCode());
         if (resp.statusCode() >= 400 || resp.body() == null || resp.body().length == 0) {
-            throw new RestClientException("OverDrive content download failed (" + resp.statusCode()
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive content download failed (" + resp.statusCode()
                     + ") for loan " + loanId);
         }
         return resp.body();
@@ -2310,7 +2309,7 @@ public class OverDriveService {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RestClientException("OverDrive auto-sync interrupted between titles");
+            throw ApiError.INTERNAL_SERVER_ERROR.createException("OverDrive auto-sync interrupted between titles");
         }
       }
 
@@ -2403,16 +2402,16 @@ public class OverDriveService {
        */
       private AudiobookHandler.Request audiobookRequest(String identity, String titleId, String formatId) {
         OverDriveTokenEntity card = accessibleTokenRow(currentUserId(), identity)
-                .orElseThrow(() -> new RestClientException("No such card for audiobook fulfillment: " + identity));
+                .orElseThrow(() -> ApiError.GENERIC_NOT_FOUND.createException("No such card for audiobook fulfillment: " + identity));
         String label = (card.getCardName() != null && !card.getCardName().isBlank()
                 ? "\"" + card.getCardName() + "\" " : "") + "(" + identity + ")";
         if (!credentialCipher.isEnabled()) {
-            throw new RestClientException("Audiobook download needs stored card credentials, but credential "
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Audiobook download needs stored card credentials, but credential "
                     + "storage is off: set OVERDRIVE_CREDENTIAL_KEY (base64 16/24/32 bytes) and re-link the card "
                     + "by number + PIN. (Settings → OverDrive → diagnostics shows credentialStorageEnabled.)");
         }
         if (card.getCredCard() == null) {
-            throw new RestClientException("Card " + label + " has no stored card + PIN, so it can't download "
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Card " + label + " has no stored card + PIN, so it can't download "
                     + "audiobooks. Only cards linked by number + PIN store credentials — setup-code and "
                     + "pasted-token links don't. Re-link THIS card by number + PIN, then retry. (Settings → "
                     + "OverDrive → diagnostics shows each card's credentialsStored.)");
@@ -2445,14 +2444,14 @@ public class OverDriveService {
         }
         if (chosenFormat == null) {
             recordAuditFailure(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, "No audiobook format for loan");
-            throw new RestClientException("No audiobook format found for loan " + loanId);
+            throw ApiError.GENERIC_BAD_REQUEST.createException("No audiobook format found for loan " + loanId);
         }
         try {
             AudiobookHandler.Result result = audiobookHandler.handle(
                     audiobookRequest(identity, loanId, chosenFormat), workDir, toolLogSink(loanId));
             if (result == null || isEmptyFile(result.file())) {
                 recordAuditFailure(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, "Audiobook handler produced no file");
-                throw new RestClientException("The audiobook handler did not produce a file for loan " + loanId + ".");
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("The audiobook handler did not produce a file for loan " + loanId + ".");
             }
             recordAudit(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, null, null, null);
             log.info("OverDrive audiobook downloaded: {} bytes (.{}) for loan {}", fileSize(result.file()),
@@ -2506,7 +2505,7 @@ public class OverDriveService {
         String importKey = currentUserId() + ":" + titleId;
         if (!importsInFlight.add(importKey)) {
             log.info("OverDrive: rejecting duplicate concurrent import of title {} (one is already running)", titleId);
-            throw new RestClientException("This title is already being imported — wait for that import to "
+            throw ApiError.CONFLICT.createException("This title is already being imported — wait for that import to "
                     + "finish before starting another.");
         }
         try {
@@ -2570,7 +2569,7 @@ public class OverDriveService {
             chosenFormat = chooseFormat(formats);
         }
         if (chosenFormat == null) {
-            throw new RestClientException(noImportableFormatMessage(loanId, formats));
+            throw ApiError.GENERIC_BAD_REQUEST.createException(noImportableFormatMessage(loanId, formats));
         }
 
         Path content;
@@ -2585,7 +2584,7 @@ public class OverDriveService {
             content = audiobook.file();
             extension = audiobook.extension();
             if (isEmptyFile(content)) {
-                throw new RestClientException("The audiobook handler did not produce a file for loan " + loanId + ".");
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("The audiobook handler did not produce a file for loan " + loanId + ".");
             }
         } else if (isEbookHandlerFormat(chosenFormat)) {
             // Read-in-browser only: there is no downloadable file and no ACSM, so the external ebook
@@ -2596,13 +2595,13 @@ public class OverDriveService {
             content = ebook.file();
             extension = ebook.extension();
             if (isEmptyFile(content)) {
-                throw new RestClientException("The ebook handler did not produce a file for loan " + loanId + ".");
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("The ebook handler did not produce a file for loan " + loanId + ".");
             }
         } else if (isOpenFormat(chosenFormat)) {
             // DRM-free: fulfill directly — no external tool required.
             byte[] bytes = fulfillOpen(identity, authToken, loanId, chosenFormat);
             if (bytes == null || bytes.length == 0) {
-                throw new RestClientException("Open fulfillment returned no data for loan " + loanId);
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("Open fulfillment returned no data for loan " + loanId);
             }
             extension = fileExtension(chosenFormat);
             content = stageBytes(workDir, bytes, extension);
@@ -2610,11 +2609,11 @@ public class OverDriveService {
             // Adobe format: hand the ACSM to the configured external tool to procure the book.
             byte[] acsm = getAcsm(identity, authToken, loanId, chosenFormat);
             if (acsm == null || acsm.length == 0) {
-                throw new RestClientException("Could not fetch the ACSM for loan " + loanId);
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("Could not fetch the ACSM for loan " + loanId);
             }
             byte[] bytes = acsmHandler.handle(acsm, fileExtension(chosenFormat), toolLogSink(titleId));
             if (bytes == null || bytes.length == 0) {
-                throw new RestClientException("The external ACSM handler did not produce a book file for loan "
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("The external ACSM handler did not produce a book file for loan "
                         + loanId + ".");
             }
             extension = fileExtension(chosenFormat);
@@ -2693,7 +2692,7 @@ public class OverDriveService {
             return;
         }
         if (!bookRepository.existsById(replaceBookId)) {
-            throw new RestClientException("The copy to replace (book " + replaceBookId + ") no longer exists. "
+            throw ApiError.GENERIC_BAD_REQUEST.createException("The copy to replace (book " + replaceBookId + ") no longer exists. "
                     + "Reload your loans and try importing again.");
         }
         loanRepository.findByUserIdAndOverdriveLoanId(currentUserId(), loanId)
@@ -2707,7 +2706,7 @@ public class OverDriveService {
         // otherwise the import would fail later with an opaque "a file already exists" error.
         bookService.deleteBooks(Set.of(replaceBookId));
         if (bookRepository.existsById(replaceBookId)) {
-            throw new RestClientException("Could not delete the existing copy (book " + replaceBookId
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Could not delete the existing copy (book " + replaceBookId
                     + "), so it was not replaced. Check that you have permission to delete it.");
         }
         log.info("OverDrive replace: deleted book {} before re-importing loan {}", replaceBookId, loanId);
@@ -2718,7 +2717,7 @@ public class OverDriveService {
         try {
             return Files.createTempDirectory(prefix);
         } catch (IOException e) {
-            throw new RestClientException("Could not create a temporary directory for the import: " + e.getMessage(), e);
+            throw ApiError.INTERNAL_SERVER_ERROR.createException(e, "Could not create a temporary directory for the import: " + e.getMessage());
         }
       }
 
@@ -2733,7 +2732,7 @@ public class OverDriveService {
             Files.write(staged, bytes);
             return staged;
         } catch (IOException e) {
-            throw new RestClientException("Could not stage the fulfilled file: " + e.getMessage(), e);
+            throw ApiError.INTERNAL_SERVER_ERROR.createException(e, "Could not stage the fulfilled file: " + e.getMessage());
         }
       }
 
@@ -2864,7 +2863,7 @@ public class OverDriveService {
                     magazineRequest(identity, titleId), workDir, toolLogSink(titleId));
             List<MagazineHandler.OutputFile> produced = magazine != null ? magazine.files() : null;
             if (produced == null || produced.isEmpty()) {
-                throw new RestClientException("The magazine handler did not produce a file for title " + titleId + ".");
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("The magazine handler did not produce a file for title " + titleId + ".");
             }
 
             BookMetadata metadata = overDriveParser.fetchTitleMetadata(titleId);
@@ -2953,17 +2952,17 @@ public class OverDriveService {
        */
       private HandlerCard handlerCard(String identity, String plural) {
         OverDriveTokenEntity card = accessibleTokenRow(currentUserId(), identity)
-                .orElseThrow(() -> new RestClientException("No such card for fulfillment: " + identity));
+                .orElseThrow(() -> ApiError.GENERIC_NOT_FOUND.createException("No such card for fulfillment: " + identity));
         String label = (card.getCardName() != null && !card.getCardName().isBlank()
                 ? "\"" + card.getCardName() + "\" " : "") + "(" + identity + ")";
         if (!credentialCipher.isEnabled()) {
-            throw new RestClientException("Downloading " + plural + " needs stored card credentials, but "
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Downloading " + plural + " needs stored card credentials, but "
                     + "credential storage is off: set OVERDRIVE_CREDENTIAL_KEY (base64 16/24/32 bytes) and "
                     + "re-link the card by number + PIN. (Settings → OverDrive → diagnostics shows "
                     + "credentialStorageEnabled.)");
         }
         if (card.getCredCard() == null) {
-            throw new RestClientException("Card " + label + " has no stored card + PIN, so it can't download "
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Card " + label + " has no stored card + PIN, so it can't download "
                     + plural + ". Only cards linked by number + PIN store credentials — setup-code and "
                     + "pasted-token links don't. Re-link THIS card by number + PIN, then retry. (Settings → "
                     + "OverDrive → diagnostics shows each card's credentialsStored.)");
@@ -2977,15 +2976,15 @@ public class OverDriveService {
       /** Build the magazine handoff request (card+PIN, no formatId) — mirrors {@link #audiobookRequest}. */
       private MagazineHandler.Request magazineRequest(String identity, String titleId) {
         OverDriveTokenEntity card = accessibleTokenRow(currentUserId(), identity)
-                .orElseThrow(() -> new RestClientException("No such card for magazine fulfillment: " + identity));
+                .orElseThrow(() -> ApiError.GENERIC_NOT_FOUND.createException("No such card for magazine fulfillment: " + identity));
         String label = (card.getCardName() != null && !card.getCardName().isBlank()
                 ? "\"" + card.getCardName() + "\" " : "") + "(" + identity + ")";
         if (!credentialCipher.isEnabled()) {
-            throw new RestClientException("Magazine download needs stored card credentials, but credential "
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Magazine download needs stored card credentials, but credential "
                     + "storage is off: set OVERDRIVE_CREDENTIAL_KEY and re-link the card by number + PIN.");
         }
         if (card.getCredCard() == null) {
-            throw new RestClientException("Card " + label + " has no stored card + PIN, so it can't download "
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Card " + label + " has no stored card + PIN, so it can't download "
                     + "magazines. Re-link THIS card by number + PIN, then retry.");
         }
         String cardNumber = credentialCipher.decrypt(card.getCredCard());
@@ -3231,7 +3230,7 @@ public class OverDriveService {
              } catch (Exception e) {
                log.error("OverDrive return failed for loan {}: {}", loanId, e.getMessage());
                recordAuditFailure(OverDriveAuditAction.RETURN, identity, null, loanId, e.getMessage());
-               throw new RestClientException("OverDrive return failed: " + e.getMessage());
+               throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive return failed: " + e.getMessage());
              }
            }
 
@@ -3258,7 +3257,7 @@ public class OverDriveService {
          } catch (Exception e) {
             log.error("OverDrive hold failed: {}", e.getMessage());
             recordAuditFailure(OverDriveAuditAction.HOLD_PLACED, identity, titleId, null, e.getMessage());
-            throw new RestClientException("OverDrive hold failed: " + e.getMessage());
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive hold failed: " + e.getMessage());
          }
       }
 
@@ -3280,7 +3279,7 @@ public class OverDriveService {
          } catch (Exception e) {
             log.error("OverDrive cancel hold failed: {}", e.getMessage());
             recordAuditFailure(OverDriveAuditAction.HOLD_CANCELLED, identity, titleId, null, e.getMessage());
-            throw new RestClientException("OverDrive cancel hold failed: " + e.getMessage());
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive cancel hold failed: " + e.getMessage());
          }
       }
 
@@ -3690,7 +3689,7 @@ public class OverDriveService {
       private String resolveToken(String identity) {
         String stored = getStoredToken(identity);
         if (stored == null || stored.isBlank()) {
-            throw new RestClientException(
+            throw ApiError.GENERIC_BAD_REQUEST.createException(
                     "No OverDrive token available for card " + identity + "; connect your Libby account first.");
         }
         return stored;

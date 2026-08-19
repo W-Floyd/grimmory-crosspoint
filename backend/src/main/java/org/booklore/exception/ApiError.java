@@ -72,6 +72,7 @@ public enum ApiError {
     OIDC_ONLY_MODE(HttpStatus.FORBIDDEN, "Local login is disabled. Use OIDC to sign in."),
     OIDC_INVALID_REDIRECT_URI(HttpStatus.BAD_REQUEST, "Invalid redirect URI"),
 
+    OVERDRIVE_UPSTREAM_FAILED(HttpStatus.BAD_GATEWAY, "%s"),
     OVERDRIVE_UNREACHABLE(HttpStatus.BAD_GATEWAY, "OverDrive/Libby is temporarily unreachable; please try again. (%s)"),
     OIDC_LOGOUT_REPLAY(HttpStatus.BAD_REQUEST, "Logout token has already been processed"),
     OIDC_LOGOUT_MISSING_JTI(HttpStatus.BAD_REQUEST, "Logout token missing required jti claim"),
@@ -93,6 +94,12 @@ public enum ApiError {
     public APIException createException(Object... details) {
         String formattedMessage = (details.length > 0) ? String.format(message, details) : message;
         return new APIException(formattedMessage, this.status);
+    }
+
+    /** As {@link #createException(Object...)}, but keeps the original failure as the cause. */
+    public APIException createException(Throwable cause, Object... details) {
+        String formattedMessage = (details.length > 0) ? String.format(message, details) : message;
+        return new APIException(formattedMessage, this.status, cause);
     }
 
     public APIException createException(UserPermission permission) {
