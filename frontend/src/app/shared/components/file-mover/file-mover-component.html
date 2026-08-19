@@ -97,6 +97,8 @@
       </div>
       <div class="bulk-controls">
         <span class="bulk-label">Set all files to:</span>
+        <!-- Both selectors are optional: each file already defaults to its own library and path, so
+        these only apply when the user actually picks something. -->
         <p-select
           [options]="availableLibraries"
           [(ngModel)]="defaultTargetLibraryId"
@@ -114,7 +116,7 @@
             [(ngModel)]="defaultTargetLibraryPathId"
             optionLabel="path"
             optionValue="id"
-            placeholder="Select path"
+            placeholder="Keep each file's path"
             (onChange)="onDefaultLibraryPathChange()"
             class="select-path"
             size="small"

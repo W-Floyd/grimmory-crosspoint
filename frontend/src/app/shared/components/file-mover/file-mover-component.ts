@@ -175,6 +175,17 @@ export class FileMoverComponent implements OnDestroy {
       this.updatePreviewPaths(preview, book);
       return preview;
     });
+
+    // Offer the bulk path selector without making the user change library first. When every selected
+    // file already sits in one library — the common case — that library is the obvious bulk target, so
+    // populate its paths. Deliberately leaves defaultTargetLibraryPathId null: presenting the choice
+    // must not itself move anything, since each file has already defaulted to its own current path.
+    const libraryIds = new Set(previews.map(p => p.targetLibraryId).filter((id): id is number => id != null));
+    if (libraryIds.size === 1) {
+      this.defaultTargetLibraryId = [...libraryIds][0];
+      this.defaultAvailableLibraryPaths = this.getLibraryPathsById(this.defaultTargetLibraryId);
+    }
+
     this.filePreviews.set(previews);
   }
 
