@@ -1888,11 +1888,8 @@ export class OverdriveCatalogComponent {
      // rather than skipping the warning, since it certainly isn't a completed listen.
      if (held >= runtime) return null;
 
-     return `You have had "${loan.title}" for ${this.minutesLabel(Math.max(held, 0))}, but it runs `
-       + `${this.minutesLabel(runtime)} — less time than it takes to play, so it cannot have been `
-       + `listened to in full. Returning now gives up your copy and passes it to the next hold. `
-       + `Borrowing and returning again in quick succession is also a conspicuously non-human `
-       + `pattern on an account you want to keep in good standing.`;
+     return `Runtime (${this.minutesLabel(runtime)}) is longer than the time since you borrowed it `
+       + `(${this.minutesLabel(Math.max(held, 0))}).`;
    }
 
    onReturn(loan: OverDriveLoan): void {
