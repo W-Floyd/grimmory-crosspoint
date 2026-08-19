@@ -954,4 +954,19 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       expect(component.facetFilterLabel()).toBe('Filters (2)');
     });
   });
+
+  describe('paginator sizing', () => {
+    it('shows fewer page links on a narrow viewport', () => {
+      setup();
+      component.narrowViewport.set(true);
+      // Five links plus first/prev/next/last overflow a phone and wrap the last-page button.
+      expect(component.paginatorPageLinks()).toBe(3);
+    });
+
+    it('shows the full set otherwise', () => {
+      setup();
+      component.narrowViewport.set(false);
+      expect(component.paginatorPageLinks()).toBe(5);
+    });
+  });
 });

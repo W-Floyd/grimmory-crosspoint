@@ -185,6 +185,13 @@ export class OverdriveCatalogComponent {
   readonly resultsPageSize = 10;
 
   /**
+   * Page links the paginator renders. Five of them plus the first/prev/next/last controls overflow a
+   * phone, pushing the last-page button onto a line of its own; three fit.
+   */
+  readonly narrowViewport = signal(false);
+  readonly paginatorPageLinks = computed(() => (this.narrowViewport() ? 3 : 5));
+
+  /**
    * The largest offset that still lands on a page with rows. Snaps back to the last non-empty page
    * rather than to the first: a user who filtered from page 4 to 2 pages of results is more likely to
    * want the end of what remains than to be thrown back to the start.

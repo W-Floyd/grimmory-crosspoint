@@ -81,76 +81,6 @@
     }
   }
 
-  // Narrow screens: everything above the table was taking roughly two thirds of the viewport before a
-  // single result was visible. Reclaim that height rather than shrinking the rows.
-  @media (width <= 640px) {
-    // The destination hint is three lines of prose the user only needs once. Keep it available but
-    // out of the way — it explains a setting, it is not part of searching.
-    .dest-hint {
-      display: none;
-    }
-
-    // Search field and button on their own line each, instead of a cramped side-by-side split.
-    .search-row {
-      flex-wrap: wrap;
-      gap: 0.4rem;
-
-      input {
-        flex: 1 1 100%;
-      }
-    }
-
-    .search-filters {
-      gap: 0.4rem 0.75rem;
-      margin: 0.25rem 0 0.5rem;
-
-      // The vertical rule reads as clutter once the row wraps over several lines.
-      .filter-divider {
-        display: none;
-      }
-    }
-
-    // Four columns inside ~380px squeezes every one of them — the Availability header truncates and
-    // its values wrap mid-phrase. Give the table a floor and let the container scroll sideways
-    // instead, so each column stays readable rather than hiding data the user searched for.
-    ::ng-deep .p-datatable-table {
-      min-width: 32rem;
-    }
-
-    // Header on one line: a shorter title leaves room for the sync status and Refresh beside it,
-    // and the subtitle is a description of the page the user is already looking at.
-    .page-header {
-      align-items: center;
-      flex-wrap: nowrap;
-      margin-bottom: 0.25rem;
-    }
-
-    .page-heading .subtitle {
-      display: none;
-    }
-
-    h2 {
-      font-size: 1.15rem;
-      margin-bottom: 0;
-    }
-
-    .refresh-group {
-      flex: 0 0 auto;
-    }
-
-    .last-synced {
-      font-size: 0.75rem;
-    }
-
-    // Trim the Library Cards block: it is a status line above the thing the user came for.
-    .collapsed-summary {
-      font-size: 0.75rem;
-    }
-
-    ::ng-deep .p-card .p-card-body {
-      padding: 0.5rem 0.75rem;
-    }
-  }
 
   // Library Cards header: title on the left, a fold toggle on the right so the whole card (selector +
   // capacity meters) can collapse to reclaim vertical space on short screens.
@@ -163,11 +93,12 @@
 
     // Collapsed, the summary shares the title line. It takes the slack so the fold toggle stays
     // hard right, and shrinks rather than pushing the toggle onto a second row.
+    // Collapsed, the summary follows the title on the same line. Left-aligned against the title
+    // rather than pushed to the right, where it read as a detached second column.
     &.is-collapsed .collapsed-summary {
       flex: 1 1 auto;
       min-width: 0;
-      text-align: right;
-      margin-right: 0.25rem;
+      margin-left: 0.5rem;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -479,33 +410,7 @@
 
   // Boolean facets live in a popover so the filter row stays one line; the format select is the one
   // filter common enough to stay inline.
-  .facet-popover {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-    max-width: 20rem;
 
-    .filter-option {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.45rem;
-    }
-
-    label {
-      font-size: 0.9rem;
-      cursor: pointer;
-    }
-
-    .facet-divider {
-      height: 1px;
-      background: var(--surface-border, rgb(255 255 255 / 15%));
-    }
-
-    .facet-hint {
-      opacity: 0.75;
-      line-height: 1.35;
-    }
-  }
 
   // Client-side facet filters over the search results (format select + boolean toggles).
   .search-filters {
@@ -702,6 +607,77 @@
       color: var(--text-color-secondary);
     }
   }
+
+  // Narrow screens: everything above the table was taking roughly two thirds of the viewport before a
+  // single result was visible. Reclaim that height rather than shrinking the rows.
+  @media (width <= 640px) {
+    // The destination hint is three lines of prose the user only needs once. Keep it available but
+    // out of the way — it explains a setting, it is not part of searching.
+    .dest-hint {
+      display: none;
+    }
+
+    // Search field and button on their own line each, instead of a cramped side-by-side split.
+    .search-row {
+      flex-wrap: wrap;
+      gap: 0.4rem;
+
+      input {
+        flex: 1 1 100%;
+      }
+    }
+
+    .search-filters {
+      gap: 0.4rem 0.75rem;
+      margin: 0.25rem 0 0.5rem;
+
+      // The vertical rule reads as clutter once the row wraps over several lines.
+      .filter-divider {
+        display: none;
+      }
+    }
+
+    // Four columns inside ~380px squeezes every one of them — the Availability header truncates and
+    // its values wrap mid-phrase. Give the table a floor and let the container scroll sideways
+    // instead, so each column stays readable rather than hiding data the user searched for.
+    ::ng-deep .p-datatable-table {
+      min-width: 32rem;
+    }
+
+    // Header on one line: a shorter title leaves room for the sync status and Refresh beside it,
+    // and the subtitle is a description of the page the user is already looking at.
+    .page-header {
+      align-items: center;
+      flex-wrap: nowrap;
+      margin-bottom: 0.25rem;
+    }
+
+    .page-heading .subtitle {
+      display: none;
+    }
+
+    h2 {
+      font-size: 1.15rem;
+      margin-bottom: 0;
+    }
+
+    .refresh-group {
+      flex: 0 0 auto;
+    }
+
+    .last-synced {
+      font-size: 0.75rem;
+    }
+
+    // Trim the Library Cards block: it is a status line above the thing the user came for.
+    .collapsed-summary {
+      font-size: 0.75rem;
+    }
+
+    ::ng-deep .p-card .p-card-body {
+      padding: 0.5rem 0.75rem;
+    }
+  }
 }
 
 /* Search result borrow action: format selector + button inline. */
@@ -791,4 +767,37 @@
   opacity: 0.75;
   border: 1px solid currentColor;
   vertical-align: middle;
+}
+
+
+// The facet popover is appended to <body>, so it sits outside this component's DOM and its scoped
+// styles never match it. Hence ::ng-deep at file scope rather than nested with the rest.
+::ng-deep .facet-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 15rem;
+  max-width: 20rem;
+
+  .filter-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  label {
+    font-size: 0.9rem;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .facet-divider {
+    height: 1px;
+    background: var(--surface-border, rgb(255 255 255 / 15%));
+  }
+
+  .facet-hint {
+    opacity: 0.75;
+    line-height: 1.35;
+  }
 }

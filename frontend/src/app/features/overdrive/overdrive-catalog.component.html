@@ -181,7 +181,7 @@
       @if (filteredResults().length > 0) {
         <p-table [value]="filteredResults()" [customSort]="true" (sortFunction)="onSortResults($event)"
           [sortField]="sortField()" [sortOrder]="sortOrder()" [rowTrackBy]="trackRow"
-          [paginator]="true" [rows]="resultsPageSize" [showCurrentPageReport]="true"
+          [paginator]="true" [rows]="resultsPageSize" [showCurrentPageReport]="true" [pageLinks]="paginatorPageLinks()"
           [first]="searchFirst()" (onPage)="searchFirst.set($event.first ?? 0)"
           currentPageReportTemplate="{first}-{last} / {totalRecords}">
           <ng-template pTemplate="header">
@@ -468,10 +468,12 @@
           [ngModelOptions]="{ standalone: true }" optionLabel="label" optionValue="value" styleClass="format-filter" />
         <p-select [options]="importFilterOptions" [ngModel]="loanFilterImported()" (ngModelChange)="loanFilterImported.set($event)"
           [ngModelOptions]="{ standalone: true }" optionLabel="label" optionValue="value" styleClass="format-filter" />
-        <p-checkbox [ngModel]="loanFilterHoldingQueue()" (ngModelChange)="onToggleHoldingQueueFilter($event)"
-          [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="loan-filter-queue" />
-        <label for="loan-filter-queue"
-          pTooltip="Loans with no copies available at your library — returning one frees a copy for the next borrower">Holding up the queue</label>
+        <span class="filter-option">
+          <p-checkbox [ngModel]="loanFilterHoldingQueue()" (ngModelChange)="onToggleHoldingQueueFilter($event)"
+            [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="loan-filter-queue" />
+          <label for="loan-filter-queue"
+            pTooltip="Loans with no copies available at your library — returning one frees a copy for the next borrower">Holding up the queue</label>
+        </span>
         @if (loadingLoanAvailability()) {
           <i class="pi pi-spin pi-spinner" pTooltip="Checking availability…"></i>
         }
@@ -482,7 +484,7 @@
       </div>
     }
     <p-table [value]="filteredLoans()" [paginator]="true" [rows]="resultsPageSize"
-      [first]="loansFirst()" (onPage)="loansFirst.set($event.first ?? 0)" [showCurrentPageReport]="true"
+      [first]="loansFirst()" (onPage)="loansFirst.set($event.first ?? 0)" [showCurrentPageReport]="true" [pageLinks]="paginatorPageLinks()"
       [scrollable]="true" scrollHeight="flex" [customSort]="true" (sortFunction)="onSortLoans($event)"
       [sortField]="loanSortField()" [sortOrder]="loanSortOrder()" [rowTrackBy]="trackRow"
       currentPageReportTemplate="{first}-{last} / {totalRecords}">
@@ -604,9 +606,11 @@
           <p-select [options]="cardFilterOptions()" [ngModel]="holdFilterCard()" (ngModelChange)="holdFilterCard.set($event)"
             [ngModelOptions]="{ standalone: true }" optionLabel="label" optionValue="value" styleClass="format-filter" />
         }
-        <p-checkbox [ngModel]="holdFilterReady()" (ngModelChange)="holdFilterReady.set($event)"
-          [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-hold-ready" />
-        <label for="filter-hold-ready">Ready to borrow only</label>
+        <span class="filter-option">
+          <p-checkbox [ngModel]="holdFilterReady()" (ngModelChange)="holdFilterReady.set($event)"
+            [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-hold-ready" />
+          <label for="filter-hold-ready">Ready to borrow only</label>
+        </span>
         @if (holdFiltersActive()) {
           <span class="filter-count">{{ filteredHolds().length }} of {{ holds().length }}</span>
           <p-button label="Clear" icon="pi pi-times" [text]="true" size="small" (onClick)="clearHoldFilters()" />
@@ -614,7 +618,7 @@
       </div>
     }
     <p-table [value]="filteredHolds()" [paginator]="true" [rows]="resultsPageSize"
-      [first]="holdsFirst()" (onPage)="holdsFirst.set($event.first ?? 0)" [showCurrentPageReport]="true"
+      [first]="holdsFirst()" (onPage)="holdsFirst.set($event.first ?? 0)" [showCurrentPageReport]="true" [pageLinks]="paginatorPageLinks()"
       [scrollable]="true" scrollHeight="flex" [customSort]="true" (sortFunction)="onSortHolds($event)"
       [sortField]="holdSortField()" [sortOrder]="holdSortOrder()" [rowTrackBy]="trackRow"
       currentPageReportTemplate="{first}-{last} / {totalRecords}">
@@ -751,7 +755,7 @@
         </p-tabpanel>
 
         <p-tabpanel value="history">
-    <p-table [value]="history()" [paginator]="true" [rows]="historyPageSize" [showCurrentPageReport]="true"
+    <p-table [value]="history()" [paginator]="true" [rows]="historyPageSize" [showCurrentPageReport]="true" [pageLinks]="paginatorPageLinks()"
       [lazy]="true" (onLazyLoad)="onHistoryPage($event)" [totalRecords]="historyTotal()"
       [scrollable]="true" scrollHeight="flex" [loading]="loadingHistory()"
       currentPageReportTemplate="{first}-{last} / {totalRecords}">
