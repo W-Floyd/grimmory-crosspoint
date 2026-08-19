@@ -28,6 +28,13 @@ import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
 import { OverdriveCoverComponent } from './overdrive-cover.component';
 
 /**
+ * How soon after borrowing a return is worth confirming, for titles with no known runtime. Audiobooks
+ * are measured against their actual playback length instead; this is the fallback for everything else,
+ * where no comparable floor on "could have been finished" exists.
+ */
+const EARLY_RETURN_THRESHOLD_MINUTES = 12 * 60;
+
+/**
  * Percentage for the handler progress bar, or null when the event carries no usable figure.
  *
  * Clamped to 0–100: a tool sizes its download against an *estimated* total (the audiobook handler
@@ -1870,33 +1877,44 @@ export class OverdriveCatalogComponent {
      }
 
    /**
-    * How long an audiobook loan has been held, when that is less than the book takes to play — the
-    * case worth pausing on before a return. Returns null (no warning) for anything that isn't an
-    * audiobook, or when the runtime or checkout date is missing, since then there is nothing to
-    * compare and a warning would be guesswork.
+    * A warning when a loan is being returned sooner than it could plausibly have been finished, or
+    * null when there is nothing to say.
+    *
+    * <p>Two rules, because only audiobooks give us a real measure. An audiobook's runtime is a hard
+    * floor on listening time — 11h 30m cannot be played in 2h — so where a runtime is known it is
+    * used directly. Text has no equivalent: page and word counts measure the book, not the reader,
+    * and reading speed varies several-fold. So everything else falls back to a flat window, which
+    * asks the weaker but still useful question of whether the loan is young enough that returning it
+    * looks like a mistake or an automated cycle.
     */
-   earlyAudiobookReturnWarning(loan: OverDriveLoan): string | null {
-     if (!loan.audiobook) return null;
-     const runtime = this.durationMinutes(loan.duration);
-     if (runtime == null || !loan.checkoutDate) return null;
+   earlyReturnWarning(loan: OverDriveLoan): string | null {
+     if (!loan.checkoutDate) return null;
 
      const borrowedAt = new Date(loan.checkoutDate).getTime();
      if (isNaN(borrowedAt)) return null;
 
      const held = Math.floor((Date.now() - borrowedAt) / 60_000);
-     // A clock skew or a future checkout date would make this negative; treat it as "not long enough"
-     // rather than skipping the warning, since it certainly isn't a completed listen.
-     if (held >= runtime) return null;
+     // Clock skew can put the checkout date in the future; that is still "just borrowed", so it warns
+     // rather than being skipped.
+     const heldLabel = this.minutesLabel(Math.max(held, 0));
 
-     return `Runtime (${this.minutesLabel(runtime)}) is longer than the time since you borrowed it `
-       + `(${this.minutesLabel(Math.max(held, 0))}).`;
+     const runtime = this.durationMinutes(loan.duration);
+     if (runtime != null) {
+       return held >= runtime
+         ? null
+         : `Runtime (${this.minutesLabel(runtime)}) is longer than the time since you borrowed it (${heldLabel}).`;
+     }
+
+     return held >= EARLY_RETURN_THRESHOLD_MINUTES
+       ? null
+       : `Borrowed ${heldLabel} ago, less than ${this.minutesLabel(EARLY_RETURN_THRESHOLD_MINUTES)} ago.`;
    }
 
    onReturn(loan: OverDriveLoan): void {
-     const warning = this.earlyAudiobookReturnWarning(loan);
+     const warning = this.earlyReturnWarning(loan);
      if (warning) {
        this.confirmationService.confirm({
-         header: 'Return this audiobook early?',
+         header: 'Return this so soon after borrowing?',
          message: warning,
          icon: 'pi pi-exclamation-triangle',
          acceptIcon: 'pi pi-undo',
