@@ -40,6 +40,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     titleAvailability: vi.fn(),
     titleAvailabilityBatch: vi.fn(),
     history: vi.fn(() => of([] as OverDriveAuditEntry[])),
+    returnBook: vi.fn(() => of(void 0)),
   };
   const libraryService = {libraries: () => []};
 
@@ -755,6 +756,74 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       expect(toolProgressPct({current: 5})).toBeNull();
       // total 0 would divide to Infinity rather than a percentage.
       expect(toolProgressPct({current: 5, total: 0})).toBeNull();
+    });
+  });
+
+  describe('returning an audiobook early', () => {
+    const HOUR = 60 * 60 * 1000;
+
+    /** A loan borrowed `hoursAgo` ago, running `runtime` ("HH:MM:SS"). */
+    function audiobookLoan(hoursAgo: number, runtime: string | null, extra: Record<string, unknown> = {}) {
+      return {
+        id: 'title-1',
+        cardId: 'lapl',
+        title: 'A Long Book',
+        audiobook: true,
+        duration: runtime,
+        checkoutDate: new Date(Date.now() - hoursAgo * HOUR).toISOString(),
+        ...extra,
+      } as never;
+    }
+
+    it('warns when the loan has been held for less than the runtime', () => {
+      const c = component;
+      const warning = c.earlyAudiobookReturnWarning(audiobookLoan(2, '11:30:00'));
+
+      expect(warning).toContain('2h');
+      expect(warning).toContain('11h 30m');
+    });
+
+    it('does not warn once the loan has been held for at least the runtime', () => {
+      const c = component;
+      expect(c.earlyAudiobookReturnWarning(audiobookLoan(12, '11:30:00'))).toBeNull();
+    });
+
+    it('does not warn for ebooks, which have no runtime to compare against', () => {
+      const c = component;
+      expect(c.earlyAudiobookReturnWarning(audiobookLoan(1, '11:30:00', {audiobook: false}))).toBeNull();
+    });
+
+    it('stays quiet when the runtime or checkout date is missing', () => {
+      const c = component;
+      // Nothing to compare — a warning here would be guesswork.
+      expect(c.earlyAudiobookReturnWarning(audiobookLoan(1, null))).toBeNull();
+      expect(c.earlyAudiobookReturnWarning(audiobookLoan(1, 'not-a-duration'))).toBeNull();
+      expect(c.earlyAudiobookReturnWarning(audiobookLoan(1, '11:30:00', {checkoutDate: null}))).toBeNull();
+    });
+
+    it('treats a future checkout date as not-long-enough rather than skipping the warning', () => {
+      const c = component;
+      // Clock skew must not silently suppress the check.
+      expect(c.earlyAudiobookReturnWarning(audiobookLoan(-1, '11:30:00'))).not.toBeNull();
+    });
+
+    it('confirms before returning early, and returns only on accept', () => {
+      const c = component;
+      c.onReturn(audiobookLoan(2, '11:30:00'));
+
+      expect(confirmationService.confirm).toHaveBeenCalledTimes(1);
+      expect(overdriveService.returnBook).not.toHaveBeenCalled();
+
+      confirmationService.confirm.mock.calls[0][0].accept();
+      expect(overdriveService.returnBook).toHaveBeenCalledWith('lapl', 'title-1');
+    });
+
+    it('returns straight away when the whole runtime has elapsed', () => {
+      const c = component;
+      c.onReturn(audiobookLoan(12, '11:30:00'));
+
+      expect(confirmationService.confirm).not.toHaveBeenCalled();
+      expect(overdriveService.returnBook).toHaveBeenCalledWith('lapl', 'title-1');
     });
   });
 
