@@ -428,36 +428,43 @@ export class TaskManagementComponent implements OnInit {
     this.cronValidationError = null;
   }
 
+  /**
+   * Validate one cron field, unwrapping the syntax in the order it nests: a list of steps of ranges.
+   *
+   * Order matters. A step's left half may itself be a range ('0-23/2'), so '/' has to be unwrapped
+   * before '-' is considered — testing '-' first splits that into Number('23/2') and rejects a
+   * perfectly valid expression. Likewise a bare start is legal on the left of a step ('1/2' meaning
+   * "from 1, every 2"), which Spring accepts and this used to reject outright.
+   */
   private isValidCronField(field: string, min: number, max: number): boolean {
+    if (!field) {
+      return false;
+    }
     if (field === '*' || field === '?') {
       return true;
     }
 
-    if (field.includes('-')) {
-      const [start, end] = field.split('-').map(Number);
-      return !isNaN(start) && !isNaN(end) && start >= min && end <= max && start <= end;
+    // A list is the outermost construct; each element stands on its own.
+    if (field.includes(',')) {
+      return field.split(',').every(part => this.isValidCronField(part, min, max));
     }
 
     if (field.includes('/')) {
-      const [range, step] = field.split('/');
-      const stepNum = Number(step);
-      if (isNaN(stepNum) || stepNum <= 0) return false;
-
-      if (range === '*') return true;
-      if (range.includes('-')) {
-        const [start, end] = range.split('-').map(Number);
-        return !isNaN(start) && !isNaN(end) && start >= min && end <= max;
-      }
-      return false;
+      const parts = field.split('/');
+      if (parts.length !== 2) return false;
+      const step = Number(parts[1]);
+      if (!Number.isInteger(step) || step <= 0) return false;
+      return parts[0] === '*' || this.isValidCronField(parts[0], min, max);
     }
 
-    if (field.includes(',')) {
-      const values = field.split(',').map(Number);
-      return values.every(val => !isNaN(val) && val >= min && val <= max);
+    if (field.includes('-')) {
+      const [start, end] = field.split('-').map(Number);
+      return Number.isInteger(start) && Number.isInteger(end)
+        && start >= min && end <= max && start <= end;
     }
 
     const num = Number(field);
-    return !isNaN(num) && num >= min && num <= max;
+    return Number.isInteger(num) && num >= min && num <= max;
   }
 
   // ============================================================================

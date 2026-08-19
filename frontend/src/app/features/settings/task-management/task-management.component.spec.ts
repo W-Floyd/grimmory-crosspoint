@@ -410,4 +410,51 @@ describe('TaskManagementComponent', () => {
     expect(component.getCancelButtonIcon(TaskType.CLEAR_PDF_CACHE)).toBe('pi pi-times');
     expect(component.formatDate('2026-03-27T03:00:00Z')).toContain('2026');
   });
+
+  /** validateCronExpression is private; drive it the way the template does. */
+  function validate(expression: string): string | null {
+    component.editingCronExpression = expression;
+    component.onCronExpressionChange();
+    return component.cronValidationError;
+  }
+
+  it('accepts a bare start on the left of a step', () => {
+    // V919 hands each deployment a schedule of exactly this shape.
+    expect(validate('0 21 1/2 * * *')).toBeNull();
+    expect(validate('0 0 0/2 * * *')).toBeNull();
+    expect(validate('0 37 1/6 * * *')).toBeNull();
+  });
+
+  it('accepts a stepped range, whose left half contains a dash', () => {
+    expect(validate('0 0 0-23/2 * * *')).toBeNull();
+    expect(validate('0 0-59/15 * * * *')).toBeNull();
+  });
+
+  it('accepts the ordinary forms', () => {
+    expect(validate('0 0 */2 * * *')).toBeNull();
+    expect(validate('0 30 1 * * *')).toBeNull();
+    expect(validate('0 0 1,13 * * *')).toBeNull();
+    expect(validate('0 0 9-17 * * 1-5')).toBeNull();
+    expect(validate('* * * * * *')).toBeNull();
+  });
+
+  it('accepts a list whose elements are themselves ranges or steps', () => {
+    expect(validate('0 0 1-5,9-17 * * *')).toBeNull();
+    expect(validate('0 0 1/4,20 * * *')).toBeNull();
+  });
+
+  it('still rejects genuinely invalid fields', () => {
+    expect(validate('0 0 24 * * *')).not.toBeNull();       // hour out of range
+    expect(validate('0 60 * * * *')).not.toBeNull();       // minute out of range
+    expect(validate('0 0 1/0 * * *')).not.toBeNull();      // zero step
+    expect(validate('0 0 1/2/3 * * *')).not.toBeNull();    // malformed step
+    expect(validate('0 0 abc * * *')).not.toBeNull();      // not a number
+    expect(validate('0 0 5-1 * * *')).not.toBeNull();      // inverted range
+    expect(validate('0 0 1,,2 * * *')).not.toBeNull();     // empty list element
+    expect(validate('0 0 * * *')).not.toBeNull();          // only five fields
+  });
+
+  it('treats an empty expression as no schedule rather than an error', () => {
+    expect(validate('')).toBeNull();
+  });
 });
