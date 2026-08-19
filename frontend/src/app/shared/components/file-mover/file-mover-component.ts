@@ -147,8 +147,14 @@ export class FileMoverComponent implements OnDestroy {
       const targetLibraryId = currentLibraryId;
       const targetLibraryName = currentLibraryName;
       const availableLibraryPaths = this.getLibraryPathsById(targetLibraryId);
-      const targetLibraryPathId = availableLibraryPaths.length > 0 ? availableLibraryPaths[0].id ?? null : null;
-      const targetLibraryPath = availableLibraryPaths.length > 0 ? availableLibraryPaths[0].path : '';
+      // Default to the path the file already lives under, not the library's first path. A library with
+      // several roots (/books and /audiobook, say) would otherwise propose relocating every audiobook
+      // into /books — an unasked-for move dressed up as a rename.
+      const currentPathId = book.libraryPath?.id ?? null;
+      const retainedPath = availableLibraryPaths.find(p => p.id === currentPathId);
+      const defaultPath = retainedPath ?? (availableLibraryPaths.length > 0 ? availableLibraryPaths[0] : null);
+      const targetLibraryPathId = defaultPath?.id ?? null;
+      const targetLibraryPath = defaultPath?.path ?? '';
 
       const preview: FilePreview = {
         bookId: book.id,
