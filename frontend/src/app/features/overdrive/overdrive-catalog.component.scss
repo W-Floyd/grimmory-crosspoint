@@ -117,9 +117,34 @@
       min-width: 32rem;
     }
 
+    // Header on one line: a shorter title leaves room for the sync status and Refresh beside it,
+    // and the subtitle is a description of the page the user is already looking at.
+    .page-header {
+      align-items: center;
+      flex-wrap: nowrap;
+      margin-bottom: 0.25rem;
+    }
+
+    .page-heading .subtitle {
+      display: none;
+    }
+
+    h2 {
+      font-size: 1.15rem;
+      margin-bottom: 0;
+    }
+
+    .refresh-group {
+      flex: 0 0 auto;
+    }
+
+    .last-synced {
+      font-size: 0.75rem;
+    }
+
     // Trim the Library Cards block: it is a status line above the thing the user came for.
     .collapsed-summary {
-      font-size: 0.8rem;
+      font-size: 0.75rem;
     }
 
     ::ng-deep .p-card .p-card-body {
@@ -134,6 +159,20 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
+    flex-wrap: wrap;
+
+    // Collapsed, the summary shares the title line. It takes the slack so the fold toggle stays
+    // hard right, and shrinks rather than pushing the toggle onto a second row.
+    &.is-collapsed .collapsed-summary {
+      flex: 1 1 auto;
+      min-width: 0;
+      text-align: right;
+      margin-right: 0.25rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 400;
+    }
   }
 
   .fold-toggle {
@@ -436,6 +475,36 @@
     display: flex;
     justify-content: center;
     padding: 0.5rem 0;
+  }
+
+  // Boolean facets live in a popover so the filter row stays one line; the format select is the one
+  // filter common enough to stay inline.
+  .facet-popover {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    max-width: 20rem;
+
+    .filter-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    label {
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    .facet-divider {
+      height: 1px;
+      background: var(--surface-border, rgb(255 255 255 / 15%));
+    }
+
+    .facet-hint {
+      opacity: 0.75;
+      line-height: 1.35;
+    }
   }
 
   // Client-side facet filters over the search results (format select + boolean toggles).

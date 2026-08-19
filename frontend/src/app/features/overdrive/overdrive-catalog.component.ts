@@ -13,6 +13,7 @@ import { TableModule, TableLazyLoadEvent } from '@openng/optimus-ui/table';
 import { SelectModule } from '@openng/optimus-ui/select';
 import { MultiSelectModule } from '@openng/optimus-ui/multiselect';
 import { CheckboxModule } from '@openng/optimus-ui/checkbox';
+import { Popover } from '@openng/optimus-ui/popover';
 import { DialogModule } from '@openng/optimus-ui/dialog';
 import { RxStompService } from '../../shared/websocket/rx-stomp.service';
 import { ToastModule } from '@openng/optimus-ui/toast';
@@ -66,6 +67,7 @@ export function toolProgressPct(e: { pct?: number; current?: number; total?: num
     SelectModule,
     MultiSelectModule,
     CheckboxModule,
+    Popover,
     DialogModule,
     ToastModule,
     TooltipModule,
@@ -1039,6 +1041,13 @@ export class OverdriveCatalogComponent {
    durationLabel(item: { duration?: string | null }): string | null {
      const total = this.durationMinutes(item.duration);
      return total == null ? null : this.minutesLabel(total);
+   }
+
+   /** Button label for the facet popover, carrying the count of active boolean filters. */
+   facetFilterLabel(): string {
+     const active = [this.filterAvailableNow(), this.filterMyLanguage(), this.filterHideAbridged(),
+       this.serverSideFilter()].filter(Boolean).length;
+     return active > 0 ? `Filters (${active})` : 'Filters';
    }
 
    /** The user's active language code, uppercased. */

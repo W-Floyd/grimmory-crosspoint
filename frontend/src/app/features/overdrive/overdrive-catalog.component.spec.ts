@@ -932,4 +932,26 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       expect(component.searchFirst()).toBe(30);
     });
   });
+
+  describe('facet filter button label', () => {
+    it('reads plainly when no boolean filter is on', () => {
+      setup();
+      component.filterAvailableNow.set(false);
+      component.filterMyLanguage.set(false);
+      component.filterHideAbridged.set(false);
+      component.serverSideFilter.set(false);
+
+      expect(component.facetFilterLabel()).toBe('Filters');
+    });
+
+    it('counts the active ones, since the popover hides which are set', () => {
+      setup();
+      component.filterAvailableNow.set(true);
+      component.filterMyLanguage.set(true);
+      component.filterHideAbridged.set(false);
+      component.serverSideFilter.set(false);
+
+      expect(component.facetFilterLabel()).toBe('Filters (2)');
+    });
+  });
 });

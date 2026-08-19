@@ -1,8 +1,8 @@
 <div class="overdrive-container">
   <p-toast />
   <div class="page-header">
-    <div>
-      <h2>OverDrive / Libby Integration</h2>
+    <div class="page-heading">
+      <h2>OverDrive / Libby</h2>
       <p class="subtitle">Manage your library loans and holds</p>
     </div>
     @if (selectedCards().length > 0 || toolLog().length > 0) {
@@ -32,8 +32,15 @@
   @if (cards().length > 0) {
     <p-card styleClass="mb-4">
       <ng-template pTemplate="title">
-        <div class="card-title-row">
+        <div class="card-title-row" [class.is-collapsed]="cardsCollapsed()">
           <span>Library Cards</span>
+          <!-- Collapsed, the summary sits on the title line rather than below it, so the whole block
+          is one row instead of three. -->
+          @if (cardsCollapsed()) {
+            <small class="collapsed-summary">
+              {{ selectedCards().length }}/{{ cards().length }} cards · Loans {{ loansSummary() }} · Holds {{ holdsSummary() }}
+            </small>
+          }
           <button type="button" class="fold-toggle" (click)="cardsCollapsed.set(!cardsCollapsed())"
             [attr.aria-expanded]="!cardsCollapsed()"
             [pTooltip]="cardsCollapsed() ? 'Show cards and limits' : 'Hide cards and limits'" tooltipPosition="left">
@@ -42,11 +49,7 @@
         </div>
       </ng-template>
 
-      @if (cardsCollapsed()) {
-        <small class="collapsed-summary">
-          {{ selectedCards().length }}/{{ cards().length }} cards · Loans {{ loansSummary() }} · Holds {{ holdsSummary() }}
-        </small>
-      } @else {
+      @if (!cardsCollapsed()) {
         <div class="field">
           <label for="active-card-select">Search &amp; borrow using</label>
           <p-multiSelect
@@ -134,29 +137,38 @@
           <span class="filter-label">Filter:</span>
           <p-select [options]="formatFilterOptions" [ngModel]="filterFormat()" (ngModelChange)="filterFormat.set($event)"
             [ngModelOptions]="{ standalone: true }" optionLabel="label" optionValue="value" styleClass="format-filter" />
-          <span class="filter-option">
-            <p-checkbox [ngModel]="filterAvailableNow()" (ngModelChange)="filterAvailableNow.set($event)"
-              [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-available" />
-            <label for="filter-available">Available now</label>
-          </span>
-          <span class="filter-option">
-            <p-checkbox [ngModel]="filterMyLanguage()" (ngModelChange)="filterMyLanguage.set($event)"
-              [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-language" />
-            <label for="filter-language">My language ({{ userLanguageLabel() }})</label>
-          </span>
-          <span class="filter-option">
-            <p-checkbox [ngModel]="filterHideAbridged()" (ngModelChange)="filterHideAbridged.set($event)"
-              [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-abridged" />
-            <label for="filter-abridged">Hide abridged</label>
-          </span>
-          <span class="filter-divider"></span>
-          <span class="filter-option">
-            <p-checkbox [ngModel]="serverSideFilter()" (ngModelChange)="serverSideFilter.set($event)"
-              [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-serverside" />
-            <label for="filter-serverside"
-              pTooltip="Apply the format / available / language filters in the catalog query itself, so a broad search that returns too many titles is narrowed before results come back (abridged still filters here). Re-runs the search when you change a filter."
-              tooltipPosition="top">Filter on server</label>
-          </span>
+          <p-button [label]="facetFilterLabel()" icon="pi pi-filter" severity="secondary" [text]="true"
+            size="small" (onClick)="facetPopover.toggle($event)"
+            pTooltip="Availability, language and abridged filters" tooltipPosition="top" />
+          <p-popover #facetPopover [dismissable]="true" appendTo="body">
+            <div class="facet-popover">
+              <span class="filter-option">
+                <p-checkbox [ngModel]="filterAvailableNow()" (ngModelChange)="filterAvailableNow.set($event)"
+                  [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-available" />
+                <label for="filter-available">Available now</label>
+              </span>
+              <span class="filter-option">
+                <p-checkbox [ngModel]="filterMyLanguage()" (ngModelChange)="filterMyLanguage.set($event)"
+                  [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-language" />
+                <label for="filter-language">My language ({{ userLanguageLabel() }})</label>
+              </span>
+              <span class="filter-option">
+                <p-checkbox [ngModel]="filterHideAbridged()" (ngModelChange)="filterHideAbridged.set($event)"
+                  [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-abridged" />
+                <label for="filter-abridged">Hide abridged</label>
+              </span>
+              <span class="facet-divider"></span>
+              <span class="filter-option">
+                <p-checkbox [ngModel]="serverSideFilter()" (ngModelChange)="serverSideFilter.set($event)"
+                  [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="filter-serverside" />
+                <label for="filter-serverside">Filter on server</label>
+              </span>
+              <small class="facet-hint">
+                Applies the format, availability and language filters in the catalog query itself, so a
+                broad search is narrowed before results come back. Re-runs the search when changed.
+              </small>
+            </div>
+          </p-popover>
           @if (filtersActive()) {
             <span class="filter-count">{{ filteredResults().length }} of {{ results().length }}</span>
             <p-button label="Clear" icon="pi pi-times" [text]="true" size="small" (onClick)="clearFilters()" />
