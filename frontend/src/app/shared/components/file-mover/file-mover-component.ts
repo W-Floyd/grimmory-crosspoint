@@ -135,14 +135,18 @@ export class FileMoverComponent implements OnDestroy {
 
   applyPattern(): void {
     const previews = this.books.map(book => {
-      const fileName = book.fileName ?? '';
-      const fileSubPath = book.fileSubPath ? `${book.fileSubPath.replace(/\/+$/g, '')}/` : '';
+      // book.fileName / fileSubPath are frequently unset on this DTO; the primary file carries them,
+      // and without the fallback the Current Path column renders as a bare library name.
+      const fileName = book.fileName ?? book.primaryFile?.fileName ?? '';
+      const rawSubPath = book.fileSubPath ?? book.primaryFile?.fileSubPath ?? '';
+      const fileSubPath = rawSubPath ? `${rawSubPath.replace(/\/+$/g, '')}/` : '';
 
       const relativeOriginalPath = `${fileSubPath}${fileName}`;
 
       const currentLibraryId = book.libraryId ?? book.libraryPath?.id ?? (book as { library?: { id: number } }).library?.id ?? null;
       const currentLibraryName = this.getLibraryNameById(currentLibraryId);
-      const currentLibraryPath = this.getLibraryPathById(currentLibraryId);
+      const currentPathId = book.libraryPath?.id ?? null;
+      const currentLibraryPath = this.getLibraryPathValue(currentLibraryId, currentPathId);
 
       const targetLibraryId = currentLibraryId;
       const targetLibraryName = currentLibraryName;
@@ -150,7 +154,6 @@ export class FileMoverComponent implements OnDestroy {
       // Default to the path the file already lives under, not the library's first path. A library with
       // several roots (/books and /audiobook, say) would otherwise propose relocating every audiobook
       // into /books — an unasked-for move dressed up as a rename.
-      const currentPathId = book.libraryPath?.id ?? null;
       const retainedPath = availableLibraryPaths.find(p => p.id === currentPathId);
       const defaultPath = retainedPath ?? (availableLibraryPaths.length > 0 ? availableLibraryPaths[0] : null);
       const targetLibraryPathId = defaultPath?.id ?? null;
@@ -158,7 +161,7 @@ export class FileMoverComponent implements OnDestroy {
 
       const preview: FilePreview = {
         bookId: book.id,
-        originalPath: this.getFullPath(currentLibraryId, relativeOriginalPath),
+        originalPath: this.getFullPath(currentLibraryId, currentPathId, relativeOriginalPath),
         relativeOriginalPath,
         currentLibraryId,
         currentLibraryName,
@@ -255,7 +258,9 @@ export class FileMoverComponent implements OnDestroy {
 
   private updatePreviewPaths(preview: FilePreview, book: Book): void {
     const meta = book.metadata!;
-    const fileName = book.fileName ?? '';
+    // Same fallback as applyPattern: with book.fileName unset the extension resolves empty, and the
+    // new path silently loses its suffix.
+    const fileName = book.fileName ?? book.primaryFile?.fileName ?? '';
     const extension = fileName.match(/\.[^.]+$/)?.[0] ?? '';
     const pattern = this.getPatternForLibrary(preview.targetLibraryId);
 
@@ -290,7 +295,7 @@ export class FileMoverComponent implements OnDestroy {
     }
 
     preview.relativeNewPath = newPath;
-    preview.newPath = this.getFullPath(preview.targetLibraryId, newPath);
+    preview.newPath = this.getFullPath(preview.targetLibraryId, preview.targetLibraryPathId, newPath);
   }
 
   private getPatternForLibrary(libraryId: number | null): string {
@@ -317,16 +322,30 @@ export class FileMoverComponent implements OnDestroy {
     return library?.paths || [];
   }
 
-  private getLibraryPathById(libraryId: number | null): string {
+  /**
+   * The single library path a file sits on, for display. Falls back to the library's first path only
+   * when the file's own path can't be resolved — never to a joined list of every path, which said
+   * nothing about where this particular file was.
+   */
+  private getLibraryPathValue(libraryId: number | null, libraryPathId: number | null): string {
     const paths = this.getLibraryPathsById(libraryId);
-    return paths.map((p: LibraryPath) => p.path).join(', ');
+    const match = paths.find(p => p.id === libraryPathId) ?? paths[0];
+    return match ? match.path.replace(/\/+$/g, '') : '';
   }
 
-  private getFullPath(libraryId: number | null, relativePath: string): string {
+  /**
+   * Absolute path for a file, rooted at the library path it actually sits on.
+   *
+   * Takes the path explicitly rather than deriving it from the library: a library can have several
+   * roots, and assuming the first misreports every file on any of the others — which made the dialog
+   * claim a file was somewhere it wasn't, hiding the fact that organizing would move it.
+   */
+  private getFullPath(libraryId: number | null, libraryPathId: number | null, relativePath: string): string {
     if (!libraryId) return relativePath;
 
     const paths = this.getLibraryPathsById(libraryId);
-    const libraryPath = paths.length > 0 ? paths[0].path.replace(/\/+$/g, '') : '';
+    const match = paths.find(p => p.id === libraryPathId) ?? paths[0];
+    const libraryPath = match ? match.path.replace(/\/+$/g, '') : '';
     return libraryPath ? `${libraryPath}/${relativePath}`.replace(/\/\/+/g, '/') : relativePath;
   }
 
