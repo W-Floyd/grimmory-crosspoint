@@ -8,6 +8,7 @@ import {AppSettingsService} from '../../../shared/service/app-settings.service';
 import {OverDriveService, OverDriveAutoSyncSettings, OverDriveCard, OverDriveImportDestinations, OverDriveShareUser} from '../../../core/services/overdrive.service';
 import {LibraryService} from '../../../features/book/service/library.service';
 import {ConfirmationService} from '@openng/optimus-ui/api';
+import {UserService} from '../user-management/user.service';
 import {OverdriveSettingsComponent} from './overdrive-settings.component';
 
 /** Auto-sync settings with everything off, overridable per test. */
@@ -44,7 +45,7 @@ const confirmationService = {
 
 const appSettingsState = signal<AppSettings | null>(null);
 
-function setup(): OverdriveSettingsComponent {
+function setup(opts: {admin?: boolean} = {}): OverdriveSettingsComponent {
   TestBed.configureTestingModule({
     imports: [OverdriveSettingsComponent],
     providers: [
@@ -52,12 +53,27 @@ function setup(): OverdriveSettingsComponent {
       {provide: AppSettingsService, useValue: {appSettings: () => appSettingsState(), saveSettings: () => of(void 0)}},
       {provide: LibraryService, useValue: {libraries: () => []}},
       {provide: ConfirmationService, useValue: confirmationService},
+      {provide: UserService, useValue: {currentUser: () => ({permissions: {admin: opts.admin ?? false}})}},
     ],
   });
   // Render with a stub template so the suite tests component logic without PrimeNG DOM.
   TestBed.overrideComponent(OverdriveSettingsComponent, {set: {template: ''}});
   return TestBed.createComponent(OverdriveSettingsComponent).componentInstance;
 }
+
+describe('OverdriveSettingsComponent deployment-wide settings', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('lets an admin edit the library keys and format preference', () => {
+    expect(setup({admin: true}).canEditGlobalSettings()).toBe(true);
+  });
+
+  it('does not offer those controls to a non-admin OverDrive user', () => {
+    // They live in the shared metadataProviderSettings blob, and PUT /settings takes it from admins
+    // only — so rendering the controls just led to a 403 on save.
+    expect(setup({admin: false}).canEditGlobalSettings()).toBe(false);
+  });
+});
 
 describe('OverdriveSettingsComponent card sharing', () => {
   beforeEach(() => vi.clearAllMocks());

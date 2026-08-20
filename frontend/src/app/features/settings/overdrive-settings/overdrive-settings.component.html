@@ -10,27 +10,30 @@
   <div class="settings-card">
     <div class="field">
       <label for="new-library-key">Library Keys</label>
-      <div class="library-key-row">
-        <input
-          id="new-library-key"
-          pInputText
-          type="text"
-          [ngModel]="newKeyInput()"
-          (ngModelChange)="newKeyInput.set($event)"
-          [ngModelOptions]="{ standalone: true }"
-          placeholder="Add a library key (e.g. lapl)"
-          class="w-full"
-          (keyup.enter)="onAddKey()"
-          />
-        <p-button
-          label="Add"
-          icon="pi pi-plus"
-          severity="secondary"
-          [disabled]="!newKeyInput().trim()"
-          (onClick)="onAddKey()"
-          />
-      </div>
-      <small>OverDrive library keys (preferredKey) to search for metadata. The catalog/borrow page uses your linked cards instead.</small>
+      <!-- Part of the same admin-only settings blob as the format preference below. -->
+      @if (canEditGlobalSettings()) {
+        <div class="library-key-row">
+          <input
+            id="new-library-key"
+            pInputText
+            type="text"
+            [ngModel]="newKeyInput()"
+            (ngModelChange)="newKeyInput.set($event)"
+            [ngModelOptions]="{ standalone: true }"
+            placeholder="Add a library key (e.g. lapl)"
+            class="w-full"
+            (keyup.enter)="onAddKey()"
+            />
+          <p-button
+            label="Add"
+            icon="pi pi-plus"
+            severity="secondary"
+            [disabled]="!newKeyInput().trim()"
+            (onClick)="onAddKey()"
+            />
+        </div>
+      }
+      <small>OverDrive library keys (preferredKey) to search for metadata. The catalog/borrow page uses your linked cards instead.@if (!canEditGlobalSettings()) { Set by an administrator.}</small>
 
       @if (libraryKeys().length > 0) {
         <div class="key-chips">
@@ -43,30 +46,50 @@
                 @if (isKeyChecking(key)) {<i class="pi pi-spin pi-spinner key-chip-icon"></i>}
                 @if (keyResolution(key) && !keyResolution(key)!.valid) {<i class="pi pi-exclamation-triangle key-chip-icon" pTooltip="No OverDrive library found for this key"></i>}
               </span>
-              <button type="button" class="key-chip-remove" pTooltip="Remove" (click)="removeKey(key)">
-                <i class="pi pi-times"></i>
-              </button>
+              @if (canEditGlobalSettings()) {
+                <button type="button" class="key-chip-remove" pTooltip="Remove" (click)="removeKey(key)">
+                  <i class="pi pi-times"></i>
+                </button>
+              }
             </span>
           }
         </div>
-        <p-button label="Check keys" icon="pi pi-check-circle" severity="secondary" [text]="true" size="small"
-          (onClick)="checkKeys()" />
+        @if (canEditGlobalSettings()) {
+          <p-button label="Check keys" icon="pi pi-check-circle" severity="secondary" [text]="true" size="small"
+            (onClick)="checkKeys()" />
+        }
       }
     </div>
 
     <div class="field">
       <span class="field-label">Format Preference</span>
-      <small>Order of formats to try when borrowing. DRM-free formats import directly; Adobe formats need a configured ACSM handler.</small>
-      <p-orderList [value]="formatPreference" [dragdrop]="true" [responsive]="true">
-        <ng-template let-format pTemplate="item">
-          <span [class.format-unsupported]="isFormatUnsupported(format.id)">
-            {{ format.label }}
-            @if (isFormatUnsupported(format.id)) {
-              <em class="format-unsupported-note">— requires an ACSM handler (not configured)</em>
-            }
-          </span>
-        </ng-template>
-      </p-orderList>
+      @if (canEditGlobalSettings()) {
+        <small>Order of formats to try when borrowing. DRM-free formats import directly; Adobe formats need a configured ACSM handler. Applies to everyone.</small>
+        <p-orderList [value]="formatPreference" [dragdrop]="true" [responsive]="true">
+          <ng-template let-format pTemplate="item">
+            <span [class.format-unsupported]="isFormatUnsupported(format.id)">
+              {{ format.label }}
+              @if (isFormatUnsupported(format.id)) {
+                <em class="format-unsupported-note">— requires an ACSM handler (not configured)</em>
+              }
+            </span>
+          </ng-template>
+        </p-orderList>
+      } @else {
+        <!-- Shown rather than hidden: this order decides what your own borrows come back as, so it is
+             worth reading even though only an administrator can change it. -->
+        <small>Order of formats tried when borrowing, set by an administrator for everyone. You can still pick a different offered format for a single borrow on the Search &amp; Borrow tab.</small>
+        <ol class="format-preference-readonly">
+          @for (format of formatPreference; track format.id) {
+            <li [class.format-unsupported]="isFormatUnsupported(format.id)">
+              {{ format.label }}
+              @if (isFormatUnsupported(format.id)) {
+                <em class="format-unsupported-note">— requires an ACSM handler (not configured)</em>
+              }
+            </li>
+          }
+        </ol>
+      }
     </div>
 
     <div class="field">
@@ -474,12 +497,17 @@
       </p-dialog>
     </div>
 
-    <p-button
-      label="Save Settings"
-      (onClick)="onSave()"
-      severity="success"
-      class="mt-4"
-      />
+    <!-- Saves only the library keys and format preference, which PUT /settings accepts from admins
+         alone. Import destinations and the auto-sync switches above persist on change through their
+         own per-user endpoints, so hiding this costs a non-admin nothing. -->
+    @if (canEditGlobalSettings()) {
+      <p-button
+        label="Save Settings"
+        (onClick)="onSave()"
+        severity="success"
+        class="mt-4"
+        />
+    }
   </div>
 
   <!-- Cross-user card administration; renders itself only for users permitted to manage all cards. -->

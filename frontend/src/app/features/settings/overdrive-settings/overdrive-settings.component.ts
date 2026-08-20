@@ -20,6 +20,7 @@ import { ConfirmationService } from '@openng/optimus-ui/api';
 import { LibraryService } from '../../../features/book/service/library.service';
 import { OverdriveCardAdminComponent } from './card-admin/overdrive-card-admin.component';
 import { Library, LibraryPath } from '../../../features/book/model/library.model';
+import { UserService } from '../user-management/user.service';
 
 /** Everything off, matching the server's defaults for a user who has never opted in. */
 const AUTO_SYNC_DEFAULTS: OverDriveAutoSyncSettings = {
@@ -58,6 +59,15 @@ export class OverdriveSettingsComponent {
   private readonly messageService = inject(MessageService);
   private readonly libraryService = inject(LibraryService);
   private readonly confirmationService = inject(ConfirmationService);
+  private readonly userService = inject(UserService);
+
+  /**
+   * Whether the current user may edit the deployment-wide settings on this page (library keys and
+   * format preference). They live in the shared metadataProviderSettings blob, which PUT /settings
+   * only accepts from an admin — so without this the controls rendered for everyone with OverDrive
+   * access, and saving them failed with a 403.
+   */
+  readonly canEditGlobalSettings = computed(() => !!this.userService.currentUser()?.permissions?.admin);
 
   // Grimmory libraries (with paths) for the per-type import-destination selectors.
   readonly grimmoryLibraries = this.libraryService.libraries;

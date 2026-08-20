@@ -343,6 +343,19 @@
   font-size: 0.85em;
 }
 
+// Read-only rendering of the format preference for non-admins, who see the order that governs their
+// borrows but cannot drag it. Kept visually close to the orderList rows it stands in for.
+.format-preference-readonly {
+  margin: 0.5rem 0 0;
+  padding-left: 1.5rem;
+  list-style: decimal;
+
+  li {
+    padding: 0.25rem 0;
+    color: var(--text-color);
+  }
+}
+
 // Bulk selection bar above the linked-card rows.
 .bulk-bar {
   display: flex;
