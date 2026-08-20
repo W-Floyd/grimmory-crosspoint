@@ -1084,6 +1084,346 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void resolveLinkedBookId_prefersTheOverdriveIdOverIsbnAndAsin() {
+        authAsAdmin(7L);
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(99L));
+
+        assertThat(service.resolveLinkedBookId("2056901", "9780441013593", "B0ABCD1234")).isEqualTo(99L);
+        // The id names one edition; the weaker keys are not consulted once it hits.
+        verify(bookRepository, never()).findIdsByIsbn13(any());
+        verify(bookRepository, never()).findIdsByAsin(any());
+    }
+
+    @Test
+    void resolveLinkedBookId_fallsBackToIsbnWhenTheTitleHasNoRecordedId() {
+        authAsAdmin(7L);
+        // Books imported before ids were recorded have none, so the older keys still have to work.
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+        when(bookRepository.findIdsByIsbn13("9780441013593")).thenReturn(List.of(7L));
+
+        assertThat(service.resolveLinkedBookId("2056901", "9780441013593", null)).isEqualTo(7L);
+    }
+
+    @Test
+    void resolveLinkedBookId_byOverdriveId_staysWithinTheUsersLibraries() {
+        BookLoreUser user = BookLoreUser.builder()
+                .id(7L)
+                .assignedLibraries(List.of(org.booklore.model.dto.Library.builder().id(3L).build()))
+                .build();
+        when(authenticationService.getAuthenticatedUser()).thenReturn(user);
+        when(bookRepository.findIdsByOverdriveIdAndLibraryIdIn("2056901", List.of(3L))).thenReturn(List.of(99L));
+
+        assertThat(service.resolveLinkedBookId("2056901", null, null)).isEqualTo(99L);
+        verify(bookRepository, never()).findIdsByOverdriveId(any()); // never the unscoped query
+    }
+
+    @Test
+    void resolveLoanBookId_matchesOnTheLoanIdBecauseALoanIdIsATitleId() {
+        authAsAdmin(7L);
+        // No row of our own for this loan — borrowed in the Libby app, or imported by another user.
+        when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "2056901")).thenReturn(Optional.empty());
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(99L));
+
+        assertThat(service.resolveLoanBookId("2056901", null, null)).isEqualTo(99L);
+    }
+
+    // ── Keeping the loan cache honest ────────────────────────────────────
+
+    /** A sync response covering {@code cards}, listing {@code loanIds} as still held. */
+    private static OverDriveSyncResponse syncCovering(List<String> cards, String... loanIds) {
+        OverDriveSyncResponse body = new OverDriveSyncResponse();
+        body.setCards(cards.stream().map(id -> {
+            OverDriveSyncResponse.Card c = new OverDriveSyncResponse.Card();
+            c.setCardId(id);
+            return c;
+        }).toList());
+        body.setLoans(java.util.Arrays.stream(loanIds).map(id -> {
+            OverDriveLoan loan = new OverDriveLoan();
+            loan.setId(id);
+            loan.setCardId(cards.getFirst());
+            return loan;
+        }).toList());
+        return body;
+    }
+
+    private static OverDriveLoanEntity loanRow(String loanId, String identity, String state) {
+        OverDriveLoanEntity row = new OverDriveLoanEntity();
+        row.setOverdriveLoanId(loanId);
+        row.setIdentity(identity);
+        row.setUserId(7L);
+        row.setState(state);
+        return row;
+    }
+
+    @Test
+    void syncMarksLoansTheUserNoLongerHoldsAsReturned() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        OverDriveLoanEntity stillHeld = loanRow("loan-1", "card-a", "BORROWED");
+        OverDriveLoanEntity handedBack = loanRow("loan-2", "card-a", "BORROWED");
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(stillHeld, handedBack));
+        when(loanRepository.findByUserIdAndOverdriveLoanId(any(), any())).thenReturn(Optional.empty());
+
+        syncHarness(syncCovering(List.of("card-a"), "loan-1")).service().sync("card-a");
+
+        // Returned in the Libby app: the feed simply stops listing it, and the row has to follow.
+        assertThat(handedBack.getState()).isEqualTo("RETURNED");
+        assertThat(handedBack.getLastSync()).isNotNull();
+        assertThat(stillHeld.getState()).isEqualTo("BORROWED");
+    }
+
+    @Test
+    void syncRecordsALoanGonePastItsExpiryAsExpiredRatherThanReturned() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        OverDriveLoanEntity lapsed = loanRow("loan-2", "card-a", "BORROWED");
+        lapsed.setExpireDate(Instant.now().minusSeconds(3600));
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(lapsed));
+
+        syncHarness(syncCovering(List.of("card-a"))).service().sync("card-a");
+
+        // OverDrive doesn't say why a loan left the feed; its own expiry date is the only evidence.
+        assertThat(lapsed.getState()).isEqualTo("EXPIRED");
+    }
+
+    @Test
+    void syncReconcilesEvenWhenTheFeedCarriesNoLoansField() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        OverDriveLoanEntity last = loanRow("loan-1", "card-a", "BORROWED");
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(last));
+
+        OverDriveSyncResponse body = syncCovering(List.of("card-a"));
+        body.setLoans(null); // returning your last book can leave the field out entirely
+
+        syncHarness(body).service().sync("card-a");
+
+        // Skipping reconciliation on a missing loans field would strand the final row as borrowed
+        // forever — exactly the case where there is something to retire.
+        assertThat(last.getState()).isEqualTo("RETURNED");
+    }
+
+    @Test
+    void syncLeavesLoansOnCardsItDidNotCoverAlone() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        OverDriveLoanEntity elsewhere = loanRow("loan-9", "card-z", "BORROWED");
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(elsewhere));
+
+        syncHarness(syncCovering(List.of("card-a"))).service().sync("card-a");
+
+        // card-z is on another chip. Absence from this response is no evidence at all about its loans —
+        // marking them returned would be inventing history.
+        assertThat(elsewhere.getState()).isEqualTo("BORROWED");
+        verify(loanRepository, never()).save(elsewhere);
+    }
+
+    @Test
+    void syncDoesNotReviveAlreadyReconciledRows() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        OverDriveLoanEntity done = loanRow("loan-2", "card-a", "RETURNED");
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(done));
+
+        syncHarness(syncCovering(List.of("card-a"))).service().sync("card-a");
+
+        // Already terminal: nothing to reconcile, and no write to make on every subsequent poll.
+        verify(loanRepository, never()).save(done);
+    }
+
+    @Test
+    void reborrowingATitleClearsTheStateLeftBehindByTheLastLoan() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        // A loan id is a title id, so the same row comes back when the title is borrowed again.
+        OverDriveLoanEntity previous = loanRow("loan-1", "card-a", "RETURNED");
+        previous.setFulfilled(true);
+        previous.setAutoImportFailures(3);
+        previous.setAutoReturnDueAt(Instant.now().minusSeconds(86_400));
+        previous.setCreatedAt(Instant.now().minus(java.time.Duration.ofDays(30)));
+        when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "loan-1")).thenReturn(Optional.of(previous));
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(previous));
+
+        syncHarness(syncCovering(List.of("card-a"), "loan-1")).service().sync("card-a");
+
+        // Carrying the old checkout's state over would make a book borrowed minutes ago look like one
+        // held for a month — instantly due for automatic return, and never imported.
+        assertThat(previous.getState()).isEqualTo("BORROWED");
+        assertThat(previous.getFulfilled()).isFalse();
+        assertThat(previous.getAutoImportFailures()).isZero();
+        assertThat(previous.getAutoReturnDueAt()).isNull();
+        assertThat(previous.getCreatedAt()).isAfter(Instant.now().minusSeconds(60));
+    }
+
+    @Test
+    void loanAgeComesFromTheCheckoutDateNotFromWhenTheRowWasWritten() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        when(loanRepository.findByUserIdAndOverdriveLoanId(any(), any())).thenReturn(Optional.empty());
+
+        OverDriveSyncResponse body = new OverDriveSyncResponse();
+        OverDriveLoan loan = new OverDriveLoan();
+        loan.setId("loan-1");
+        loan.setCardId("card-a");
+        loan.setCheckoutDate("2026-08-01T10:15:00Z");
+        body.setLoans(List.of(loan));
+
+        syncHarness(body).service().sync("card-a");
+
+        // Auto-return measures the minimum age against this. A loan borrowed in Libby a week ago and
+        // first seen here today is a week old, not new.
+        ArgumentCaptor<OverDriveLoanEntity> saved = ArgumentCaptor.forClass(OverDriveLoanEntity.class);
+        verify(loanRepository).save(saved.capture());
+        assertThat(saved.getValue().getCreatedAt()).isEqualTo(Instant.parse("2026-08-01T10:15:00Z"));
+    }
+
+    @Test
+    void anUnparseableCheckoutDateLeavesTheExistingAgeAlone() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        OverDriveLoanEntity existing = loanRow("loan-1", "card-a", "BORROWED");
+        Instant borrowedAt = Instant.now().minus(java.time.Duration.ofDays(5));
+        existing.setCreatedAt(borrowedAt);
+        when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "loan-1")).thenReturn(Optional.of(existing));
+
+        OverDriveSyncResponse body = new OverDriveSyncResponse();
+        OverDriveLoan loan = new OverDriveLoan();
+        loan.setId("loan-1");
+        loan.setCardId("card-a");
+        loan.setCheckoutDate("not a date");
+        body.setLoans(List.of(loan));
+
+        syncHarness(body).service().sync("card-a");
+
+        // Resetting the age on a garbled field would silently postpone every automatic return.
+        assertThat(existing.getCreatedAt()).isEqualTo(borrowedAt);
+    }
+
+    // ── Not re-acquiring what the library already has ────────────────────
+
+    /** Opt the user into auto-sync with the given toggles, and give them one linked card. */
+    private void optInWithOneCard(long userId, boolean autoImport, boolean autoBorrow) {
+        when(autoSyncRepository.findByUserId(userId)).thenReturn(Optional.of(
+                org.booklore.model.entity.OverDriveAutoSyncEntity.builder()
+                        .userId(userId).autoImportLoans(autoImport).autoBorrowHolds(autoBorrow).build()));
+        when(tokenRepository.findByUserId(userId)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(userId).identity("card-a").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(userId)).thenReturn(List.of());
+        stubCard(userId, "card-a", "chip-1");
+    }
+
+    @Test
+    void autoImportLinksALoanTheLibraryAlreadyHasInsteadOfDownloadingItAgain() {
+        authAsAdmin(7L);
+        optInWithOneCard(7L, true, false);
+        OverDriveLoanEntity pending = loanRow("2056901", "card-a", "BORROWED");
+        pending.setFulfilled(false);
+        pending.setFormatId("ebook-epub-adobe");
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(pending));
+        when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "2056901")).thenReturn(Optional.of(pending));
+        // The loan id is the title id, and the library already holds that edition.
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
+
+        var outcome = syncHarness(syncCovering(List.of("card-a"), "2056901")).service().runAutoSync();
+
+        // Re-importing would spend a handler run and a download to produce a second copy of a file
+        // already on disk.
+        verifyNoInteractions(overDriveImportService, acsmHandler);
+        assertThat(outcome.loansLinked()).isEqualTo(1);
+        assertThat(outcome.loansImported()).isZero();
+        assertThat(pending.getBookId()).isEqualTo(42L);
+        // Marked done so it is not reconsidered every pass — and so it becomes returnable, which is the
+        // point: a loan whose book we already have is the one worth handing back.
+        assertThat(pending.getFulfilled()).isTrue();
+    }
+
+    @Test
+    void autoImportStillImportsALoanTheLibraryDoesNotHave() {
+        authAsAdmin(7L);
+        optInWithOneCard(7L, true, false);
+        OverDriveLoanEntity pending = loanRow("2056901", "card-a", "BORROWED");
+        pending.setFulfilled(false);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(pending));
+        when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "2056901")).thenReturn(Optional.of(pending));
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+
+        var outcome = syncHarness(syncCovering(List.of("card-a"), "2056901")).service().runAutoSync();
+
+        // No match, so the import runs as before — and fails here, because this harness stubs no
+        // fulfilment. The failure is the proof it was attempted rather than quietly skipped.
+        assertThat(outcome.loansLinked()).isZero();
+        assertThat(outcome.failures()).isEqualTo(1);
+        assertThat(pending.getFulfilled()).isFalse();
+    }
+
+    @Test
+    void autoImportWillNotLinkOnAnIsbnMatchAlone() {
+        authAsAdmin(7L);
+        optInWithOneCard(7L, true, false);
+        OverDriveLoanEntity pending = loanRow("2056901", "card-a", "BORROWED");
+        pending.setFulfilled(false);
+        pending.setIsbn("9780441013593");
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(pending));
+        when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "2056901")).thenReturn(Optional.of(pending));
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+
+        var outcome = syncHarness(syncCovering(List.of("card-a"), "2056901")).service().runAutoSync();
+
+        // Linking marks the loan fulfilled, which makes it returnable. An ISBN is shared across
+        // OverDrive editions and with print, so trusting one here could hand back a loan whose file was
+        // never downloaded — the ISBN query is not even asked.
+        verify(bookRepository, never()).findIdsByIsbn13(any());
+        assertThat(outcome.loansLinked()).isZero();
+        assertThat(pending.getFulfilled()).isFalse();
+    }
+
+    @Test
+    void autoBorrowSkipsAReadyHoldWhoseTitleIsAlreadyInTheLibrary() {
+        authAsAdmin(7L);
+        optInWithOneCard(7L, true, true);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of());
+
+        OverDriveSyncResponse body = syncCovering(List.of("card-a"));
+        org.booklore.model.dto.overdrive.OverDriveHold ready = new org.booklore.model.dto.overdrive.OverDriveHold();
+        ready.setId("2056901");
+        ready.setCardId("card-a");
+        ready.setTitle("Dune");
+        ready.setAvailable(true);
+        body.setHolds(List.of(ready));
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
+
+        var outcome = syncHarness(body).service().runAutoSync();
+
+        // A hold placed months ago can come in long after the book arrived by another route; borrowing
+        // it anyway burns a checkout slot to fetch a file we already have.
+        assertThat(outcome.holdsBorrowed()).isZero();
+        assertThat(outcome.failures()).isZero();
+        verifyNoInteractions(overDriveImportService, acsmHandler);
+    }
+
+    @Test
+    void autoBorrowStillTakesAReadyHoldTheLibraryDoesNotAlreadyHave() {
+        authAsAdmin(7L);
+        optInWithOneCard(7L, true, true);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of());
+
+        OverDriveSyncResponse body = syncCovering(List.of("card-a"));
+        org.booklore.model.dto.overdrive.OverDriveHold ready = new org.booklore.model.dto.overdrive.OverDriveHold();
+        ready.setId("2056901");
+        ready.setCardId("card-a");
+        ready.setTitle("Dune");
+        ready.setAvailable(true);
+        body.setHolds(List.of(ready));
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+
+        var outcome = syncHarness(body).service().runAutoSync();
+
+        // The borrow is attempted and fails in this harness (no borrow endpoint stubbed) — which is
+        // what distinguishes "skipped because we own it" above from "did nothing either way".
+        assertThat(outcome.failures()).isEqualTo(1);
+    }
+
+    @Test
     void shareableUsers_excludesSelfAndSortsByName() {
         authAs(7L);
         // The picker is only available to a user who actually owns a card to share.

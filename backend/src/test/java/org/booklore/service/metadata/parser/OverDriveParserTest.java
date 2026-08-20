@@ -119,6 +119,10 @@ class OverDriveParserTest {
         assertThat(m.getRating()).isEqualTo(4.5);
         // A Libby share link (from the title id) so the results UI can build a provider link.
         assertThat(m.getExternalUrl()).isEqualTo("https://share.libbyapp.com/title/123");
+        // The catalog id itself, kept so it can be persisted: {overdriveId} paths and the "already in
+        // the library?" match both read it back off the book. Only the fallback metadata builder used
+        // to carry it, so every import whose catalog lookup succeeded — nearly all of them — lost it.
+        assertThat(m.getOverdriveId()).isEqualTo("123");
     }
 
     @Test

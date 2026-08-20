@@ -69,6 +69,17 @@ public interface BookRepository extends JpaRepository<BookEntity, Long>, JpaSpec
     @Query("SELECT b.id FROM BookEntity b WHERE upper(b.metadata.asin) = upper(:asin) AND b.library.id IN :libraryIds AND (b.deleted IS NULL OR b.deleted = false)")
     java.util.List<Long> findIdsByAsinAndLibraryIdIn(@Param("asin") String asin, @Param("libraryIds") java.util.Collection<Long> libraryIds);
 
+    /**
+     * Ids of non-deleted books imported from a given OverDrive title. The exact key: an OverDrive id
+     * identifies one edition, so a hit means this is the same file we would download again, not merely
+     * the same work. ISBN and ASIN matching stay as fallbacks for titles that carry no recorded id.
+     */
+    @Query("SELECT b.id FROM BookEntity b WHERE b.metadata.overdriveId = :overdriveId AND (b.deleted IS NULL OR b.deleted = false)")
+    java.util.List<Long> findIdsByOverdriveId(@Param("overdriveId") String overdriveId);
+
+    @Query("SELECT b.id FROM BookEntity b WHERE b.metadata.overdriveId = :overdriveId AND b.library.id IN :libraryIds AND (b.deleted IS NULL OR b.deleted = false)")
+    java.util.List<Long> findIdsByOverdriveIdAndLibraryIdIn(@Param("overdriveId") String overdriveId, @Param("libraryIds") java.util.Collection<Long> libraryIds);
+
     @EntityGraph(attributePaths = { "metadata", "metadata.authors", "metadata.categories", "metadata.moods", "metadata.tags", "metadata.comicMetadata", "bookFiles" })
     @Query("SELECT b FROM BookEntity b WHERE b.id = :id AND (b.deleted IS NULL OR b.deleted = false)")
     Optional<BookEntity> findByIdFull(@Param("id") Long id);

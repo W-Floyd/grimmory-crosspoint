@@ -211,6 +211,21 @@ public class BookMetadataUpdater {
         handleFieldUpdate(e.getAudibleReviewCountLocked(), clear.isAudibleReviewCount(), m.getAudibleReviewCount(), e::setAudibleReviewCount, e::getAudibleReviewCount, replaceMode);
         handleFieldUpdate(e.getAgeRatingLocked(), clear.isAgeRating(), m.getAgeRating(), e::setAgeRating, e::getAgeRating, replaceMode);
         handleFieldUpdate(e.getContentRatingLocked(), clear.isContentRating(), m.getContentRating(), v -> e.setContentRating(nullIfBlank(v)), e::getContentRating, replaceMode);
+        updateOverdriveId(m, e);
+    }
+
+    /**
+     * Record which OverDrive edition a book came from. Deliberately not a {@code handleFieldUpdate}
+     * field: this is provenance rather than editable metadata, so it is written whenever a provider
+     * supplies one and never cleared. A later refresh from Google or Amazon carries no overdriveId, and
+     * under {@code REPLACE_ALL} that null would wipe the id that {@code {overdriveId}} paths and
+     * OverDrive loan matching depend on.
+     */
+    private void updateOverdriveId(BookMetadata m, BookMetadataEntity e) {
+        String id = nullIfBlank(m.getOverdriveId());
+        if (id != null) {
+            e.setOverdriveId(id.trim());
+        }
     }
 
     private <T> void handleFieldUpdate(Boolean locked, boolean shouldClear, T newValue, Consumer<T> setter, Supplier<T> getter, MetadataReplaceMode mode) {

@@ -1553,17 +1553,22 @@ public class OverDriveService {
                     .toEntity(OverDriveSyncResponse.class);
 
             OverDriveSyncResponse syncResp = resp.getBody();
-            if (syncResp != null && syncResp.getLoans() != null) {
+            if (syncResp != null) {
                  Long userId = currentUserId();
-                 for (OverDriveLoan loan : syncResp.getLoans()) {
-                    // The sync is chip-scoped, so it can carry loans belonging to sibling cards. Attribute
-                    // each to the card it actually sits on, falling back to the card we called with only
-                    // when the feed omits the tag.
-                    String loanCard = loan.getCardId() != null && !loan.getCardId().isBlank()
-                            ? loan.getCardId()
-                            : identity;
-                    persistLoan(userId, loanCard, loan);
+                 if (syncResp.getLoans() != null) {
+                     for (OverDriveLoan loan : syncResp.getLoans()) {
+                        // The sync is chip-scoped, so it can carry loans belonging to sibling cards.
+                        // Attribute each to the card it actually sits on, falling back to the card we
+                        // called with only when the feed omits the tag.
+                        String loanCard = loan.getCardId() != null && !loan.getCardId().isBlank()
+                                ? loan.getCardId()
+                                : identity;
+                        persistLoan(userId, loanCard, loan);
+                     }
                  }
+                 // Outside the null check on purpose: a user who has just returned their last book gets
+                 // a feed with no loans at all, and that is precisely when there is a row to retire.
+                 reconcileLoans(userId, syncResp, identity);
              }
 
             log.info("OverDrive sync: {} loans, {} holds",
@@ -1593,13 +1598,33 @@ public class OverDriveService {
                 });
         entity.setIdentity(identity);
 
+        // A loan id is a title id, so borrowing the same title again reuses this row. If it was last
+        // seen returned or expired, this is a new loan wearing an old row: the import and auto-return
+        // state left over from the previous checkout describes a book we no longer hold, and leaving it
+        // in place would make a freshly borrowed title look instantly due for return.
+        boolean reborrowed = isTerminalLoanState(entity.getState());
+        if (reborrowed) {
+            entity.setFulfilled(false);
+            entity.setAutoImportFailures(0);
+            entity.setAutoReturnDueAt(null);
+        }
+
         entity.setTitle(loan.getTitle());
         if (loan.getCreators() != null && !loan.getCreators().isEmpty()) {
             entity.setAuthor(loan.getCreators().stream()
                     .map(c -> c.getName())
                     .collect(Collectors.joining(", ")));
          }
-        entity.setExpireDate(parseExpireDate(loan.getExpireDate()));
+        // Age the loan from when it was actually checked out, not from when this row happened to be
+        // written. The two differ for a loan borrowed in the Libby app and first seen here days later,
+        // and for the re-borrow above — and auto-return measures the minimum age against this.
+        Instant checkedOutAt = parseTimestamp(loan.getCheckoutDate(), "checkoutDate");
+        if (checkedOutAt != null) {
+            entity.setCreatedAt(checkedOutAt);
+        } else if (reborrowed || entity.getCreatedAt() == null) {
+            entity.setCreatedAt(Instant.now());
+        }
+        entity.setExpireDate(parseTimestamp(loan.getExpireDate(), "expireDate"));
         entity.setFormatId(loan.getFormat() != null ? loan.getFormat().getId() : null);
         entity.setState("BORROWED");
         entity.setLastSync(Instant.now());
@@ -1607,12 +1632,76 @@ public class OverDriveService {
         loanRepository.save(entity);
       }
 
+      /** States meaning "we no longer hold this loan"; the row is history, not a live checkout. */
+      private static boolean isTerminalLoanState(String state) {
+        return "RETURNED".equals(state) || "EXPIRED".equals(state);
+      }
+
       /**
-       * Parse an OverDrive expiry timestamp into an {@link Instant}, tolerating the
-       * offset-based formats OverDrive can return. Returns null (rather than aborting
-       * the whole sync) when the value is missing or unparseable.
+       * Bring the loan cache back in line with what the user actually holds.
+       *
+       * <p>{@link #persistLoan} only ever writes rows, so a loan returned in the Libby app, expired on
+       * its own, or handed back by another client leaves a row behind claiming it is still borrowed.
+       * Those stale rows are why the automation had to be taught to filter every decision through the
+       * live sync, and they are what the loan list and history show the user.
+       *
+       * <p>Scoped to the cards this response actually covers. A chip sync returns every card on the
+       * chip and tags each loan, so absence from the feed is real evidence for those cards — but a card
+       * on another chip, or one whose sync failed, is simply unrepresented here, and marking its loans
+       * returned on that basis would be inventing history. Loans already in a terminal state are left
+       * alone.
+       *
+       * @return how many rows were reconciled
        */
-      private Instant parseExpireDate(String value) {
+      private int reconcileLoans(Long userId, OverDriveSyncResponse response, String calledWith) {
+        Set<String> covered = response.getCards() == null || response.getCards().isEmpty()
+                ? new HashSet<>(Collections.singletonList(calledWith))
+                : response.getCards().stream()
+                        .map(OverDriveSyncResponse.Card::getCardId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toCollection(HashSet::new));
+        covered.remove(null);
+        if (covered.isEmpty()) {
+            return 0;
+        }
+        Set<String> live = response.getLoans() == null ? Set.of()
+                : response.getLoans().stream()
+                        .map(OverDriveLoan::getId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
+
+        Instant now = Instant.now();
+        int reconciled = 0;
+        for (OverDriveLoanEntity row : loanRepository.findByUserId(userId)) {
+            if (!covered.contains(row.getIdentity())
+                    || live.contains(row.getOverdriveLoanId())
+                    || isTerminalLoanState(row.getState())) {
+                continue;
+            }
+            // Expired vs returned is a guess either way — OverDrive doesn't say which happened, it just
+            // stops listing the loan. Its own expiry date is the one piece of evidence available, so a
+            // loan that ran past it is recorded as expired and everything else as returned.
+            boolean expired = row.getExpireDate() != null && row.getExpireDate().isBefore(now);
+            row.setState(expired ? "EXPIRED" : "RETURNED");
+            row.setLastSync(now);
+            loanRepository.save(row);
+            reconciled++;
+        }
+        if (reconciled > 0) {
+            log.info("OverDrive sync: reconciled {} stale loan row(s) no longer held on {} card(s)",
+                    reconciled, covered.size());
+        }
+        return reconciled;
+      }
+
+      /**
+       * Parse an OverDrive timestamp into an {@link Instant}, tolerating the offset-based formats
+       * OverDrive can return. Returns null (rather than aborting the whole sync) when the value is
+       * missing or unparseable.
+       *
+       * @param field the field being parsed, so an unparseable value says which one it was
+       */
+      private Instant parseTimestamp(String value, String field) {
         if (value == null || value.isBlank()) {
             return null;
          }
@@ -1622,7 +1711,7 @@ public class OverDriveService {
             try {
                 return OffsetDateTime.parse(value).toInstant();
              } catch (DateTimeParseException ex) {
-                log.warn("Unparseable OverDrive expireDate '{}', leaving null", value);
+                log.warn("Unparseable OverDrive {} '{}', leaving null", field, value);
                 return null;
              }
          }
@@ -2503,12 +2592,17 @@ public class OverDriveService {
                 .toList();
       }
 
-      /** What one user's automation pass did, for the task's summary log. */
-      public record AutoSyncOutcome(int cardsSynced, int holdsBorrowed, int loansImported,
+      /**
+       * What one user's automation pass did, for the task's summary log.
+       *
+       * @param loansLinked loans found to be already in the library and linked to the existing book
+       *                    rather than downloaded again
+       */
+      public record AutoSyncOutcome(int cardsSynced, int holdsBorrowed, int loansImported, int loansLinked,
                                     int loansReturned, int failures) {
 
         static AutoSyncOutcome none() {
-            return new AutoSyncOutcome(0, 0, 0, 0, 0);
+            return new AutoSyncOutcome(0, 0, 0, 0, 0, 0);
         }
       }
 
@@ -2555,6 +2649,15 @@ public class OverDriveService {
         if (settings.autoBorrowHolds()) {
             for (Map.Entry<String, List<OverDriveHold>> entry : readyHoldsByCard(syncs).entrySet()) {
                 for (OverDriveHold hold : entry.getValue()) {
+                    // Don't spend a checkout on a title the library already holds. A hold placed months
+                    // ago can come in long after the book arrived by another route, and borrowing it
+                    // anyway consumes a loan slot to download a file we already have.
+                    Long owned = resolveLinkedBookId(hold.getId(), null, null);
+                    if (owned != null) {
+                        log.info("OverDrive auto-borrow: skipping ready hold {} (\"{}\") for user {} — "
+                                + "book id={} is already in the library", hold.getId(), hold.getTitle(), userId, owned);
+                        continue;
+                    }
                     try {
                         pauseBetweenTitles(borrowed);
                         borrowAndImport(entry.getKey(), hold.getId(), null, null,
@@ -2583,6 +2686,7 @@ public class OverDriveService {
                 .collect(Collectors.toSet());
 
         int imported = 0;
+        int linked = 0;
         if (settings.autoImportLoans()) {
             // Read the loans back from the database rather than the sync payload: syncAll has just
             // written this pass's loans, and the rows carry the import state (fulfilled, failure count)
@@ -2590,6 +2694,10 @@ public class OverDriveService {
             // borrowAndImport, and their rows now say so, so they aren't picked up twice.
             for (OverDriveLoanEntity loan : loanRepository.findByUserId(userId)) {
                 if (!heldLoanIds.contains(loan.getOverdriveLoanId()) || !pendingAutoImport(loan)) {
+                    continue;
+                }
+                if (linkIfAlreadyInLibrary(loan, userId)) {
+                    linked++;
                     continue;
                 }
                 try {
@@ -2620,7 +2728,41 @@ public class OverDriveService {
             failures += autoReturn.failures();
         }
 
-        return new AutoSyncOutcome(identities.size(), borrowed, imported, returned, failures);
+        return new AutoSyncOutcome(identities.size(), borrowed, imported, linked, returned, failures);
+      }
+
+      /**
+       * Link a loan to the library book it duplicates, instead of downloading it again.
+       *
+       * <p>Matched on the OverDrive id alone, deliberately — not the ISBN and ASIN fallbacks the
+       * display-time match is happy to use. A loan id is a title id, so an id hit means the library
+       * holds this very edition and re-importing would spend an external tool run and a download to
+       * produce a second copy of a file already on disk. An ISBN hit means far less: OverDrive editions
+       * of one work share ISBNs with each other and with print, so it can point at a book that is not
+       * this recording at all.
+       *
+       * <p>That distinction matters here more than anywhere else, because linking marks the loan
+       * fulfilled — which stops it being reconsidered every pass, and makes it eligible for automatic
+       * return. On an exact match that is the point: a loan whose book the user already has is the copy
+       * worth handing back. On a loose match it would return a loan whose file was never downloaded.
+       *
+       * @return whether the loan was linked (and so needs no import)
+       */
+      private boolean linkIfAlreadyInLibrary(OverDriveLoanEntity loan, Long userId) {
+        Long existing = resolveLinkedBookId(loan.getOverdriveLoanId(), null, null);
+        if (existing == null) {
+            return false;
+        }
+        loan.setBookId(existing);
+        loan.setFulfilled(true);
+        loan.setAutoImportFailures(0);
+        loanRepository.save(loan);
+        log.info("OverDrive auto-import: loan {} (\"{}\") for user {} is already in the library as book id={}; "
+                + "linked instead of re-importing", loan.getOverdriveLoanId(), loan.getTitle(), userId, existing);
+        recordAudit(OverDriveAuditAction.AUTO_IMPORT, loan.getIdentity(), loan.getOverdriveLoanId(),
+                loan.getOverdriveLoanId(), existing, loan.getTitle(),
+                "Already in the library; linked to the existing book instead of importing again");
+        return true;
       }
 
       /**
@@ -2736,7 +2878,9 @@ public class OverDriveService {
         return Boolean.TRUE.equals(loan.getFulfilled())
                 && loan.getIdentity() != null
                 && loan.getOverdriveLoanId() != null
-                && !"RETURNED".equals(loan.getState());
+                // Expired counts as gone too, now that reconciliation records it: handing back a loan
+                // that already lapsed is a call that can only fail.
+                && !isTerminalLoanState(loan.getState());
       }
 
       /**
@@ -3555,6 +3699,21 @@ public class OverDriveService {
        * links titles that carry no usable ISBN (e.g. audiobooks) to a library book with that ASIN.
        */
       public Long resolveLinkedBookId(String isbn, String asin) {
+        return resolveLinkedBookId(null, isbn, asin);
+      }
+
+      /**
+       * Match an OverDrive title to an existing library book, preferring the OverDrive id.
+       *
+       * <p>The id is the only exact key of the three. It identifies an <em>edition</em>, so a hit means
+       * the library already holds the very file this title would produce. ISBN and ASIN are weaker:
+       * OverDrive editions of one work can share an ISBN, audiobooks frequently carry neither, and a
+       * print ISBN can match a book that is not this recording at all. They stay as fallbacks for the
+       * books imported before ids were recorded, and for loans borrowed outside Grimmory.
+       *
+       * @return the matching book id, or null if the library has nothing for this title
+       */
+      public Long resolveLinkedBookId(String overdriveId, String isbn, String asin) {
         // Scope the match to libraries the current user can access, so linking an OverDrive loan to an
         // existing book can't leak a book id from a library the user isn't assigned to. Admins match
         // globally (they can access every library anyway).
@@ -3562,6 +3721,15 @@ public class OverDriveService {
         List<Long> libraryIds = admin ? null : accessibleLibraryIds();
         if (!admin && libraryIds.isEmpty()) {
             return null; // no accessible libraries → nothing to link
+        }
+        if (overdriveId != null && !overdriveId.isBlank()) {
+            String id = overdriveId.trim();
+            Long match = (admin ? bookRepository.findIdsByOverdriveId(id)
+                    : bookRepository.findIdsByOverdriveIdAndLibraryIdIn(id, libraryIds))
+                    .stream().findFirst().orElse(null);
+            if (match != null) {
+                return match;
+            }
         }
         if (isbn != null && !isbn.isBlank()) {
             String cleaned = isbn.replaceAll("[^0-9Xx]", "");
@@ -3621,7 +3789,9 @@ public class OverDriveService {
                 return stored;
             }
         }
-        return resolveLinkedBookId(isbn, asin);
+        // A loan id is the title id, so it doubles as the OverDrive id to match on — that catches a
+        // title imported under a different user, or one whose loan row lost its link.
+        return resolveLinkedBookId(loanId, isbn, asin);
       }
 
       /**

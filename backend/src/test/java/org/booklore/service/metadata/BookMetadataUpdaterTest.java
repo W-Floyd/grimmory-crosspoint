@@ -183,6 +183,40 @@ class BookMetadataUpdaterTest {
     }
 
     @Test
+    void setBookMetadata_recordsTheOverdriveIdSoTheImportSurvives() {
+        BookMetadata newMeta = BookMetadata.builder().title("T").overdriveId("2056901").build();
+        MetadataUpdateContext context = buildContext(newMeta, MetadataReplaceMode.REPLACE_WHEN_PROVIDED);
+
+        try (MockedStatic<MetadataChangeDetector> mcd = mockStatic(MetadataChangeDetector.class)) {
+            mockSettingsAndChangeDetector(mcd, true, true);
+
+            updater.setBookMetadata(context);
+
+            // Without this the id lived only in the in-memory DTO: the filename got it at import time
+            // and a later Move & Organize, reading the book back, resolved a different path.
+            assertThat(metadataEntity.getOverdriveId()).isEqualTo("2056901");
+        }
+    }
+
+    @Test
+    void setBookMetadata_replaceAll_doesNotWipeTheOverdriveIdWithAnotherProvidersRefresh() {
+        metadataEntity.setOverdriveId("2056901");
+        // A Google or Amazon refresh carries no OverDrive id; under REPLACE_ALL that null would clear it.
+        BookMetadata newMeta = BookMetadata.builder().title("T").overdriveId(null).build();
+        MetadataUpdateContext context = buildContext(newMeta, MetadataReplaceMode.REPLACE_ALL);
+
+        try (MockedStatic<MetadataChangeDetector> mcd = mockStatic(MetadataChangeDetector.class)) {
+            mockSettingsAndChangeDetector(mcd, true, true);
+
+            updater.setBookMetadata(context);
+
+            // It is provenance, not a field a later provider has any opinion about — and both
+            // {overdriveId} paths and OverDrive loan matching read it back.
+            assertThat(metadataEntity.getOverdriveId()).isEqualTo("2056901");
+        }
+    }
+
+    @Test
     void setBookMetadata_replaceAll_setsNullWhenNewValueNull() {
         metadataEntity.setPublisher("Old Publisher");
         BookMetadata newMeta = BookMetadata.builder().title("T").publisher(null).build();

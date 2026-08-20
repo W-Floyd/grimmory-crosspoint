@@ -595,6 +595,9 @@ public class OverDriveParser implements BookParser {
 
         return BookMetadata.builder()
                 .provider(MetadataProvider.Overdrive)
+                // The catalog id, kept as metadata so it survives the import: {overdriveId} paths and
+                // the "do we already have this title?" match both read it back off the book.
+                .overdriveId(item.getId())
                 .externalUrl(item.getId() != null ? LIBBY_TITLE_URL + item.getId() : null)
                 .title(item.getTitle())
                 .subtitle(item.getSubtitle())

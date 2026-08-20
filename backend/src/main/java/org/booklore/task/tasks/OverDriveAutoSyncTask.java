@@ -88,6 +88,7 @@ public class OverDriveAutoSyncTask implements Task {
 
         int borrowed = 0;
         int imported = 0;
+        int linked = 0;
         int returned = 0;
         int failures = 0;
         // The security context is per-thread and this task owns its thread for the whole pass, so it is
@@ -106,6 +107,7 @@ public class OverDriveAutoSyncTask implements Task {
                 OverDriveService.AutoSyncOutcome outcome = runForUser(userId);
                 borrowed += outcome.holdsBorrowed();
                 imported += outcome.loansImported();
+                linked += outcome.loansLinked();
                 returned += outcome.loansReturned();
                 failures += outcome.failures();
             }
@@ -114,9 +116,10 @@ public class OverDriveAutoSyncTask implements Task {
             SecurityContextHolder.clearContext();
         }
 
-        log.info("{}: Task completed. {} hold(s) borrowed, {} loan(s) imported, {} returned, {} failure(s). "
-                        + "Duration: {} ms",
-                getTaskType(), borrowed, imported, returned, failures, System.currentTimeMillis() - startTime);
+        log.info("{}: Task completed. {} hold(s) borrowed, {} loan(s) imported, {} already in the library, "
+                        + "{} returned, {} failure(s). Duration: {} ms",
+                getTaskType(), borrowed, imported, linked, returned, failures,
+                System.currentTimeMillis() - startTime);
         return builder.build();
     }
 
@@ -130,25 +133,25 @@ public class OverDriveAutoSyncTask implements Task {
             BookLoreUserEntity entity = userRepository.findByIdWithDetails(userId).orElse(null);
             if (entity == null) {
                 log.warn("{}: opted-in user {} no longer exists; skipping", getTaskType(), userId);
-                return new OverDriveService.AutoSyncOutcome(0, 0, 0, 0, 0);
+                return new OverDriveService.AutoSyncOutcome(0, 0, 0, 0, 0, 0);
             }
             BookLoreUser user = userTransformer.toDTO(entity);
             if (!UserPermission.CAN_ACCESS_OVERDRIVE.isGranted(user.getPermissions())) {
                 log.info("{}: user {} no longer has OverDrive access; skipping", getTaskType(), user.getUsername());
-                return new OverDriveService.AutoSyncOutcome(0, 0, 0, 0, 0);
+                return new OverDriveService.AutoSyncOutcome(0, 0, 0, 0, 0, 0);
             }
             authenticateAs(user);
             OverDriveService.AutoSyncOutcome outcome = overDriveService.runAutoSync();
-            if (outcome.holdsBorrowed() > 0 || outcome.loansImported() > 0
+            if (outcome.holdsBorrowed() > 0 || outcome.loansImported() > 0 || outcome.loansLinked() > 0
                     || outcome.loansReturned() > 0 || outcome.failures() > 0) {
-                log.info("{}: user {} — {} card(s), {} borrowed, {} imported, {} returned, {} failed",
+                log.info("{}: user {} — {} card(s), {} borrowed, {} imported, {} already held, {} returned, {} failed",
                         getTaskType(), user.getUsername(), outcome.cardsSynced(), outcome.holdsBorrowed(),
-                        outcome.loansImported(), outcome.loansReturned(), outcome.failures());
+                        outcome.loansImported(), outcome.loansLinked(), outcome.loansReturned(), outcome.failures());
             }
             return outcome;
         } catch (Exception e) {
             log.error("{}: auto-sync failed for user {}", getTaskType(), userId, e);
-            return new OverDriveService.AutoSyncOutcome(0, 0, 0, 0, 1);
+            return new OverDriveService.AutoSyncOutcome(0, 0, 0, 0, 0, 1);
         } finally {
             SecurityContextHolder.clearContext();
         }
