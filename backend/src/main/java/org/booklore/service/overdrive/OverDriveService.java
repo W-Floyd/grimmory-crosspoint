@@ -2647,7 +2647,9 @@ public class OverDriveService {
         int borrowed = 0;
 
         if (settings.autoBorrowHolds()) {
+            Map<String, Integer> loanSlotsLeft = loanCapacityByCard(syncs);
             for (Map.Entry<String, List<OverDriveHold>> entry : readyHoldsByCard(syncs).entrySet()) {
+                String cardId = entry.getKey();
                 for (OverDriveHold hold : entry.getValue()) {
                     // Don't spend a checkout on a title the library already holds. A hold placed months
                     // ago can come in long after the book arrived by another route, and borrowing it
@@ -2658,6 +2660,21 @@ public class OverDriveService {
                                 + "book id={} is already in the library", hold.getId(), hold.getTitle(), userId, owned);
                         continue;
                     }
+                    // A card at its checkout limit cannot borrow, and asking anyway spends a request to
+                    // be told so — once per ready hold, on every poll, for as long as the card stays
+                    // full. Counted as a skip rather than a failure: nothing went wrong, there is just
+                    // no room until something is returned.
+                    if (atLoanCapacity(loanSlotsLeft, cardId)) {
+                        log.info("OverDrive auto-borrow: card {} is at its checkout limit; leaving ready hold "
+                                + "{} (\"{}\") for user {} until a loan is returned",
+                                cardId, hold.getId(), hold.getTitle(), userId);
+                        continue;
+                    }
+                    // Spend the slot on the attempt, not on success. The counts are a snapshot from the
+                    // start of the pass, so without this a card with one slot left would be offered
+                    // every ready hold it has — and a borrow that then fails at import has still taken
+                    // the loan, which is why doBorrowAndImport knows how to resume one.
+                    loanSlotsLeft.computeIfPresent(cardId, (id, left) -> left - 1);
                     try {
                         pauseBetweenTitles(borrowed);
                         borrowAndImport(entry.getKey(), hold.getId(), null, null,
@@ -2909,6 +2926,39 @@ public class OverDriveService {
        * carries the count for the loan's own library, so knowing whether somebody is waiting costs no
        * extra call.
        */
+      /**
+       * Remaining checkouts per card, from the counts and limits the sync feed already carries.
+       *
+       * <p>A card only appears when its library reports both a count and a limit. An absent entry means
+       * "unknown", which is treated as unlimited — refusing to borrow because a library declined to say
+       * what its cap is would be worse than trying and being turned down.
+       */
+      private Map<String, Integer> loanCapacityByCard(Map<String, OverDriveSyncResponse> syncs) {
+        Map<String, Integer> remaining = new HashMap<>();
+        for (OverDriveSyncResponse response : syncs.values()) {
+            if (response == null || response.getCards() == null) {
+                continue;
+            }
+            for (OverDriveSyncResponse.Card card : response.getCards()) {
+                if (card == null || card.getCardId() == null
+                        || card.getCounts() == null || card.getLimits() == null
+                        || card.getCounts().getLoan() == null || card.getLimits().getLoan() == null) {
+                    continue;
+                }
+                // A chip response is shared by every card on it, so the same card arrives once per
+                // identity in the map — put, not merge.
+                remaining.put(card.getCardId(), card.getLimits().getLoan() - card.getCounts().getLoan());
+            }
+        }
+        return remaining;
+      }
+
+      /** Whether this card has no checkout slots left; an unknown limit never blocks a borrow. */
+      private static boolean atLoanCapacity(Map<String, Integer> loanSlotsLeft, String cardId) {
+        Integer left = loanSlotsLeft.get(cardId);
+        return left != null && left <= 0;
+      }
+
       private Map<String, Integer> holdsCountByTitle(Map<String, OverDriveSyncResponse> syncs) {
         Map<String, Integer> out = new HashMap<>();
         for (OverDriveSyncResponse sync : syncs.values()) {

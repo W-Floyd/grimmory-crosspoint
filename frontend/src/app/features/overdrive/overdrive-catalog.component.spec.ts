@@ -132,6 +132,46 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.chosenCardId(it1)).toBe('c2');
   });
 
+  it('prefers the library with more copies free, leaving a scarce one for the queue behind it', () => {
+    // lapl has the only copy of its stock; bpl has four. Capacity alone would pick lapl (more slots).
+    setup({lapl: {loanCount: 0, loanLimit: 50}, bpl: {loanCount: 10, loanLimit: 50}});
+    const it1 = item({
+      available: true,
+      availability: [
+        {libraryKey: 'lapl', available: true, holdable: false, availableCopies: 1, ownedCopies: 1},
+        {libraryKey: 'bpl', available: true, holdable: false, availableCopies: 4, ownedCopies: 12},
+      ],
+    });
+    // Taking the lone copy empties that shelf and starts a queue there; the same read is sitting
+    // behind four copies elsewhere.
+    expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c2', 'c1']);
+  });
+
+  it('counts a Lucky Day copy toward how freely a library can lend the title', () => {
+    setup();
+    const it1 = item({
+      available: true,
+      availability: [
+        {libraryKey: 'lapl', available: true, holdable: false, availableCopies: 1, luckyDayAvailableCopies: 3},
+        {libraryKey: 'bpl', available: true, holdable: false, availableCopies: 2},
+      ],
+    });
+    // Lucky Day copies are borrowable now without a hold, so they are part of the shelf.
+    expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c1', 'c2']);
+  });
+
+  it('falls back to the shorter queue when copies and capacity both tie', () => {
+    setup({lapl: {loanCount: 5, loanLimit: 10}, bpl: {loanCount: 5, loanLimit: 10}});
+    const it1 = item({
+      available: true,
+      availability: [
+        {libraryKey: 'lapl', available: true, holdable: false, availableCopies: 2, holdsCount: 9},
+        {libraryKey: 'bpl', available: true, holdable: false, availableCopies: 2, holdsCount: 1},
+      ],
+    });
+    expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c2', 'c1']);
+  });
+
   it('defaults the hold card to the eligible card with the fewest current holds', () => {
     setup({lapl: {holdCount: 3, holdLimit: 10}, bpl: {holdCount: 0, holdLimit: 10}});
     const it1 = item({

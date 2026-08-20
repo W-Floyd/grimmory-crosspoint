@@ -1122,9 +1122,36 @@ export class OverdriveCatalogComponent {
      const keys = new Set((item.availability ?? []).filter(a => this.borrowableAt(a)).map(a => a.libraryKey));
      return this.selectedCards()
        .filter(c => c.libraryKey != null && keys.has(c.libraryKey) && !this.atLoanLimitFor(c.cardId))
-       // Most remaining loan capacity first (limit - count), so cards with different limits compare
-       // fairly — a 14/50 card (36 left) beats a 13/15 card (2 left).
-       .sort((a, b) => this.loanRemainingFor(b.cardId) - this.loanRemainingFor(a.cardId));
+       .sort((a, b) => this.compareBorrowPreference(item, a, b));
+   }
+
+   /**
+    * Order two cards that can both borrow this title right now. Copies free at the library come first:
+    * every card here has one available, but taking the only copy at a small library empties its shelf
+    * and starts a queue there, while the same read sitting behind several copies elsewhere costs nobody
+    * a wait — and a lone copy is likelier to be gone by the time the borrow lands. Remaining loan
+    * capacity breaks the tie (limit − count, so cards with different limits compare fairly: a 14/50
+    * card with 36 left beats a 13/15 card with 2), and the shorter queue settles the rest.
+    */
+   private compareBorrowPreference(item: OverDriveCatalogItem, a: OverDriveCard, b: OverDriveCard): number {
+     return (this.borrowableCopiesForCard(item, b) - this.borrowableCopiesForCard(item, a))
+       || (this.loanRemainingFor(b.cardId) - this.loanRemainingFor(a.cardId))
+       || (this.queuedHoldsForCard(item, a) - this.queuedHoldsForCard(item, b));
+   }
+
+   /**
+    * Copies of this title borrowable now at a card's library, regular plus Lucky Day. A library that
+    * reports availability without a count still has at least one, or it would not be in this list.
+    */
+   private borrowableCopiesForCard(item: OverDriveCatalogItem, card: OverDriveCard): number {
+     const a = this.availabilityForCard(item, card);
+     if (!a) return 0;
+     return (a.availableCopies ?? (a.available ? 1 : 0)) + (a.luckyDayAvailableCopies ?? 0);
+   }
+
+   /** People already queued for this title at a card's library; an unreported queue sorts as empty. */
+   private queuedHoldsForCard(item: OverDriveCatalogItem, card: OverDriveCard): number {
+     return this.availabilityForCard(item, card)?.holdsCount ?? 0;
    }
 
    /** Remaining loan capacity for a card (limit − count); an unreported limit is treated as unlimited. */

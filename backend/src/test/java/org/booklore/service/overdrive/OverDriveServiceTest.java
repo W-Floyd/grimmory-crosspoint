@@ -1401,6 +1401,85 @@ class OverDriveServiceTest {
         verifyNoInteractions(overDriveImportService, acsmHandler);
     }
 
+    /** Give a sync response a card row reporting {@code count} of {@code limit} checkouts used. */
+    private static void withLoanCounts(OverDriveSyncResponse body, String cardId, int count, int limit) {
+        OverDriveSyncResponse.Card card = new OverDriveSyncResponse.Card();
+        card.setCardId(cardId);
+        OverDriveSyncResponse.Counts counts = new OverDriveSyncResponse.Counts();
+        counts.setLoan(count);
+        card.setCounts(counts);
+        OverDriveSyncResponse.Limits limits = new OverDriveSyncResponse.Limits();
+        limits.setLoan(limit);
+        card.setLimits(limits);
+        body.setCards(List.of(card));
+    }
+
+    /** A ready-to-borrow hold on {@code cardId}. */
+    private static org.booklore.model.dto.overdrive.OverDriveHold readyHold(String titleId, String cardId) {
+        org.booklore.model.dto.overdrive.OverDriveHold hold = new org.booklore.model.dto.overdrive.OverDriveHold();
+        hold.setId(titleId);
+        hold.setCardId(cardId);
+        hold.setTitle("Dune");
+        hold.setAvailable(true);
+        return hold;
+    }
+
+    @Test
+    void autoBorrowLeavesAReadyHoldAloneWhenTheCardIsAtItsCheckoutLimit() {
+        authAsAdmin(7L);
+        optInWithOneCard(7L, true, true);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of());
+
+        OverDriveSyncResponse body = syncCovering(List.of("card-a"));
+        withLoanCounts(body, "card-a", 10, 10); // full
+        body.setHolds(List.of(readyHold("2056901", "card-a")));
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+
+        var outcome = syncHarness(body).service().runAutoSync();
+
+        // Borrowing would be refused upstream. Asking anyway costs a request per ready hold on every
+        // poll for as long as the card stays full — and it is a skip, not a failure.
+        assertThat(outcome.holdsBorrowed()).isZero();
+        assertThat(outcome.failures()).isZero();
+    }
+
+    @Test
+    void autoBorrowSpendsTheCardsRemainingSlotsAndThenStops() {
+        authAsAdmin(7L);
+        optInWithOneCard(7L, true, true);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of());
+
+        OverDriveSyncResponse body = syncCovering(List.of("card-a"));
+        withLoanCounts(body, "card-a", 9, 10); // one slot left
+        body.setHolds(List.of(readyHold("111", "card-a"), readyHold("222", "card-a")));
+        when(bookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
+
+        var outcome = syncHarness(body).service().runAutoSync();
+
+        // The counts are a snapshot from the start of the pass, so each attempt has to be spent locally.
+        // Only the first hold is tried (and fails in this harness); the second is skipped for room —
+        // and the slot goes on the attempt, since a borrow that fails at import has still taken it.
+        assertThat(outcome.failures()).isEqualTo(1);
+    }
+
+    @Test
+    void autoBorrowTreatsAnUnreportedLimitAsNoLimit() {
+        authAsAdmin(7L);
+        optInWithOneCard(7L, true, true);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of());
+
+        // syncCovering builds card rows with no counts or limits at all.
+        OverDriveSyncResponse body = syncCovering(List.of("card-a"));
+        body.setHolds(List.of(readyHold("2056901", "card-a")));
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+
+        var outcome = syncHarness(body).service().runAutoSync();
+
+        // Refusing to borrow because a library declined to say what its cap is would be worse than
+        // trying and being turned down — the borrow is attempted (and fails here for want of a stub).
+        assertThat(outcome.failures()).isEqualTo(1);
+    }
+
     @Test
     void autoBorrowStillTakesAReadyHoldTheLibraryDoesNotAlreadyHave() {
         authAsAdmin(7L);
