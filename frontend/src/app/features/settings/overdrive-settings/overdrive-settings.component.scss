@@ -245,6 +245,15 @@
   }
 }
 
+// Heading for a top-level section of this page. Matches .card-admin-title so the per-user,
+// deployment-wide and cross-user sections read as siblings rather than three different designs.
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.25rem;
+}
+
 .diagnostics-title {
   margin: 0 0 0.25rem;
 }
