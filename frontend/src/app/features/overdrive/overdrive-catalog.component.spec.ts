@@ -132,6 +132,40 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.chosenCardId(it1)).toBe('c2');
   });
 
+  it('reads as a fixed date once the poller has drawn the exact time', () => {
+    setup();
+    const loan = {id: '1', autoReturn: {dueAt: '2026-08-16T03:20:00Z', earliestAt: '2026-08-15T10:00:00Z', windowHours: 48}};
+
+    expect(component.autoReturnLabel(loan as never))
+      .toBe(`Auto-return ${component.formatDate('2026-08-16T03:20:00Z')}`);
+    expect(component.autoReturnTooltip(loan as never)).toContain('Scheduled to be returned automatically at');
+  });
+
+  it('reads as "from" a date while the exact moment is still unpicked', () => {
+    setup();
+    const loan = {id: '1', autoReturn: {dueAt: null, earliestAt: '2026-08-15T10:00:00Z', windowHours: 48}};
+
+    // The offset inside the window has not been chosen, so the date shown is the earliest the return
+    // can happen rather than when it will.
+    expect(component.autoReturnLabel(loan as never))
+      .toBe(`Auto-return from ${component.formatDate('2026-08-15T10:00:00Z')}`);
+    expect(component.autoReturnTooltip(loan as never)).toContain('picked at random within 48h');
+  });
+
+  it('says plainly that a zero window returns on the day', () => {
+    setup();
+    const loan = {id: '1', autoReturn: {dueAt: null, earliestAt: '2026-08-15T10:00:00Z', windowHours: 0}};
+
+    expect(component.autoReturnTooltip(loan as never)).toContain('once it reaches');
+    expect(component.autoReturnTooltip(loan as never)).not.toContain('at random');
+  });
+
+  it('shows nothing for a loan with no scheduled return', () => {
+    setup();
+    expect(component.autoReturnLabel({id: '1'} as never)).toBeNull();
+    expect(component.autoReturnTooltip({id: '1'} as never)).toBe('');
+  });
+
   it('links a title into its own library catalog when the card is known', () => {
     setup();
     expect(component.libbyUrl('2056901', 'lapl'))

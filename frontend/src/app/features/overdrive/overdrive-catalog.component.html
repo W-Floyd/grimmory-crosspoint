@@ -538,7 +538,16 @@
           <td>{{ shortCardLabel(loan.cardId) }}</td>
           <td>{{ loanFormat(loan) ?? '—' }}</td>
           <td>{{ formatDate(loan.checkoutDate) }}</td>
-          <td>{{ formatDate(loan.expireDate) }}</td>
+          <td>
+            {{ formatDate(loan.expireDate) }}
+            @if (autoReturnLabel(loan); as scheduled) {
+              <!-- Sits under the library's own expiry so the two dates read together: when the loan
+                   lapses on its own, and when Grimmory intends to hand it back first. -->
+              <span class="auto-return-label" [pTooltip]="autoReturnTooltip(loan)" tooltipPosition="top">
+                <i class="pi pi-history"></i> {{ scheduled }}
+              </span>
+            }
+          </td>
           <td>
             @if (loan.bookId) {
               <!-- Already imported: default action adds another copy, the menu offers Replace instead. -->

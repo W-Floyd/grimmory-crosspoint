@@ -2969,6 +2969,49 @@ public class OverDriveService {
       }
 
       /**
+       * When each of the current user's loans is expected to be returned automatically, for display.
+       *
+       * <p>Two shapes, because a due time is drawn lazily. A loan the poller has already looked at
+       * carries the exact moment it settled on. One it has not reached yet can only be described as
+       * "no earlier than": the random offset inside the window has not been chosen. Deliberately does
+       * not draw it — this is a read, and fixing the time here would move the decision out of the pass
+       * that owns it and make a page load change when a book goes back.
+       *
+       * <p>Empty when the user has auto-return switched off, so the UI shows nothing rather than a
+       * date that will never arrive.
+       *
+       * @return loan id to its projected return, for loans eligible for one
+       */
+      public Map<String, AutoReturnSchedule> autoReturnSchedule() {
+        OverDriveAutoSyncSettings settings = getAutoSyncSettings();
+        if (!settings.autoReturnEnabled()) {
+            return Map.of();
+        }
+        Map<String, AutoReturnSchedule> schedule = new HashMap<>();
+        for (OverDriveLoanEntity loan : loanRepository.findByUserId(currentUserId())) {
+            if (!eligibleForAutoReturn(loan) || loan.getCreatedAt() == null) {
+                continue;
+            }
+            Instant earliest = loan.getCreatedAt().plus(settings.autoReturnMinAgeDays(), ChronoUnit.DAYS);
+            Instant exact = loan.getAutoReturnDueAt();
+            schedule.put(loan.getOverdriveLoanId(), new AutoReturnSchedule(
+                    exact != null ? exact.toString() : null,
+                    earliest.toString(),
+                    settings.autoReturnMaxDelayHours()));
+        }
+        return schedule;
+      }
+
+      /**
+       * When a loan is due to go back on its own.
+       *
+       * @param dueAt        the exact moment, once the poller has drawn it; null until then
+       * @param earliestAt   the minimum age falling due — the return cannot happen before this
+       * @param windowHours  width of the random window after {@code earliestAt}; 0 means exactly then
+       */
+      public record AutoReturnSchedule(String dueAt, String earliestAt, int windowHours) {}
+
+      /**
        * Whether a loan is a candidate for automatic return at all: still on loan, and already
        * fulfilled, so returning it gives up the library's copy rather than the user's only access.
        */
@@ -3002,11 +3045,6 @@ public class OverDriveService {
         return due;
       }
 
-      /**
-       * How many holders are queued for each title across a pass's syncs. The sync feed already
-       * carries the count for the loan's own library, so knowing whether somebody is waiting costs no
-       * extra call.
-       */
       /**
        * Remaining checkouts per card, from the counts and limits the sync feed already carries.
        *
@@ -3074,6 +3112,11 @@ public class OverDriveService {
         return left != null && left <= 0;
       }
 
+      /**
+       * How many holders are queued for each title across a pass's syncs. The sync feed already
+       * carries the count for the loan's own library, so knowing whether somebody is waiting costs no
+       * extra call.
+       */
       private Map<String, Integer> holdsCountByTitle(Map<String, OverDriveSyncResponse> syncs) {
         Map<String, Integer> out = new HashMap<>();
         for (OverDriveSyncResponse sync : syncs.values()) {

@@ -151,6 +151,18 @@ export interface OverDriveLoan {
   ownedCopies?: number | null;
   holdsCount?: number | null;
   luckyDayAvailableCopies?: number | null;
+  /** When this loan is due to go back on its own; absent unless auto-return is on and it qualifies. */
+  autoReturn?: OverDriveAutoReturnSchedule | null;
+}
+
+/** When a loan is due to be returned automatically. */
+export interface OverDriveAutoReturnSchedule {
+  /** The exact moment, once the poller has drawn it from the window; null until it first looks. */
+  dueAt?: string | null;
+  /** The minimum age falling due — the return cannot happen before this. */
+  earliestAt: string;
+  /** Width of the random window after `earliestAt`; 0 means it returns exactly then. */
+  windowHours: number;
 }
 
 export interface OverDriveHold {

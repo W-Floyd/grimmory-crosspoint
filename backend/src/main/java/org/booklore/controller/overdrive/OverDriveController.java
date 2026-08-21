@@ -362,7 +362,8 @@ public class OverDriveController {
     ) {
         requireEnabled();
         OverDriveSyncResponse sync = overDriveService.sync(identity);
-        return ResponseEntity.ok(convertSync(identity, sync, mediaExtrasFor(List.of(sync), List.of(identity))));
+        return ResponseEntity.ok(convertSync(identity, sync, mediaExtrasFor(List.of(sync), List.of(identity)),
+                overDriveService.autoReturnSchedule()));
     }
 
     /**
@@ -390,9 +391,11 @@ public class OverDriveController {
                 .toList();
         Map<String, OverDriveService.MediaExtras> extras = mediaExtrasFor(distinct, syncs.keySet());
 
+        // Resolved once for the whole request: it is per user, not per card.
+        Map<String, OverDriveService.AutoReturnSchedule> autoReturn = overDriveService.autoReturnSchedule();
         Map<String, OverDriveSyncResult> out = new LinkedHashMap<>();
         for (Map.Entry<String, OverDriveSyncResponse> entry : syncs.entrySet()) {
-            out.put(entry.getKey(), convertSync(entry.getKey(), entry.getValue(), extras));
+            out.put(entry.getKey(), convertSync(entry.getKey(), entry.getValue(), extras, autoReturn));
         }
         return ResponseEntity.ok(out);
     }
@@ -884,14 +887,15 @@ public class OverDriveController {
      * enrichment for every card in the batch.
      */
     private OverDriveSyncResult convertSync(String identity, OverDriveSyncResponse sync,
-                                            Map<String, OverDriveService.MediaExtras> extras) {
+                                            Map<String, OverDriveService.MediaExtras> extras,
+                                            Map<String, OverDriveService.AutoReturnSchedule> autoReturn) {
         Set<String> wanted = Set.of(identity);
         List<OverDriveLoan> loans = cardScoped(sync.getLoans(), OverDriveLoan::getCardId, wanted);
         List<OverDriveHold> holds = cardScoped(sync.getHolds(), OverDriveHold::getCardId, wanted);
         List<OverDriveLibrary> libraries = sync.getLibraries() != null ? sync.getLibraries() : List.of();
 
         List<OverDriveLoanDto> loanDtos = loans.stream()
-                .map(loan -> loanToDto(loan, extras.get(loan.getId())))
+                .map(loan -> loanToDto(loan, extras.get(loan.getId()), autoReturn.get(loan.getId())))
                 .toList();
 
         List<OverDriveHoldDto> holdDtos = holds.stream()
@@ -924,7 +928,8 @@ public class OverDriveController {
                 loanCount, loanLimit, holdCount, holdLimit, canPlaceHolds);
     }
 
-    private OverDriveLoanDto loanToDto(OverDriveLoan loan, OverDriveService.MediaExtras extras) {
+    private OverDriveLoanDto loanToDto(OverDriveLoan loan, OverDriveService.MediaExtras extras,
+                                       OverDriveService.AutoReturnSchedule autoReturn) {
         return new OverDriveLoanDto(
                 loan.getId(),
                 loan.getCardId(),
@@ -946,7 +951,8 @@ public class OverDriveController {
                 loan.getAvailableCopies(),
                 loan.getOwnedCopies(),
                 loan.getHoldsCount(),
-                loan.getLuckyDayAvailableCopies()
+                loan.getLuckyDayAvailableCopies(),
+                autoReturn
         );
     }
 
@@ -1099,7 +1105,9 @@ public class OverDriveController {
             Integer availableCopies,
             Integer ownedCopies,
             Integer holdsCount,
-            Integer luckyDayAvailableCopies
+            Integer luckyDayAvailableCopies,
+            /** When this loan is due to go back on its own; null unless auto-return is on and it qualifies. */
+            OverDriveService.AutoReturnSchedule autoReturn
     ) {}
 
     /** A hold as the UI sees it — see {@link OverDriveLoanDto} on {@code cardId} and the copy counts. */

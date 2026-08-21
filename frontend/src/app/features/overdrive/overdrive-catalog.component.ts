@@ -2130,6 +2130,35 @@ export class OverdriveCatalogComponent {
        }
      }
 
+   /**
+    * When this loan is due to go back on its own, or null when nothing is scheduled.
+    *
+    * <p>Reads "on <date>" once the poller has drawn the exact moment, and "from <date>" before that —
+    * the random offset inside the window has not been chosen yet, so the date shown is the earliest
+    * the return can happen rather than when it will.
+    */
+   autoReturnLabel(loan: OverDriveLoan): string | null {
+     const schedule = loan.autoReturn;
+     if (!schedule) return null;
+     return schedule.dueAt
+       ? `Auto-return ${this.formatDate(schedule.dueAt)}`
+       : `Auto-return from ${this.formatDate(schedule.earliestAt)}`;
+   }
+
+   /** The full story behind that label: the exact time if known, else how the moment will be picked. */
+   autoReturnTooltip(loan: OverDriveLoan): string {
+     const schedule = loan.autoReturn;
+     if (!schedule) return '';
+     if (schedule.dueAt) {
+       return `Scheduled to be returned automatically at ${this.formatDateTime(schedule.dueAt)}.`;
+     }
+     if (schedule.windowHours === 0) {
+       return `Will be returned automatically once it reaches ${this.formatDate(schedule.earliestAt)}.`;
+     }
+     return `Eligible from ${this.formatDate(schedule.earliestAt)}. The exact moment is picked at random `
+       + `within ${schedule.windowHours}h after that, and fixed the first time the scheduled task looks at it.`;
+   }
+
    /** Date + time, for the History tab (actions need finer granularity than a bare date). */
    formatDateTime(dateStr: string | null | undefined): string {
      if (!dateStr) return '—';

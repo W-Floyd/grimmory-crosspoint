@@ -1187,6 +1187,79 @@ class OverDriveServiceTest {
         assertThat(page.entries().getFirst().titleId()).isEqualTo("2056901");
     }
 
+    // ── Telling the user when a loan goes back ───────────────────────────
+
+    private OverDriveLoanEntity fulfilledLoan(String loanId, java.time.Instant borrowedAt) {
+        OverDriveLoanEntity row = loanRow(loanId, "card-a", "BORROWED");
+        row.setFulfilled(true);
+        row.setCreatedAt(borrowedAt);
+        return row;
+    }
+
+    private void optedIntoAutoReturn(int minAgeDays, int windowHours) {
+        when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.of(
+                org.booklore.model.entity.OverDriveAutoSyncEntity.builder()
+                        .userId(7L).autoReturnEnabled(true)
+                        .autoReturnMinAgeDays(minAgeDays).autoReturnMaxDelayHours(windowHours).build()));
+    }
+
+    @Test
+    void theScheduleReportsTheExactTimeOnceThePollerHasDrawnIt() {
+        authAs(7L);
+        optedIntoAutoReturn(14, 48);
+        var borrowedAt = Instant.parse("2026-08-01T10:00:00Z");
+        var drawn = Instant.parse("2026-08-16T03:20:00Z");
+        OverDriveLoanEntity loan = fulfilledLoan("loan-1", borrowedAt);
+        loan.setAutoReturnDueAt(drawn);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(loan));
+
+        var schedule = service.autoReturnSchedule().get("loan-1");
+
+        assertThat(schedule.dueAt()).isEqualTo(drawn.toString());
+        assertThat(schedule.earliestAt()).isEqualTo(borrowedAt.plus(14, java.time.temporal.ChronoUnit.DAYS).toString());
+    }
+
+    @Test
+    void theScheduleGivesOnlyTheEarliestDateUntilTheTimeIsDrawn_andDoesNotDrawIt() {
+        authAs(7L);
+        optedIntoAutoReturn(14, 48);
+        var borrowedAt = Instant.parse("2026-08-01T10:00:00Z");
+        OverDriveLoanEntity loan = fulfilledLoan("loan-1", borrowedAt);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(loan));
+
+        var schedule = service.autoReturnSchedule().get("loan-1");
+
+        // Showing a page must not decide when a book goes back: drawing here would move that choice
+        // out of the pass that owns it, and fix it earlier than the user's window intends.
+        assertThat(schedule.dueAt()).isNull();
+        assertThat(schedule.windowHours()).isEqualTo(48);
+        assertThat(loan.getAutoReturnDueAt()).isNull();
+        verify(loanRepository, never()).save(any());
+    }
+
+    @Test
+    void nothingIsScheduledWhenTheUserHasAutoReturnSwitchedOff() {
+        authAs(7L);
+        when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.empty());
+
+        // Better to show no date at all than one that will never arrive.
+        assertThat(service.autoReturnSchedule()).isEmpty();
+        verifyNoInteractions(loanRepository);
+    }
+
+    @Test
+    void aLoanGrimmoryNeverDownloadedIsNotScheduledForReturn() {
+        authAs(7L);
+        optedIntoAutoReturn(14, 48);
+        OverDriveLoanEntity unfulfilled = loanRow("loan-1", "card-a", "BORROWED");
+        unfulfilled.setFulfilled(false);
+        unfulfilled.setCreatedAt(Instant.parse("2026-08-01T10:00:00Z"));
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(unfulfilled));
+
+        // Auto-return leaves it alone, so promising a date would be a lie.
+        assertThat(service.autoReturnSchedule()).isEmpty();
+    }
+
     // ── Checking a waiting hold against the user's other libraries ───────
 
     private static org.booklore.model.dto.overdrive.OverDriveHold waitingHold(

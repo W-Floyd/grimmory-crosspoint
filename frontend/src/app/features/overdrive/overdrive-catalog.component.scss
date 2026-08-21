@@ -565,6 +565,21 @@
     }
   }
 
+  // When Grimmory intends to hand a loan back, under the library's own expiry date in the Loans tab.
+  // Its own line so the two dates don't read as one string.
+  .auto-return-label {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    color: var(--text-color-secondary);
+
+    i {
+      font-size: 0.7rem;
+    }
+  }
+
   // Badge flagging a search result the user already has out on loan.
   .loan-warning {
     display: inline-flex;
