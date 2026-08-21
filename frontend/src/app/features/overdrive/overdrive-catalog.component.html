@@ -785,10 +785,15 @@
             </span>
           </td>
           <td>
-            @if (entry.bookId) {
-              <a [routerLink]="['/book', entry.bookId]" pTooltip="Open this book in your library" tooltipPosition="top">{{ entry.title || entry.titleId || '—' }}</a>
+            @if (entry.titleId || entry.title) {
+              <!-- Same cell as the Loans and Holds tabs: the name links into the library when we hold
+                   the book, and out to Libby whenever there is a title id to point at. -->
+              <app-overdrive-title-cell
+                [title]="entry.title || entry.titleId || ''"
+                [bookId]="entry.bookId ?? null"
+                [libbyUrl]="libbyUrl(entry.titleId, entry.libraryKey)" />
             } @else {
-              {{ entry.title || entry.titleId || '—' }}
+              —
             }
           </td>
           <td>{{ entry.cardName || entry.libraryKey || '—' }}</td>

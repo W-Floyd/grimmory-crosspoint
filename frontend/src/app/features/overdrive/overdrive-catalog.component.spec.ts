@@ -132,6 +132,25 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.chosenCardId(it1)).toBe('c2');
   });
 
+  it('links a title into its own library catalog when the card is known', () => {
+    setup();
+    expect(component.libbyUrl('2056901', 'lapl'))
+      .toBe('https://libbyapp.com/library/lapl/everything/page-1/2056901');
+  });
+
+  it('falls back to the share link when no library key is known', () => {
+    setup();
+    // History rows can outlive the card they were made with; a share link still resolves the title,
+    // which beats rendering no link at all.
+    expect(component.libbyUrl('2056901', null)).toBe('https://share.libbyapp.com/title/2056901');
+  });
+
+  it('offers no Libby link without a title id', () => {
+    setup();
+    expect(component.libbyUrl(null, 'lapl')).toBeNull();
+    expect(component.libbyUrl(undefined, null)).toBeNull();
+  });
+
   it('prefers the library with more copies free, leaving a scarce one for the queue behind it', () => {
     // lapl has the only copy of its stock; bpl has four. Capacity alone would pick lapl (more slots).
     setup({lapl: {loanCount: 0, loanLimit: 50}, bpl: {loanCount: 10, loanLimit: 50}});

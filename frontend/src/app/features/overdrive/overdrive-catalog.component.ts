@@ -1,7 +1,6 @@
 import { Component, computed, DestroyRef, effect, ElementRef, inject, signal, untracked, viewChild, WritableSignal } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
 import { OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
@@ -56,7 +55,6 @@ export function toolProgressPct(e: { pct?: number; current?: number; total?: num
   selector: 'app-overdrive-catalog',
   standalone: true,
   imports: [
-    RouterLink,
     OverdriveTitleCellComponent,
     OverdriveCoverComponent,
     FormsModule,
@@ -647,8 +645,14 @@ export class OverdriveCatalogComponent {
    }
 
    /** Deep link to a title on libbyapp.com for a given library key, or null. */
-   libbyUrl(titleId: string, libraryKey: string | null | undefined): string | null {
-     return libraryKey && titleId ? `https://libbyapp.com/library/${libraryKey}/everything/page-1/${titleId}` : null;
+   libbyUrl(titleId: string | null | undefined, libraryKey: string | null | undefined): string | null {
+     if (!titleId) return null;
+     // With a library key the title opens in that library's catalog, where the borrow/hold buttons
+     // reflect the user's own card. Without one — a history row whose card has since been unlinked —
+     // the share link still resolves the title, which beats offering no link at all.
+     return libraryKey
+       ? `https://libbyapp.com/library/${libraryKey}/everything/page-1/${titleId}`
+       : `https://share.libbyapp.com/title/${titleId}`;
    }
 
    cardLibraryKey(cardId: string | null | undefined): string | null {

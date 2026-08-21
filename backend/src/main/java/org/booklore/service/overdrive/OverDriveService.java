@@ -371,7 +371,41 @@ public class OverDriveService {
     /** Record a failed action to the history (the detail should carry the reason). */
     private void recordAuditFailure(OverDriveAuditAction action, String identity, String titleId, String loanId,
                                     String reason) {
-        recordAudit(action, identity, titleId, loanId, null, null, reason, false);
+        recordAuditFailure(action, identity, titleId, loanId, null, reason);
+    }
+
+    /**
+     * As above, naming the title. A failure is the row a user most wants to read later, and one that
+     * says only "3217022 failed" makes them go and look the number up.
+     */
+    private void recordAuditFailure(OverDriveAuditAction action, String identity, String titleId, String loanId,
+                                    String title, String reason) {
+        recordAudit(action, identity, titleId, loanId, null, title, reason, false);
+    }
+
+    /**
+     * A display name for an OverDrive title, for history rows that would otherwise show a bare id.
+     *
+     * <p>Tries the library first — free, and the name the user already knows the book by — then the
+     * public catalog. Best-effort throughout: a title is decoration on an audit row, so a lookup that
+     * fails or is slow must never take the action down with it.
+     */
+    private String titleOf(String titleId) {
+        if (titleId == null || titleId.isBlank()) {
+            return null;
+        }
+        try {
+            List<Object[]> known = bookRepository.findOverdriveIdTitlePairs(Set.of(titleId));
+            if (!known.isEmpty() && known.getFirst().length == 2 && known.getFirst()[1] instanceof String title) {
+                return title;
+            }
+            BookMetadata metadata = overDriveParser.fetchTitleMetadata(titleId);
+            return metadata != null ? metadata.getTitle() : null;
+        } catch (Exception e) {
+            log.debug("OverDrive: could not resolve a title for {} ({}); the history row keeps the id",
+                    titleId, e.getMessage());
+            return null;
+        }
     }
 
     private void recordAudit(OverDriveAuditAction action, String identity, String titleId, String loanId,
@@ -436,14 +470,46 @@ public class OverDriveService {
                 : Math.min(HISTORY_MAX_PAGE_SIZE, Math.max(1, size));
         var result = auditRepository.findByUserIdOrderByCreatedAtDesc(
                 currentUserId(), PageRequest.of(pageIndex, pageSize));
+        Map<String, String> titlesById = titlesForRowsMissingOne(result.getContent());
         List<OverDriveAuditEntry> entries = result.getContent()
                 .stream()
                 .map(a -> new OverDriveAuditEntry(a.getId(), a.getAction(), a.getIdentity(), a.getLibraryKey(),
-                        a.getCardName(), a.getTitleId(), a.getLoanId(), a.getBookId(), a.getTitle(), a.getDetail(),
+                        a.getCardName(), a.getTitleId(), a.getLoanId(), a.getBookId(),
+                        a.getTitle() != null && !a.getTitle().isBlank()
+                                ? a.getTitle()
+                                : titlesById.get(a.getTitleId()),
+                        a.getDetail(),
                         a.isSuccess(), a.isAutomated(),
                         a.getCreatedAt() != null ? a.getCreatedAt().toString() : null))
                 .toList();
         return new OverDriveHistoryPage(entries, pageIndex, pageSize, result.getTotalElements());
+    }
+
+    /**
+     * Titles for the rows on this page that recorded only an OverDrive id, looked up from the library.
+     *
+     * <p>Holds and failed borrows used to be written with no title, leaving the history showing a bare
+     * number. Those rows are already on disk and cannot be rewritten, but an id is an id: if the title
+     * was ever imported, the library knows what it is called. One query per page, not per row.
+     *
+     * @return OverDrive id to title, for ids the library can name
+     */
+    private Map<String, String> titlesForRowsMissingOne(List<OverDriveAuditEntity> rows) {
+        Set<String> unnamed = rows.stream()
+                .filter(a -> a.getTitle() == null || a.getTitle().isBlank())
+                .map(OverDriveAuditEntity::getTitleId)
+                .filter(id -> id != null && !id.isBlank())
+                .collect(Collectors.toSet());
+        if (unnamed.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> titles = new HashMap<>();
+        for (Object[] pair : bookRepository.findOverdriveIdTitlePairs(unnamed)) {
+            if (pair.length == 2 && pair[0] instanceof String id && pair[1] instanceof String title) {
+                titles.putIfAbsent(id, title);
+            }
+        }
+        return titles;
     }
 
     // Mirror the Libby web client exactly (verified against a working browser HAR): a normal desktop
@@ -1767,7 +1833,7 @@ public class OverDriveService {
                     loan.get("title") != null ? loan.get("title").toString() : null, null);
             return loanId;
         } catch (RuntimeException e) {
-            recordAuditFailure(OverDriveAuditAction.BORROW, identity, titleId, null, e.getMessage());
+            recordAuditFailure(OverDriveAuditAction.BORROW, identity, titleId, null, titleOf(titleId), e.getMessage());
             throw e;
         }
       }
@@ -3339,7 +3405,7 @@ public class OverDriveService {
         return book;
         } catch (RuntimeException e) {
             recordAuditFailure(alreadyBorrowed ? OverDriveAuditAction.IMPORT : OverDriveAuditAction.BORROW_AND_IMPORT,
-                    identity, titleId, null, e.getMessage());
+                    identity, titleId, null, title, e.getMessage());
             throw e;
         } finally {
             FileUtils.deleteDirectoryQuietly(workDir);
@@ -3591,7 +3657,7 @@ public class OverDriveService {
                     book != null ? "book " + book.getId() : "Bookdrop");
             return book;
         } catch (RuntimeException e) {
-            recordAuditFailure(OverDriveAuditAction.BORROW_AND_IMPORT, identity, titleId, null, e.getMessage());
+            recordAuditFailure(OverDriveAuditAction.BORROW_AND_IMPORT, identity, titleId, null, title, e.getMessage());
             throw e;
         } finally {
             FileUtils.deleteDirectoryQuietly(workDir);
@@ -3956,11 +4022,13 @@ public class OverDriveService {
                     .retrieve()
                     .toBodilessEntity());
 
-            recordAudit(OverDriveAuditAction.HOLD_PLACED, identity, titleId, null, null, null, null);
+            recordAudit(OverDriveAuditAction.HOLD_PLACED, identity, titleId, null, null,
+                    titleOf(titleId), null);
             log.info("OverDrive hold placed for title {}", titleId);
          } catch (Exception e) {
             log.error("OverDrive hold failed: {}", e.getMessage());
-            recordAuditFailure(OverDriveAuditAction.HOLD_PLACED, identity, titleId, null, e.getMessage());
+            recordAuditFailure(OverDriveAuditAction.HOLD_PLACED, identity, titleId, null,
+                    titleOf(titleId), e.getMessage());
             throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive hold failed: " + e.getMessage());
          }
       }
@@ -3978,11 +4046,13 @@ public class OverDriveService {
                     .retrieve()
                     .toBodilessEntity());
 
-            recordAudit(OverDriveAuditAction.HOLD_CANCELLED, identity, titleId, null, null, null, null);
+            recordAudit(OverDriveAuditAction.HOLD_CANCELLED, identity, titleId, null, null,
+                    titleOf(titleId), null);
             log.info("OverDrive hold cancelled for title {}", titleId);
          } catch (Exception e) {
             log.error("OverDrive cancel hold failed: {}", e.getMessage());
-            recordAuditFailure(OverDriveAuditAction.HOLD_CANCELLED, identity, titleId, null, e.getMessage());
+            recordAuditFailure(OverDriveAuditAction.HOLD_CANCELLED, identity, titleId, null,
+                    titleOf(titleId), e.getMessage());
             throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive cancel hold failed: " + e.getMessage());
          }
       }

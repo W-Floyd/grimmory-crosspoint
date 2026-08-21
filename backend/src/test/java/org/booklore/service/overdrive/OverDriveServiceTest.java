@@ -1127,6 +1127,64 @@ class OverDriveServiceTest {
         assertThat(service.resolveLoanBookId("2056901", null, null)).isEqualTo(99L);
     }
 
+    // ── History rows that recorded only an id ────────────────────────────
+
+    private static org.booklore.model.entity.OverDriveAuditEntity auditRow(String titleId, String title) {
+        org.booklore.model.entity.OverDriveAuditEntity row = new org.booklore.model.entity.OverDriveAuditEntity();
+        row.setId(1L);
+        row.setAction("HOLD_PLACED");
+        row.setTitleId(titleId);
+        row.setTitle(title);
+        return row;
+    }
+
+    @Test
+    void historyNamesATitleThatWasRecordedAsABareId() {
+        authAs(7L);
+        when(auditRepository.findByUserIdOrderByCreatedAtDesc(org.mockito.ArgumentMatchers.eq(7L), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(auditRow("2056901", null))));
+        when(bookRepository.findOverdriveIdTitlePairs(java.util.Set.of("2056901")))
+                .thenReturn(List.<Object[]>of(new Object[]{"2056901", "Mockingjay"}));
+
+        var page = service.listHistory(0, 25);
+
+        // Holds and failed borrows were written with no title, leaving the table showing a number.
+        // Those rows can't be rewritten, but an id is an id — the library knows what it is called.
+        assertThat(page.entries()).singleElement()
+                .extracting(org.booklore.model.dto.overdrive.OverDriveAuditEntry::title)
+                .isEqualTo("Mockingjay");
+    }
+
+    @Test
+    void historyKeepsTheRecordedTitleAndDoesNotLookItUp() {
+        authAs(7L);
+        when(auditRepository.findByUserIdOrderByCreatedAtDesc(org.mockito.ArgumentMatchers.eq(7L), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(
+                        List.of(auditRow("2056901", "As Recorded"))));
+
+        var page = service.listHistory(0, 25);
+
+        // What the row said at the time wins — a book since renamed in the library must not rewrite
+        // history — and a page of named rows costs no query at all.
+        assertThat(page.entries().getFirst().title()).isEqualTo("As Recorded");
+        verify(bookRepository, never()).findOverdriveIdTitlePairs(any());
+    }
+
+    @Test
+    void historyLeavesTheIdShowingWhenTheLibraryCannotNameIt() {
+        authAs(7L);
+        when(auditRepository.findByUserIdOrderByCreatedAtDesc(org.mockito.ArgumentMatchers.eq(7L), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(auditRow("2056901", null))));
+        when(bookRepository.findOverdriveIdTitlePairs(java.util.Set.of("2056901"))).thenReturn(List.of());
+
+        var page = service.listHistory(0, 25);
+
+        // A hold on something never borrowed has no book to name it. The row keeps its id, and the UI
+        // still links it to Libby.
+        assertThat(page.entries().getFirst().title()).isNull();
+        assertThat(page.entries().getFirst().titleId()).isEqualTo("2056901");
+    }
+
     // ── Keeping the loan cache honest ────────────────────────────────────
 
     /** A sync response covering {@code cards}, listing {@code loanIds} as still held. */
