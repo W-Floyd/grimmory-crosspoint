@@ -70,6 +70,15 @@
           </label>
         </div>
         <div class="auto-sync-option">
+          <p-checkbox [binary]="true" [ngModel]="holdShoppingEnabled()" (onChange)="onHoldShoppingEnabledChange($event.checked)"
+            [ngModelOptions]="{ standalone: true }" inputId="hold-shopping"
+            ariaLabel="Check your other libraries for titles you are waiting on" />
+          <label for="hold-shopping">
+            Check your other libraries for titles you're waiting on
+            <small>Runs the Holds tab's “check all other libraries” on every poll, and acts on the same rule that tab's buttons use. If another of your libraries has the book on the shelf it is borrowed there instead (only when borrowing holds is on above); otherwise, if one has a shorter queue, your hold moves there. The new hold is always placed before the old one is cancelled, so a failed move leaves your place untouched.</small>
+          </label>
+        </div>
+        <div class="auto-sync-option">
           <p-checkbox [binary]="true" [ngModel]="autoReturnEnabled()" (onChange)="onAutoReturnEnabledChange($event.checked)"
             [ngModelOptions]="{ standalone: true }" inputId="auto-return-enabled"
             ariaLabel="Automatically return old loans" />

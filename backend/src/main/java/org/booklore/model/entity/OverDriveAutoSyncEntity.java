@@ -56,4 +56,13 @@ public class OverDriveAutoSyncEntity {
     @Column(name = "auto_return_prompt_when_waitlisted", nullable = false)
     @Builder.Default
     private boolean autoReturnPromptWhenWaitlisted = true;
+
+    /**
+     * Whether each poll should check a waiting hold against the user's other libraries, and move it
+     * (or borrow outright) when one of them is better placed to lend the title.
+     */
+    @Column(name = "hold_shopping_enabled", nullable = false)
+    @Builder.Default
+    private boolean holdShoppingEnabled = false;
+
 }

@@ -102,7 +102,7 @@ class OverDriveAutoSyncSettingsTest {
         authAs(7L);
         when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.empty());
 
-        OverDriveAutoSyncSettings saved = service.setAutoSyncSettings(new OverDriveAutoSyncSettings(false, true, false, 14, 48, true));
+        OverDriveAutoSyncSettings saved = service.setAutoSyncSettings(new OverDriveAutoSyncSettings(false, true, false, 14, 48, true, false));
 
         // A borrowed hold that nothing then fetches has burned the hold for nothing, so the pair is
         // normalised on write rather than every reader having to re-derive it.
@@ -121,7 +121,7 @@ class OverDriveAutoSyncSettingsTest {
         authAs(7L);
         when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.empty());
 
-        OverDriveAutoSyncSettings saved = service.setAutoSyncSettings(new OverDriveAutoSyncSettings(true, false, false, 14, 48, true));
+        OverDriveAutoSyncSettings saved = service.setAutoSyncSettings(new OverDriveAutoSyncSettings(true, false, false, 14, 48, true, false));
 
         assertThat(saved.autoImportLoans()).isTrue();
         assertThat(saved.autoBorrowHolds()).isFalse();
@@ -133,7 +133,7 @@ class OverDriveAutoSyncSettingsTest {
         when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.of(
                 OverDriveAutoSyncEntity.builder().userId(7L).autoImportLoans(true).autoBorrowHolds(true).build()));
 
-        service.setAutoSyncSettings(new OverDriveAutoSyncSettings(false, false, false, 14, 48, true));
+        service.setAutoSyncSettings(new OverDriveAutoSyncSettings(false, false, false, 14, 48, true, false));
 
         ArgumentCaptor<OverDriveAutoSyncEntity> captor = ArgumentCaptor.forClass(OverDriveAutoSyncEntity.class);
         verify(autoSyncRepository).save(captor.capture());
@@ -232,7 +232,7 @@ class OverDriveAutoSyncSettingsTest {
         Instant minReturnAt = loan.getCreatedAt().plus(14, ChronoUnit.DAYS);
 
         service.autoReturnDueAt(loan, minReturnAt,
-                new OverDriveAutoSyncSettings(false, false, true, 14, 48, true));
+                new OverDriveAutoSyncSettings(false, false, true, 14, 48, true, false));
 
         assertThat(loan.getAutoReturnDueAt()).isBetween(minReturnAt, minReturnAt.plus(48, ChronoUnit.HOURS));
     }
@@ -243,7 +243,7 @@ class OverDriveAutoSyncSettingsTest {
         Instant minReturnAt = loan.getCreatedAt().plus(14, ChronoUnit.DAYS);
 
         service.autoReturnDueAt(loan, minReturnAt,
-                new OverDriveAutoSyncSettings(false, false, true, 14, 0, true));
+                new OverDriveAutoSyncSettings(false, false, true, 14, 0, true, false));
 
         assertThat(loan.getAutoReturnDueAt()).isEqualTo(minReturnAt);
     }
@@ -258,7 +258,7 @@ class OverDriveAutoSyncSettingsTest {
         for (int i = 0; i < 20; i++) {
             // Re-rolling each pass would let the target drift forever and never come due.
             assertThat(service.autoReturnDueAt(loan, minReturnAt,
-                    new OverDriveAutoSyncSettings(false, false, true, 14, 48, true))).isEqualTo(fixed);
+                    new OverDriveAutoSyncSettings(false, false, true, 14, 48, true, false))).isEqualTo(fixed);
         }
     }
 
@@ -269,14 +269,14 @@ class OverDriveAutoSyncSettingsTest {
             OverDriveLoanEntity loan = fulfilledLoan(20);
             Instant minReturnAt = Instant.parse("2026-08-01T00:00:00Z");
             drawn.add(service.autoReturnDueAt(loan, minReturnAt,
-                    new OverDriveAutoSyncSettings(false, false, true, 14, 48, true)));
+                    new OverDriveAutoSyncSettings(false, false, true, 14, 48, true, false)));
         }
         // The whole point is that returns do not all land on the same instant.
         assertThat(drawn).hasSizeGreaterThan(1);
     }
 
     private OverDriveAutoSyncSettings returnSettings(int minAgeDays, int windowHours, boolean promptWhenWaitlisted) {
-        return new OverDriveAutoSyncSettings(false, false, true, minAgeDays, windowHours, promptWhenWaitlisted);
+        return new OverDriveAutoSyncSettings(false, false, true, minAgeDays, windowHours, promptWhenWaitlisted, false);
     }
 
     @Test
@@ -346,7 +346,7 @@ class OverDriveAutoSyncSettingsTest {
         loan.setAutoReturnDueAt(Instant.now().plus(1, ChronoUnit.DAYS));
         when(loanRepository.findByUserId(7L)).thenReturn(List.of(loan));
 
-        service.setAutoSyncSettings(new OverDriveAutoSyncSettings(false, false, true, 7, 48, true));
+        service.setAutoSyncSettings(new OverDriveAutoSyncSettings(false, false, true, 7, 48, true, false));
 
         // Drawn against a window the user has just changed, so it no longer means anything.
         assertThat(loan.getAutoReturnDueAt()).isNull();

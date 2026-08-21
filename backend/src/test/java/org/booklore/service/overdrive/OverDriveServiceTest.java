@@ -2,6 +2,7 @@ package org.booklore.service.overdrive;
 
 import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.model.dto.BookLoreUser;
+import org.booklore.model.dto.overdrive.OverDriveAutoSyncSettings;
 import org.booklore.model.dto.overdrive.OverDriveLoan;
 import org.booklore.model.dto.overdrive.OverDriveSyncResponse;
 import org.booklore.model.entity.OverDriveCardShareEntity;
@@ -21,6 +22,7 @@ import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -1183,6 +1185,147 @@ class OverDriveServiceTest {
         // still links it to Libby.
         assertThat(page.entries().getFirst().title()).isNull();
         assertThat(page.entries().getFirst().titleId()).isEqualTo("2056901");
+    }
+
+    // ── Checking a waiting hold against the user's other libraries ───────
+
+    private static org.booklore.model.dto.overdrive.OverDriveHold waitingHold(
+            String titleId, String cardId, String waitDays) {
+        org.booklore.model.dto.overdrive.OverDriveHold hold = new org.booklore.model.dto.overdrive.OverDriveHold();
+        hold.setId(titleId);
+        hold.setCardId(cardId);
+        hold.setTitle("Dune");
+        hold.setAvailable(false);
+        hold.setEstimatedWaitDays(waitDays);
+        return hold;
+    }
+
+    private static org.booklore.model.dto.overdrive.OverDriveLibraryAvailability availability(
+            String libraryKey, boolean available, boolean holdable, Integer waitDays, Integer ownedCopies) {
+        return new org.booklore.model.dto.overdrive.OverDriveLibraryAvailability(
+                libraryKey, available, holdable, available ? 1 : 0, ownedCopies, null, waitDays, 0);
+    }
+
+    /** The user's other libraries: lapl is the card holding the hold, bpl and kcpl are alternatives. */
+    private static Map<String, String> threeLibraries() {
+        return new java.util.LinkedHashMap<>(Map.of("lapl", "card-a", "bpl", "card-b", "kcpl", "card-c"));
+    }
+
+    private static OverDriveAutoSyncSettings holdShopping(boolean autoBorrow) {
+        return new OverDriveAutoSyncSettings(false, autoBorrow, false, 14, 48, true, true);
+    }
+
+    @Test
+    void anyShorterQueueIsWorthMovingTo_matchingTheHoldsTab() {
+        var hold = waitingHold("2056901", "card-a", "30");
+
+        // The same rule the button applies: shorter is better, with no threshold of its own to
+        // disagree about.
+        assertThat(service.soonerElsewhere(hold, List.of(availability("bpl", false, true, 29, 5)),
+                threeLibraries(), Map.of(), Map.of()))
+                .isEqualTo(new OverDriveService.SoonerQueue("card-b", 29, 30));
+        // Equal is not shorter.
+        assertThat(service.soonerElsewhere(hold, List.of(availability("bpl", false, true, 30, 5)),
+                threeLibraries(), Map.of(), Map.of())).isNull();
+        assertThat(service.soonerElsewhere(hold, List.of(availability("bpl", false, true, 31, 5)),
+                threeLibraries(), Map.of(), Map.of())).isNull();
+    }
+
+    @Test
+    void theShortestQueueWins_thenMoreCopies_thenTheCardCarryingFewestHolds() {
+        var hold = waitingHold("2056901", "card-a", "60");
+        assertThat(service.soonerElsewhere(hold, List.of(
+                        availability("bpl", false, true, 20, 3),
+                        availability("kcpl", false, true, 10, 1)),
+                threeLibraries(), Map.of(), Map.of()).cardId()).isEqualTo("card-c");
+
+        // Equal waits: the bigger pool churns faster and gains more from holds ahead lapsing.
+        assertThat(service.soonerElsewhere(hold, List.of(
+                        availability("bpl", false, true, 20, 12),
+                        availability("kcpl", false, true, 20, 2)),
+                threeLibraries(), Map.of(), Map.of()).cardId()).isEqualTo("card-b");
+
+        // Equal on both: spread the holds, so no single card fills its slots. Same last tie-break the
+        // Holds tab uses.
+        assertThat(service.soonerElsewhere(hold, List.of(
+                        availability("bpl", false, true, 20, 5),
+                        availability("kcpl", false, true, 20, 5)),
+                threeLibraries(), Map.of(), Map.of("card-b", 9, "card-c", 2)).cardId()).isEqualTo("card-c");
+    }
+
+    @Test
+    void aHoldWithNoWaitEstimateIsNeverMoved() {
+        // Nothing to compare against, so "better" would be a guess — and guessing wrong costs a queue
+        // position the user cannot get back.
+        assertThat(service.soonerElsewhere(waitingHold("2056901", "card-a", "unknown"),
+                List.of(availability("bpl", false, true, 1, 5)), threeLibraries(), Map.of(), Map.of())).isNull();
+        assertThat(service.soonerElsewhere(waitingHold("2056901", "card-a", null),
+                List.of(availability("bpl", false, true, 1, 5)), threeLibraries(), Map.of(), Map.of())).isNull();
+    }
+
+    @Test
+    void aHoldIsNeverMovedToTheCardItIsAlreadyOn_norToOneAtItsHoldLimit() {
+        var hold = waitingHold("2056901", "card-a", "60");
+        // The card's own library reporting a shorter wait is the same queue, not a better one.
+        assertThat(service.soonerElsewhere(hold, List.of(availability("lapl", false, true, 5, 5)),
+                threeLibraries(), Map.of(), Map.of())).isNull();
+        // A card that can take no more holds cannot be moved to.
+        assertThat(service.soonerElsewhere(hold, List.of(availability("bpl", false, true, 5, 5)),
+                threeLibraries(), Map.of("card-b", 0), Map.of())).isNull();
+    }
+
+    @Test
+    void aLibraryThatOnlyOffersAWaitlistIsNotTreatedAsHavingTheBookOnTheShelf() {
+        var hold = waitingHold("2056901", "card-a", "60");
+        assertThat(service.availableElsewhere(hold, List.of(availability("bpl", false, true, 5, 5)),
+                threeLibraries(), Map.of())).isNull();
+        assertThat(service.availableElsewhere(hold, List.of(availability("bpl", true, false, null, 5)),
+                threeLibraries(), Map.of())).isEqualTo("card-b");
+    }
+
+    @Test
+    void aLuckyDayCopyCountsAsOnTheShelf_butStillNeedsACheckoutSlot() {
+        var hold = waitingHold("2056901", "card-a", "60");
+        var luckyDay = new org.booklore.model.dto.overdrive.OverDriveLibraryAvailability(
+                "bpl", false, true, 0, 5, null, 60, 2);
+
+        // It skips the queue, so it is borrowable now — but it is still a loan.
+        assertThat(service.availableElsewhere(hold, List.of(luckyDay), threeLibraries(), Map.of()))
+                .isEqualTo("card-b");
+        assertThat(service.availableElsewhere(hold, List.of(luckyDay), threeLibraries(), Map.of("card-b", 0)))
+                .isNull();
+    }
+
+    @Test
+    void holdShoppingDoesNothingWithoutASecondLibrary() {
+        OverDriveSyncResponse body = syncCovering(List.of("card-a"));
+        body.setHolds(List.of(waitingHold("2056901", "card-a", "30")));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+
+        var outcome = service.runHoldShopping(7L, holdShopping(false),
+                Map.of("card-a", body), new java.util.HashMap<>());
+
+        // One library is nowhere else to look; don't spend an availability call finding that out.
+        assertThat(outcome).isEqualTo(new OverDriveService.HoldShoppingOutcome(0, 0, 0));
+        verifyNoInteractions(overDriveParser);
+    }
+
+    @Test
+    void holdShoppingIgnoresAHoldThatIsAlreadyReadyToBorrow() {
+        OverDriveSyncResponse body = syncCovering(List.of("card-a", "card-b"));
+        var ready = waitingHold("2056901", "card-a", "0");
+        ready.setAvailable(true);
+        body.setHolds(List.of(ready));
+
+        var outcome = service.runHoldShopping(7L, holdShopping(false),
+                Map.of("card-a", body, "card-b", body), new java.util.HashMap<>());
+
+        // A ready hold is auto-borrow's business. Shopping it around would cancel a copy already won —
+        // and the card lookup is never even reached.
+        assertThat(outcome).isEqualTo(new OverDriveService.HoldShoppingOutcome(0, 0, 0));
+        verifyNoInteractions(overDriveParser, tokenRepository);
     }
 
     // ── Keeping the loan cache honest ────────────────────────────────────

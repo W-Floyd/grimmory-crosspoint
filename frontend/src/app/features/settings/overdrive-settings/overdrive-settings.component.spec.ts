@@ -20,6 +20,7 @@ function autoSync(overrides: Partial<OverDriveAutoSyncSettings> = {}): OverDrive
     autoReturnMinAgeDays: 14,
     autoReturnMaxDelayHours: 48,
     autoReturnPromptWhenWaitlisted: true,
+    holdShoppingEnabled: false,
     ...overrides,
   };
 }
@@ -60,6 +61,29 @@ function setup(opts: {admin?: boolean} = {}): OverdriveSettingsComponent {
   TestBed.overrideComponent(OverdriveSettingsComponent, {set: {template: ''}});
   return TestBed.createComponent(OverdriveSettingsComponent).componentInstance;
 }
+
+describe('OverdriveSettingsComponent hold shopping', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('sends the opt-in when the switch is turned on', () => {
+    setup().onHoldShoppingEnabledChange(true);
+
+    // One flag and nothing else: the automation applies the same rule the Holds tab's buttons do,
+    // with no threshold of its own for the two to disagree about.
+    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith(
+      expect.objectContaining({holdShoppingEnabled: true}));
+  });
+
+  it('turns the opt-in back off again', () => {
+    const c = setup();
+    c.holdShoppingEnabled.set(true);
+    c.onHoldShoppingEnabledChange(false);
+
+    expect(c.holdShoppingEnabled()).toBe(false);
+    expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith(
+      expect.objectContaining({holdShoppingEnabled: false}));
+  });
+});
 
 describe('OverdriveSettingsComponent deployment-wide settings', () => {
   beforeEach(() => vi.clearAllMocks());

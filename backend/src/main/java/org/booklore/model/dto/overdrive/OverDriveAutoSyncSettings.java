@@ -12,6 +12,9 @@ package org.booklore.model.dto.overdrive;
  *                                     at the minimum age
  * @param autoReturnPromptWhenWaitlisted skip that random delay when the title has holds queued, so
  *                                     people waiting are not held up for the sake of looking organic
+ * @param holdShoppingEnabled          check each waiting hold against the user's other libraries on
+ *                                     every poll, and act when one of them is better placed to lend,
+ *                                     by the same rule the Holds tab applies by hand
  */
 public record OverDriveAutoSyncSettings(
         boolean autoImportLoans,
@@ -19,5 +22,6 @@ public record OverDriveAutoSyncSettings(
         boolean autoReturnEnabled,
         int autoReturnMinAgeDays,
         int autoReturnMaxDelayHours,
-        boolean autoReturnPromptWhenWaitlisted) {
+        boolean autoReturnPromptWhenWaitlisted,
+        boolean holdShoppingEnabled) {
 }

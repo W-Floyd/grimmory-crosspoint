@@ -2586,7 +2586,7 @@ public class OverDriveService {
 
       /** Defaults for a user who has never opted in: everything off, with the schema's suggested values. */
       private static final OverDriveAutoSyncSettings AUTO_SYNC_DEFAULTS =
-              new OverDriveAutoSyncSettings(false, false, false, 14, 48, true);
+              new OverDriveAutoSyncSettings(false, false, false, 14, 48, true, false);
 
       /** The current user's automation opt-in — all off when they have never opted in. */
       public OverDriveAutoSyncSettings getAutoSyncSettings() {
@@ -2594,7 +2594,8 @@ public class OverDriveService {
                 .map(a -> new OverDriveAutoSyncSettings(
                         a.isAutoImportLoans(), a.isAutoBorrowHolds(),
                         a.isAutoReturnEnabled(), a.getAutoReturnMinAgeDays(),
-                        a.getAutoReturnMaxDelayHours(), a.isAutoReturnPromptWhenWaitlisted()))
+                        a.getAutoReturnMaxDelayHours(), a.isAutoReturnPromptWhenWaitlisted(),
+                        a.isHoldShoppingEnabled()))
                 .orElse(AUTO_SYNC_DEFAULTS);
       }
 
@@ -2623,6 +2624,7 @@ public class OverDriveService {
         entity.setAutoReturnMinAgeDays(minAgeDays);
         entity.setAutoReturnMaxDelayHours(maxDelayHours);
         entity.setAutoReturnPromptWhenWaitlisted(settings.autoReturnPromptWhenWaitlisted());
+        entity.setHoldShoppingEnabled(settings.holdShoppingEnabled());
         autoSyncRepository.save(entity);
 
         // Due times were drawn against the old window, so they no longer mean anything. Clearing them
@@ -2633,11 +2635,12 @@ public class OverDriveService {
         }
 
         log.info("OverDrive auto-sync settings for user {}: importLoans={} borrowHolds={} autoReturn={} "
-                        + "(minAge={}d, window={}h, promptWhenWaitlisted={})",
+                        + "(minAge={}d, window={}h, promptWhenWaitlisted={}) holdShopping={}",
                 userId, importLoans, borrowHolds, settings.autoReturnEnabled(), minAgeDays, maxDelayHours,
-                settings.autoReturnPromptWhenWaitlisted());
+                settings.autoReturnPromptWhenWaitlisted(), settings.holdShoppingEnabled());
         return new OverDriveAutoSyncSettings(importLoans, borrowHolds, settings.autoReturnEnabled(),
-                minAgeDays, maxDelayHours, settings.autoReturnPromptWhenWaitlisted());
+                minAgeDays, maxDelayHours, settings.autoReturnPromptWhenWaitlisted(),
+                settings.holdShoppingEnabled());
       }
 
       /** Forget every drawn auto-return due date for a user, so the next pass redraws them. */
@@ -2663,12 +2666,13 @@ public class OverDriveService {
        *
        * @param loansLinked loans found to be already in the library and linked to the existing book
        *                    rather than downloaded again
+       * @param holdsMoved  waiting holds re-placed at another of the user's libraries with a shorter queue
        */
       public record AutoSyncOutcome(int cardsSynced, int holdsBorrowed, int loansImported, int loansLinked,
-                                    int loansReturned, int failures) {
+                                    int holdsMoved, int loansReturned, int failures) {
 
         static AutoSyncOutcome none() {
-            return new AutoSyncOutcome(0, 0, 0, 0, 0, 0);
+            return new AutoSyncOutcome(0, 0, 0, 0, 0, 0, 0);
         }
       }
 
@@ -2698,7 +2702,8 @@ public class OverDriveService {
 
       private AutoSyncOutcome doAutoSync() {
         OverDriveAutoSyncSettings settings = getAutoSyncSettings();
-        if (!settings.autoImportLoans() && !settings.autoBorrowHolds() && !settings.autoReturnEnabled()) {
+        if (!settings.autoImportLoans() && !settings.autoBorrowHolds() && !settings.autoReturnEnabled()
+                && !settings.holdShoppingEnabled()) {
             return AutoSyncOutcome.none();
         }
         Long userId = currentUserId();
@@ -2712,8 +2717,10 @@ public class OverDriveService {
         int failures = 0;
         int borrowed = 0;
 
+        // One snapshot of every card's remaining checkouts, shared by both steps that spend them.
+        Map<String, Integer> loanSlotsLeft = loanCapacityByCard(syncs);
+
         if (settings.autoBorrowHolds()) {
-            Map<String, Integer> loanSlotsLeft = loanCapacityByCard(syncs);
             for (Map.Entry<String, List<OverDriveHold>> entry : readyHoldsByCard(syncs).entrySet()) {
                 String cardId = entry.getKey();
                 for (OverDriveHold hold : entry.getValue()) {
@@ -2753,6 +2760,14 @@ public class OverDriveService {
                     }
                 }
             }
+        }
+
+        int moved = 0;
+        if (settings.holdShoppingEnabled()) {
+            HoldShoppingOutcome shopping = runHoldShopping(userId, settings, syncs, loanSlotsLeft);
+            borrowed += shopping.borrowed();
+            moved += shopping.moved();
+            failures += shopping.failures();
         }
 
         // Loan ids the user actually holds right now. The loan table is a cache that is only ever
@@ -2811,7 +2826,7 @@ public class OverDriveService {
             failures += autoReturn.failures();
         }
 
-        return new AutoSyncOutcome(identities.size(), borrowed, imported, linked, returned, failures);
+        return new AutoSyncOutcome(identities.size(), borrowed, imported, linked, moved, returned, failures);
       }
 
       /**
@@ -3025,6 +3040,40 @@ public class OverDriveService {
         return left != null && left <= 0;
       }
 
+      /**
+       * Remaining holds per card, and which cards refuse holds outright. A library that says it cannot
+       * place holds is recorded as having none left, so one check covers both cases.
+       */
+      private Map<String, Integer> holdCapacityByCard(Map<String, OverDriveSyncResponse> syncs) {
+        Map<String, Integer> remaining = new HashMap<>();
+        for (OverDriveSyncResponse response : syncs.values()) {
+            if (response == null || response.getCards() == null) {
+                continue;
+            }
+            for (OverDriveSyncResponse.Card card : response.getCards()) {
+                if (card == null || card.getCardId() == null) {
+                    continue;
+                }
+                if (Boolean.FALSE.equals(card.getCanPlaceHolds())) {
+                    remaining.put(card.getCardId(), 0);
+                    continue;
+                }
+                if (card.getCounts() == null || card.getLimits() == null
+                        || card.getCounts().getHold() == null || card.getLimits().getHold() == null) {
+                    continue;
+                }
+                remaining.put(card.getCardId(), card.getLimits().getHold() - card.getCounts().getHold());
+            }
+        }
+        return remaining;
+      }
+
+      /** Whether this card can take no more holds; an unknown limit never blocks one. */
+      private static boolean atHoldCapacity(Map<String, Integer> holdSlotsLeft, String cardId) {
+        Integer left = holdSlotsLeft.get(cardId);
+        return left != null && left <= 0;
+      }
+
       private Map<String, Integer> holdsCountByTitle(Map<String, OverDriveSyncResponse> syncs) {
         Map<String, Integer> out = new HashMap<>();
         for (OverDriveSyncResponse sync : syncs.values()) {
@@ -3046,6 +3095,249 @@ public class OverDriveService {
        * carries every card on that chip, so holds are attributed by their own {@code cardId} (falling
        * back to the card we synced with) — the same rule the interactive sync view uses.
        */
+      /** What one user's hold-shopping pass did. */
+      record HoldShoppingOutcome(int borrowed, int moved, int failures) {} // package-private for testing
+
+      /**
+       * Check every hold the user is still waiting on against their other libraries, and act when one
+       * of them is better placed to lend the title.
+       *
+       * <p>This is the Holds tab's "check all other libraries" run on the schedule instead of by hand.
+       * The same title is often stocked by several of a user's libraries with wildly different queues,
+       * so a hold placed at one can sit for months while another has it on the shelf.
+       *
+       * <p>Two outcomes, in order of preference:
+       *
+       * <ul>
+       *   <li><b>Available now elsewhere</b> — borrow it there and cancel the original hold. Only when
+       *       the user has opted into automatic borrowing: this consumes a checkout and downloads a
+       *       book, which is exactly what that switch governs, and doing it off the back of a
+       *       different switch would surprise someone who only wanted their queues tidied.</li>
+       *   <li><b>A shorter queue elsewhere</b> — place a hold there, then cancel the original, by the
+       *       same rule the Holds tab applies by hand.</li>
+       * </ul>
+       *
+       * <p>The new hold is always placed before the old one is cancelled, so a failed placement leaves
+       * the user exactly where they were rather than at the back of a queue they had waited in.
+       */
+      HoldShoppingOutcome runHoldShopping(Long userId, OverDriveAutoSyncSettings settings,
+                                          Map<String, OverDriveSyncResponse> syncs,
+                                          Map<String, Integer> loanSlotsLeft) { // package-private for testing
+        List<OverDriveHold> waiting = waitingHolds(syncs);
+        if (waiting.isEmpty()) {
+            return new HoldShoppingOutcome(0, 0, 0);
+        }
+        // Card per library key, so an availability row can be turned back into a card to act with.
+        Map<String, String> cardByLibrary = new LinkedHashMap<>();
+        for (OverDriveTokenEntity row : accessibleTokenRows(userId)) {
+            if (row.getLibraryKey() != null && !row.getLibraryKey().isBlank()) {
+                cardByLibrary.putIfAbsent(row.getLibraryKey(), row.getIdentity());
+            }
+        }
+        if (cardByLibrary.size() < 2) {
+            return new HoldShoppingOutcome(0, 0, 0); // nowhere else to look
+        }
+
+        // One lightweight call per library covering every waiting title, rather than a media fetch
+        // per title per library.
+        Map<String, List<OverDriveLibraryAvailability>> availability = availabilityForTitles(
+                waiting.stream().map(OverDriveHold::getId).distinct().toList(),
+                List.copyOf(cardByLibrary.values()));
+
+        Map<String, Integer> holdSlotsLeft = holdCapacityByCard(syncs);
+        Map<String, Integer> holdsPerCard = holdCountByCard(syncs);
+        int borrowed = 0;
+        int moved = 0;
+        int failures = 0;
+
+        for (OverDriveHold hold : waiting) {
+            List<OverDriveLibraryAvailability> options = availability.getOrDefault(hold.getId(), List.of());
+            if (options.isEmpty()) {
+                continue;
+            }
+
+            String borrowCard = settings.autoBorrowHolds()
+                    ? availableElsewhere(hold, options, cardByLibrary, loanSlotsLeft)
+                    : null;
+            if (borrowCard != null) {
+                try {
+                    pauseBetweenTitles(borrowed + moved);
+                    loanSlotsLeft.computeIfPresent(borrowCard, (id, left) -> left - 1);
+                    borrowAndImport(borrowCard, hold.getId(), null, null,
+                            hold.getTitle(), hold.getFirstCreatorName(), null, null, null, null, null);
+                    borrowed++;
+                    log.info("OverDrive hold shopping: \"{}\" was on the shelf at card {}; borrowed it there "
+                            + "for user {} instead of waiting at {}",
+                            hold.getTitle(), borrowCard, userId, hold.getCardId());
+                    cancelSupersededHold(hold, "borrowed it at another library");
+                } catch (Exception e) {
+                    failures++;
+                    log.warn("OverDrive hold shopping: borrowing \"{}\" at card {} for user {} failed: {}",
+                            hold.getTitle(), borrowCard, userId, e.getMessage());
+                }
+                continue;
+            }
+
+            SoonerQueue sooner = soonerElsewhere(hold, options, cardByLibrary, holdSlotsLeft, holdsPerCard);
+            if (sooner == null) {
+                continue;
+            }
+            try {
+                pauseBetweenTitles(borrowed + moved);
+                // Place first, cancel second: the reverse order risks giving up a queue position and
+                // then failing to take the new one.
+                placeHold(sooner.cardId(), hold.getId());
+                holdSlotsLeft.computeIfPresent(sooner.cardId(), (id, left) -> left - 1);
+                moved++;
+                log.info("OverDrive hold shopping: moved the hold on \"{}\" for user {} to card {} "
+                        + "(~{}d instead of ~{}d)",
+                        hold.getTitle(), userId, sooner.cardId(), sooner.waitDays(), sooner.currentWaitDays());
+                cancelSupersededHold(hold, "placed a shorter hold at another library");
+            } catch (Exception e) {
+                failures++;
+                log.warn("OverDrive hold shopping: could not place a hold on \"{}\" at card {} for user {} "
+                        + "({}); the original hold is untouched",
+                        hold.getTitle(), sooner.cardId(), userId, e.getMessage());
+            }
+        }
+        return new HoldShoppingOutcome(borrowed, moved, failures);
+      }
+
+      /**
+       * Cancel a hold that has just been superseded. Deliberately swallows its failure: the useful half
+       * of the move has already happened, and undoing it is neither possible nor desirable. The user is
+       * left holding two places for one title, which the log says plainly so it can be tidied by hand.
+       */
+      private void cancelSupersededHold(OverDriveHold hold, String because) {
+        if (hold.getCardId() == null) {
+            return;
+        }
+        try {
+            cancelHold(hold.getCardId(), hold.getId());
+        } catch (Exception e) {
+            log.warn("OverDrive hold shopping: {} for \"{}\" but could not cancel the original hold on card "
+                    + "{} ({}); it is still in place and needs cancelling by hand",
+                    because, hold.getTitle(), hold.getCardId(), e.getMessage());
+        }
+      }
+
+      /** Holds the user is still queued for — the ready ones are auto-borrow's business, not this. */
+      private List<OverDriveHold> waitingHolds(Map<String, OverDriveSyncResponse> syncs) {
+        List<OverDriveHold> waiting = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (OverDriveSyncResponse sync : syncs.values()) {
+            if (sync == null || sync.getHolds() == null) {
+                continue;
+            }
+            for (OverDriveHold hold : sync.getHolds()) {
+                if (hold.getId() == null || hold.getCardId() == null
+                        || Boolean.TRUE.equals(hold.getAvailable())) {
+                    continue;
+                }
+                // Cards sharing a chip see the same hold list; consider each hold once.
+                if (seen.add(hold.getCardId() + ":" + hold.getId())) {
+                    waiting.add(hold);
+                }
+            }
+        }
+        return waiting;
+      }
+
+      /**
+       * A card at another of the user's libraries where this held title is on the shelf right now, or
+       * null. A Lucky Day copy counts — it skips the queue — but it is still a checkout, so the card
+       * has to have room for one.
+       */
+      String availableElsewhere(OverDriveHold hold, List<OverDriveLibraryAvailability> options,
+                                Map<String, String> cardByLibrary,
+                                Map<String, Integer> loanSlotsLeft) { // package-private for testing
+        for (OverDriveLibraryAvailability option : options) {
+            boolean onShelf = option.available()
+                    || (option.luckyDayAvailableCopies() != null && option.luckyDayAvailableCopies() > 0);
+            if (!onShelf) {
+                continue;
+            }
+            String cardId = cardByLibrary.get(option.libraryKey());
+            if (cardId != null && !cardId.equals(hold.getCardId()) && !atLoanCapacity(loanSlotsLeft, cardId)) {
+                return cardId;
+            }
+        }
+        return null;
+      }
+
+      /** A better queue for a held title: which card, its estimated wait, and the one being left. */
+      record SoonerQueue(String cardId, int waitDays, int currentWaitDays) {} // package-private for testing
+
+      /**
+       * The best other library with a shorter estimated wait than this hold's, or null.
+       *
+       * <p>Deliberately the same rule the Holds tab applies by hand, down to the tie-breaks: any
+       * shorter estimate is worth moving to, ties on wait go to the library owning more copies (a
+       * bigger pool churns faster and gains more from holds ahead lapsing), and a remaining tie goes to
+       * the card carrying fewest of the user's own holds, so no one card fills its hold slots. A
+       * threshold here would mean the button and the schedule disagreeing about what counts as better.
+       */
+      SoonerQueue soonerElsewhere(OverDriveHold hold, List<OverDriveLibraryAvailability> options,
+                                  Map<String, String> cardByLibrary, Map<String, Integer> holdSlotsLeft,
+                                  Map<String, Integer> holdsPerCard) { // package-private for testing
+        Integer currentWait = parseWaitDays(hold.getEstimatedWaitDays());
+        if (currentWait == null) {
+            return null; // no estimate to beat; moving would be a guess
+        }
+        SoonerQueue best = null;
+        int bestCopies = -1;
+        for (OverDriveLibraryAvailability option : options) {
+            if (!option.holdable() || option.estimatedWaitDays() == null
+                    || option.estimatedWaitDays() >= currentWait) {
+                continue;
+            }
+            String cardId = cardByLibrary.get(option.libraryKey());
+            if (cardId == null || cardId.equals(hold.getCardId()) || atHoldCapacity(holdSlotsLeft, cardId)) {
+                continue;
+            }
+            int copies = option.ownedCopies() != null ? option.ownedCopies() : 0;
+            boolean better = best == null
+                    || option.estimatedWaitDays() < best.waitDays()
+                    || (option.estimatedWaitDays() == best.waitDays() && copies > bestCopies)
+                    || (option.estimatedWaitDays() == best.waitDays() && copies == bestCopies
+                        && holdsPerCard.getOrDefault(cardId, 0) < holdsPerCard.getOrDefault(best.cardId(), 0));
+            if (better) {
+                best = new SoonerQueue(cardId, option.estimatedWaitDays(), currentWait);
+                bestCopies = copies;
+            }
+        }
+        return best;
+      }
+
+      /** How many holds each card is currently carrying, from the sync feed's own counts. */
+      private Map<String, Integer> holdCountByCard(Map<String, OverDriveSyncResponse> syncs) {
+        Map<String, Integer> counts = new HashMap<>();
+        for (OverDriveSyncResponse response : syncs.values()) {
+            if (response == null || response.getCards() == null) {
+                continue;
+            }
+            for (OverDriveSyncResponse.Card card : response.getCards()) {
+                if (card != null && card.getCardId() != null
+                        && card.getCounts() != null && card.getCounts().getHold() != null) {
+                    counts.put(card.getCardId(), card.getCounts().getHold());
+                }
+            }
+        }
+        return counts;
+      }
+
+      /** The sync feed reports a hold's wait as free text; anything non-numeric means "no estimate". */
+      private static Integer parseWaitDays(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+      }
+
       private Map<String, List<OverDriveHold>> readyHoldsByCard(Map<String, OverDriveSyncResponse> syncs) {
         Map<String, List<OverDriveHold>> byCard = new LinkedHashMap<>();
         Set<String> seen = new HashSet<>();

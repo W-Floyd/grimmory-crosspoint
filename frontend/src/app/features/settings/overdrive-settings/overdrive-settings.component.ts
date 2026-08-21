@@ -29,7 +29,8 @@ const AUTO_SYNC_DEFAULTS: OverDriveAutoSyncSettings = {
   autoReturnEnabled: false,
   autoReturnMinAgeDays: 14,
   autoReturnMaxDelayHours: 48,
-  autoReturnPromptWhenWaitlisted: true
+  autoReturnPromptWhenWaitlisted: true,
+  holdShoppingEnabled: false
 };
 
 @Component({
@@ -96,6 +97,7 @@ export class OverdriveSettingsComponent {
   autoReturnMinAgeDays = signal(14);
   autoReturnMaxDelayHours = signal(48);
   autoReturnPromptWhenWaitlisted = signal(true);
+  holdShoppingEnabled = signal(false);
 
   // The list of OverDrive library keys to search for metadata (source of truth).
   libraryKeys = signal<string[]>([]);
@@ -221,7 +223,8 @@ export class OverdriveSettingsComponent {
       autoReturnEnabled: this.autoReturnEnabled(),
       autoReturnMinAgeDays: Math.max(0, Math.round(Number(this.autoReturnMinAgeDays()) || 0)),
       autoReturnMaxDelayHours: Math.max(0, Math.round(Number(this.autoReturnMaxDelayHours()) || 0)),
-      autoReturnPromptWhenWaitlisted: this.autoReturnPromptWhenWaitlisted()
+      autoReturnPromptWhenWaitlisted: this.autoReturnPromptWhenWaitlisted(),
+      holdShoppingEnabled: this.holdShoppingEnabled()
     };
     this.setupError.set(null);
     this.overdriveService.setAutoSyncSettings(payload).subscribe({
@@ -242,6 +245,7 @@ export class OverdriveSettingsComponent {
     this.autoReturnMinAgeDays.set(settings?.autoReturnMinAgeDays ?? 14);
     this.autoReturnMaxDelayHours.set(settings?.autoReturnMaxDelayHours ?? 48);
     this.autoReturnPromptWhenWaitlisted.set(settings?.autoReturnPromptWhenWaitlisted ?? true);
+    this.holdShoppingEnabled.set(!!settings?.holdShoppingEnabled);
   }
 
   /** Cards this user owns, as options for sharing a Libby identity with a new card. */
@@ -254,6 +258,11 @@ export class OverdriveSettingsComponent {
 
   onAutoReturnPromptWhenWaitlistedChange(enabled: boolean): void {
     this.autoReturnPromptWhenWaitlisted.set(enabled);
+    this.saveAutoSyncSettings();
+  }
+
+  onHoldShoppingEnabledChange(enabled: boolean): void {
+    this.holdShoppingEnabled.set(enabled);
     this.saveAutoSyncSettings();
   }
 

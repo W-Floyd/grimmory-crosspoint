@@ -79,6 +79,8 @@ export interface OverDriveAutoSyncSettings {
   autoReturnMaxDelayHours: number;
   /** Skip that random delay when the title has holds queued, so waiters are not held up. */
   autoReturnPromptWhenWaitlisted: boolean;
+  /** Check each waiting hold against your other libraries on every poll, and act on a better one. */
+  holdShoppingEnabled: boolean;
 }
 
 /** Outcome of consolidating cards onto one Libby account. */
