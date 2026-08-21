@@ -132,13 +132,31 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.chosenCardId(it1)).toBe('c2');
   });
 
-  it('reads as a fixed date once the poller has drawn the exact time', () => {
+  it('states the time to the minute once the poller has drawn it', () => {
     setup();
     const loan = {id: '1', autoReturn: {dueAt: '2026-08-16T03:20:00Z', earliestAt: '2026-08-15T10:00:00Z', windowHours: 48}};
 
+    // A bare date is unreadable on the day that matters: the loan's own expiry sits directly above
+    // this line and can fall on the same date, and their order is the whole question.
     expect(component.autoReturnLabel(loan as never))
-      .toBe(`Auto-return ${component.formatDate('2026-08-16T03:20:00Z')}`);
-    expect(component.autoReturnTooltip(loan as never)).toContain('Scheduled to be returned automatically at');
+      .toBe(`Auto-return ${component.formatDateTimeShort('2026-08-16T03:20:00Z')}`);
+    expect(component.autoReturnLabel(loan as never)).not.toBe(`Auto-return ${component.formatDate('2026-08-16T03:20:00Z')}`);
+  });
+
+  it('formats a cell timestamp compactly, with both date and time', () => {
+    setup();
+    const shown = component.formatDateTimeShort('2026-08-16T03:20:00Z');
+
+    expect(shown).not.toBe('—');
+    // Both halves present, and shorter than the History tab's roomier rendering.
+    expect(shown).toContain(new Date('2026-08-16T03:20:00Z').toLocaleTimeString([], {timeStyle: 'short'}));
+    expect(shown.length).toBeLessThanOrEqual(component.formatDateTime('2026-08-16T03:20:00Z').length);
+  });
+
+  it('has no timestamp to show for a missing date', () => {
+    setup();
+    expect(component.formatDateTimeShort(null)).toBe('—');
+    expect(component.formatDateTimeShort(undefined)).toBe('—');
   });
 
   it('reads as "from" a date while the exact moment is still unpicked', () => {

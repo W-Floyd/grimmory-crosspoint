@@ -539,7 +539,9 @@
           <td>{{ loanFormat(loan) ?? '—' }}</td>
           <td>{{ formatDate(loan.checkoutDate) }}</td>
           <td>
-            {{ formatDate(loan.expireDate) }}
+            <!-- To the minute, not just the day: this and the scheduled auto-return below it can fall
+                 on the same date, and their order is what the reader is here to find out. -->
+            {{ formatDateTimeShort(loan.expireDate) }}
             @if (autoReturnLabel(loan); as scheduled) {
               <!-- Sits under the library's own expiry so the two dates read together: when the loan
                    lapses on its own, and when Grimmory intends to hand it back first. -->

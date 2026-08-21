@@ -2133,30 +2133,47 @@ export class OverdriveCatalogComponent {
    /**
     * When this loan is due to go back on its own, or null when nothing is scheduled.
     *
-    * <p>Reads "on <date>" once the poller has drawn the exact moment, and "from <date>" before that —
-    * the random offset inside the window has not been chosen yet, so the date shown is the earliest
-    * the return can happen rather than when it will.
+    * <p>Once the poller has drawn the moment it is shown to the minute, beside the loan's own expiry
+    * in the same cell: the two can land on the same day, and which comes first is the whole question.
+    * Before it is drawn there is no time to show — the random offset has not been chosen — so the
+    * label reads "from <date>", the earliest the return can happen rather than when it will.
     */
    autoReturnLabel(loan: OverDriveLoan): string | null {
      const schedule = loan.autoReturn;
      if (!schedule) return null;
      return schedule.dueAt
-       ? `Auto-return ${this.formatDate(schedule.dueAt)}`
+       ? `Auto-return ${this.formatDateTimeShort(schedule.dueAt)}`
        : `Auto-return from ${this.formatDate(schedule.earliestAt)}`;
    }
 
-   /** The full story behind that label: the exact time if known, else how the moment will be picked. */
+   /** Why that line is there: what will happen, and — before the time is drawn — how it gets picked. */
    autoReturnTooltip(loan: OverDriveLoan): string {
      const schedule = loan.autoReturn;
      if (!schedule) return '';
      if (schedule.dueAt) {
-       return `Scheduled to be returned automatically at ${this.formatDateTime(schedule.dueAt)}.`;
+       return 'Grimmory will return this loan automatically at this time, giving the copy back to the '
+         + 'library before it expires on its own.';
      }
      if (schedule.windowHours === 0) {
        return `Will be returned automatically once it reaches ${this.formatDate(schedule.earliestAt)}.`;
      }
      return `Eligible from ${this.formatDate(schedule.earliestAt)}. The exact moment is picked at random `
        + `within ${schedule.windowHours}h after that, and fixed the first time the scheduled task looks at it.`;
+   }
+
+   /**
+    * Compact date + time for a table cell. Used where two moments can fall on the same day and their
+    * order is what matters — a loan's expiry against the return Grimmory has scheduled for it — where
+    * a bare date leaves the row unreadable on the day it counts. Shorter than {@link formatDateTime},
+    * which is for the History tab's own column and can afford the room.
+    */
+   formatDateTimeShort(dateStr: string | null | undefined): string {
+     if (!dateStr) return '—';
+     try {
+       return new Date(dateStr).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+     } catch {
+       return dateStr;
+     }
    }
 
    /** Date + time, for the History tab (actions need finer granularity than a bare date). */
