@@ -1597,8 +1597,9 @@ public class OverDriveService {
        * loan-capacity snapshot is shared with the rest of the pass so slots spent here are visible to
        * it. When every card is out of budget the bag simply waits for the next poll.
        */
-      BookbagOutcome runBookbag(Long userId, Set<String> heldTitleIds, Map<String, Integer> loanSlotsLeft,
-                                Map<String, Integer> holdSlotsLeft, Map<String, Integer> holdsPerCard,
+      BookbagOutcome runBookbag(Long userId, Set<String> heldTitleIds, Set<String> loanedTitleIds,
+                                Map<String, Integer> loanSlotsLeft, Map<String, Integer> holdSlotsLeft,
+                                Map<String, Integer> holdsPerCard,
                                 LoanActionPacer pacer) { // package-private for testing
         List<OverDriveBookbagEntity> bag = bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId);
         if (bag.isEmpty()) {
@@ -1625,6 +1626,16 @@ public class OverDriveService {
         for (OverDriveBookbagEntity entry : bag) {
             List<OverDriveLibraryAvailability> options = availability.getOrDefault(entry.getTitleId(), List.of());
             entry.setLastTriedAt(now);
+
+            // Already out on loan somewhere. Nothing to do but wait for it: borrowing would take a
+            // second copy of a book the account is holding, and placing a hold on a title you have out
+            // is how OverDrive expresses a renewal, which it refuses outside the last few days of the
+            // loan — a guaranteed failure recorded against the user's history for no purpose.
+            if (loanedTitleIds.contains(entry.getTitleId())) {
+                entry.setLastNote("Already on loan; it will be imported and the entry cleared.");
+                bookbagRepository.save(entry);
+                continue;
+            }
 
             // Already ours — the user got it another way, or a hold we placed came in and was
             // imported. Either way the bag's work on it is done.
@@ -3892,20 +3903,8 @@ public class OverDriveService {
             failures += shopping.failures();
         }
 
-        int bagBorrowed = 0;
-        int bagHeld = 0;
-        if (hasBookbag) {
-            BookbagOutcome bookbag = runBookbag(userId, heldTitleIds(syncs), loanSlotsLeft, holdSlotsLeft,
-                    holdsPerCard, pacer);
-            bagBorrowed = bookbag.borrowed();
-            bagHeld = bookbag.held();
-            failures += bookbag.failures();
-        }
-
-        // Loan ids the user actually holds right now. The loan table is a cache that is only ever
-        // written to — a loan returned in the Libby app, expired, or returned by this very pass leaves
-        // its row behind with a stale state. Filtering on the live sync is what stops the automation
-        // acting on loans that no longer exist.
+        // Loan ids the user actually holds right now. A loan id is a title id, so this doubles as
+        // "which titles are already out" — which the bookbag has to know before it acts on one.
         Set<String> heldLoanIds = syncs.values().stream()
                 .filter(Objects::nonNull)
                 .map(OverDriveSyncResponse::getLoans)
@@ -3914,6 +3913,16 @@ public class OverDriveService {
                 .map(OverDriveLoan::getId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
+
+        int bagBorrowed = 0;
+        int bagHeld = 0;
+        if (hasBookbag) {
+            BookbagOutcome bookbag = runBookbag(userId, heldTitleIds(syncs), heldLoanIds, loanSlotsLeft,
+                    holdSlotsLeft, holdsPerCard, pacer);
+            bagBorrowed = bookbag.borrowed();
+            bagHeld = bookbag.held();
+            failures += bookbag.failures();
+        }
 
         int imported = 0;
         int linked = 0;

@@ -1425,10 +1425,33 @@ class OverDriveServiceTest {
         when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
         when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
 
-        service.runBookbag(7L, Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
+        service.runBookbag(7L, Set.of(), Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
                 new java.util.HashMap<>(), pacer());
 
         // Without the flag this entry vanished on the first pass, so a second copy could never be had.
+        verify(bookbagRepository, never()).delete(entry);
+        verify(bookRepository, never()).findIdsByOverdriveId(any());
+    }
+
+    @Test
+    void aBookbagTitleAlreadyOnLoanIsLeftAloneRatherThanBorrowedAgain() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build(),
+                OverDriveTokenEntity.builder().userId(7L).identity("card-b").libraryKey("bpl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
+
+        var outcome = service.runBookbag(7L, Set.of(), Set.of("2056901"), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), new java.util.HashMap<>(), pacer());
+
+        // Borrowing would take a second copy of a book the account already has out, and holding a
+        // title you hold is how OverDrive expresses a renewal — refused outside the last days of the
+        // loan, so it only records a failure. The library is not even consulted.
+        assertThat(outcome).isEqualTo(new OverDriveService.BookbagOutcome(0, 0, 0));
+        assertThat(entry.getLastNote()).contains("Already on loan");
         verify(bookbagRepository, never()).delete(entry);
         verify(bookRepository, never()).findIdsByOverdriveId(any());
     }
@@ -1446,7 +1469,7 @@ class OverDriveServiceTest {
         // The user got it another way, or a hold we placed came in and was imported.
         when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
 
-        var outcome = service.runBookbag(7L, Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
+        var outcome = service.runBookbag(7L, Set.of(), Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
                 new java.util.HashMap<>(), pacer());
 
         assertThat(outcome).isEqualTo(new OverDriveService.BookbagOutcome(0, 0, 0));
@@ -1457,7 +1480,7 @@ class OverDriveServiceTest {
     void anEmptyBagCostsNothing() {
         when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of());
 
-        assertThat(service.runBookbag(7L, Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
+        assertThat(service.runBookbag(7L, Set.of(), Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
                 new java.util.HashMap<>(), pacer()))
                 .isEqualTo(new OverDriveService.BookbagOutcome(0, 0, 0));
         verifyNoInteractions(overDriveParser, tokenRepository);
@@ -1860,7 +1883,7 @@ class OverDriveServiceTest {
         when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
 
         // The user holds nothing: the hold was cancelled by hand, or lapsed unclaimed.
-        service.runBookbag(7L, Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
+        service.runBookbag(7L, Set.of(), Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
                 new java.util.HashMap<>(), pacer());
 
         // Forgetting it lets the entry queue again, rather than waiting forever on a hold that has
@@ -1882,7 +1905,7 @@ class OverDriveServiceTest {
         when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
         when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
 
-        service.runBookbag(7L, Set.of("2056901"), new java.util.HashMap<>(), new java.util.HashMap<>(),
+        service.runBookbag(7L, Set.of("2056901"), Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
                 new java.util.HashMap<>(), pacer());
 
         assertThat(entry.getHoldCardId()).isEqualTo("card-a");
