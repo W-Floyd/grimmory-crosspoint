@@ -347,6 +347,16 @@ export class OverdriveSettingsComponent {
     return card.owned !== false;
   }
 
+  /** Format an ISO timestamp as a short local date-time (or '—'). */
+  formatDateTimeShort(dateStr: string | null | undefined): string {
+    if (!dateStr) return '—';
+    try {
+      return new Date(dateStr).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+    } catch {
+      return dateStr;
+    }
+  }
+
   /** Format an epoch-seconds token expiry as a short local date-time (or '—'). */
   formatEpoch(epochSeconds: number | null | undefined): string {
     if (!epochSeconds) return '—';

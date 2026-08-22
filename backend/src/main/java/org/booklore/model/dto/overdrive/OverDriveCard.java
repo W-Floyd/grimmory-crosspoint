@@ -16,8 +16,11 @@ package org.booklore.model.dto.overdrive;
  * file and credential storage currently enabled) — the requirement for audiobook downloads too. It does
  * not depend on ownership: a shared card renews the owner's stored row, so it keeps working for every
  * sharee. {@code tokenExpiresAt} is the epoch-seconds token expiry (non-sensitive), or null.
+ *
+ * <p>{@code churnCooldownUntil} is set while OverDrive has the card flagged for borrowing and
+ * returning too much: borrows and returns are paused until then, syncing is not. Null when free.
  */
 public record OverDriveCard(String cardId, String name, String libraryKey, boolean credentialsStored,
                             Long defaultLibraryId, Long defaultPathId,
                             boolean owned, String ownerName, int sharedWithCount,
-                            boolean canAutoRenew, Long tokenExpiresAt) {}
+                            boolean canAutoRenew, Long tokenExpiresAt, String churnCooldownUntil) {}

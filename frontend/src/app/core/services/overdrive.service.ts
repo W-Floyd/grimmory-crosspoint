@@ -22,6 +22,8 @@ export interface OverDriveCard {
   sharedWithCount?: number;
   /** Whether this card can silently re-link its token on expiry (card+PIN on file + storage enabled). */
   canAutoRenew?: boolean;
+  /** While OverDrive has this card flagged for churning: borrows and returns are paused until then. */
+  churnCooldownUntil?: string | null;
   /** Epoch-seconds expiry of the current Libby token (non-sensitive), or null. */
   tokenExpiresAt?: number | null;
 }

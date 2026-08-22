@@ -1382,6 +1382,90 @@ public class OverDriveService {
        * Whether a failure is Sentry's {@code 403 {"result":"missing_chip"}} — the identity we called with
        * is no longer a registered chip, so the call can only succeed with a re-minted or re-linked one.
        */
+      /**
+       * How long a card rests after OverDrive reports it as churning titles.
+       *
+       * <p>Thunder's own message asks for "several days" and says to contact support if borrowing is
+       * still refused after seven, so seven is the number it names as the outside of normal. Waiting
+       * the full period once beats discovering by trial that five was not enough — every probe is
+       * another borrow attempt on an account already flagged for too many of them.
+       */
+      private static final java.time.Duration CHURN_COOLDOWN = java.time.Duration.ofDays(7);
+
+      /**
+       * Whether a failure is OverDrive refusing an account for borrowing and returning too much.
+       *
+       * <p>Matched on the error code rather than the prose: the {@code userExplanation} is a sentence
+       * meant for a person and can be reworded, while {@code PatronExceededChurningLimit} is the
+       * contract. Walks the cause chain and the message text for the same reason
+       * {@link #isMissingChip} does — the call sites wrap failures in an APIException carrying the
+       * original body.
+       */
+      static boolean isChurningLimit(Throwable e) { // package-private for testing
+        for (Throwable t = e; t != null && t != t.getCause(); t = t.getCause()) {
+            if (t instanceof org.springframework.web.client.RestClientResponseException r
+                    && r.getResponseBodyAsString().contains("PatronExceededChurningLimit")) {
+                return true;
+            }
+            if (t.getMessage() != null && t.getMessage().contains("PatronExceededChurningLimit")) {
+                return true;
+            }
+        }
+        return false;
+      }
+
+      /**
+       * Stand a card down after OverDrive flagged it for churning, if it is not already resting.
+       *
+       * <p>Deliberately does not extend an existing cooldown. A pass that trips the limit on several
+       * titles would otherwise push the end date out once per title, turning one week into a month for
+       * an account that has already stopped acting.
+       */
+      private void beginChurnCooldown(String identity) {
+        tokenRepository.findByUserIdAndIdentity(currentUserId(), identity).ifPresent(row -> {
+            Instant now = Instant.now();
+            if (row.getChurnCooldownUntil() != null && row.getChurnCooldownUntil().isAfter(now)) {
+                return;
+            }
+            Instant until = now.plus(CHURN_COOLDOWN);
+            row.setChurnCooldownUntil(until);
+            tokenRepository.save(row);
+            log.warn("OverDrive: card {} hit the churning limit; borrows and returns on it are paused until {}",
+                    identity, until);
+            recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null,
+                    "OverDrive reported too many titles borrowed and returned. Borrows and returns on this "
+                            + "card are paused until " + until + ".", false);
+        });
+      }
+
+      /** When this card may act again, or null if it is free to act now. */
+      private Instant churnCooldownUntil(String identity) {
+        if (identity == null) {
+            return null;
+        }
+        return tokenRepository.findByUserIdAndIdentity(currentUserId(), identity)
+                .map(OverDriveTokenEntity::getChurnCooldownUntil)
+                .filter(until -> until.isAfter(Instant.now()))
+                .orElse(null);
+      }
+
+      /**
+       * Refuse an action that would borrow or return on a card OverDrive has flagged for churning.
+       *
+       * <p>Applies to a person clicking as well as to the poller. The account is the thing being
+       * rested, and a manual return during the cooldown is the same churn signal as an automatic one —
+       * the message says when it lifts so the refusal is actionable rather than mysterious.
+       */
+      private void assertNotChurnLimited(String identity, String action) {
+        Instant until = churnCooldownUntil(identity);
+        if (until != null) {
+            throw ApiError.CONFLICT.createException(
+                    "OverDrive reported too many titles borrowed and returned on this card, so " + action
+                            + " is paused until " + until + ". Syncing still works, and the card resumes on "
+                            + "its own — nothing needs doing.");
+        }
+      }
+
       static boolean isMissingChip(Throwable e) { // package-private for testing
         for (Throwable t = e; t != null && t != t.getCause(); t = t.getCause()) {
             if (t instanceof org.springframework.web.client.RestClientResponseException r
@@ -1485,7 +1569,7 @@ public class OverDriveService {
                         // Freshly read from a live sync during linking — always the current user's own card.
                         // Credential/expiry details aren't known here; reloadCards() (listCards) is authoritative.
                         cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey, false, null, null,
-                                true, null, 0, false, null));
+                                true, null, 0, false, null, null));
                     }
                 }
             }
@@ -1824,6 +1908,7 @@ public class OverDriveService {
        * Returns the created loan id.
        */
       public String borrow(String identity, String titleId, String titleFormat) {
+        assertNotChurnLimited(identity, "borrowing titles");
         try {
             Map<String, Object> loan = withChipRecovery(identity,
                     token -> borrowLoan(identity, token, titleId, titleFormat));
@@ -1901,6 +1986,12 @@ public class OverDriveService {
             return bodyMap;
          } catch (Exception e) {
             log.error("OverDrive borrow failed: {}", e.getMessage());
+            // Thunder refusing the account for churning is not a transient failure to retry — it is a
+            // request to stop. Stand the card down before the error propagates, so the rest of this
+            // pass and every pass until the cooldown lifts leaves it alone.
+            if (isChurningLimit(e)) {
+                beginChurnCooldown(cardId);
+            }
             throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(e, "OverDrive borrow failed: " + e.getMessage());
          }
       }
@@ -2737,6 +2828,12 @@ public class OverDriveService {
                     // be told so — once per ready hold, on every poll, for as long as the card stays
                     // full. Counted as a skip rather than a failure: nothing went wrong, there is just
                     // no room until something is returned.
+                    if (churnCooldownUntil(cardId) != null) {
+                        log.info("OverDrive auto-borrow: card {} is resting after a churning limit; leaving "
+                                + "ready hold {} (\"{}\") for user {} until {}",
+                                cardId, hold.getId(), hold.getTitle(), userId, churnCooldownUntil(cardId));
+                        continue;
+                    }
                     if (atLoanCapacity(loanSlotsLeft, cardId)) {
                         log.info("OverDrive auto-borrow: card {} is at its checkout limit; leaving ready hold "
                                 + "{} (\"{}\") for user {} until a loan is returned",
@@ -2797,6 +2894,9 @@ public class OverDriveService {
                 if (linkIfAlreadyInLibrary(loan, userId)) {
                     linked++;
                     continue;
+                }
+                if (churnCooldownUntil(loan.getIdentity()) != null) {
+                    continue; // resting card — importing resumes with it, and it is not a failure
                 }
                 try {
                     pauseBetweenTitles(borrowed + imported);
@@ -2916,6 +3016,11 @@ public class OverDriveService {
             // Returning a loan the user no longer holds is at best a wasted call and at worst acts on
             // a stale row, so only loans present in this pass's sync are considered.
             if (!heldLoanIds.contains(loan.getOverdriveLoanId())) {
+                continue;
+            }
+            if (churnCooldownUntil(loan.getIdentity()) != null) {
+                // Returning early is the other half of the cycle OverDrive objected to. The loan keeps
+                // its drawn due time and goes back once the card is free again.
                 continue;
             }
             int holds = holdsByTitle.getOrDefault(loan.getOverdriveLoanId(), 0);
@@ -3195,13 +3300,20 @@ public class OverDriveService {
 
         for (OverDriveHold hold : waiting) {
             List<OverDriveLibraryAvailability> options = availability.getOrDefault(hold.getId(), List.of());
-            if (options.isEmpty()) {
+            if (options.isEmpty() || churnCooldownUntil(hold.getCardId()) != null) {
+                // Moving a hold off a resting card means cancelling on it, and borrowing elsewhere
+                // still ends in a return here. Leave the whole title alone until it is free.
                 continue;
             }
 
             String borrowCard = settings.autoBorrowHolds()
                     ? availableElsewhere(hold, options, cardByLibrary, loanSlotsLeft)
                     : null;
+            // Checked out here, not in the selector: that stays a pure comparison over the availability
+            // data and does not reach for the card rows.
+            if (borrowCard != null && churnCooldownUntil(borrowCard) != null) {
+                borrowCard = null;
+            }
             if (borrowCard != null) {
                 try {
                     pauseBetweenTitles(borrowed + moved);
@@ -3222,7 +3334,9 @@ public class OverDriveService {
             }
 
             SoonerQueue sooner = soonerElsewhere(hold, options, cardByLibrary, holdSlotsLeft, holdsPerCard);
-            if (sooner == null) {
+            // Checked here rather than inside the selector, which stays a pure comparison over the
+            // availability data and does not reach for the card rows.
+            if (sooner == null || churnCooldownUntil(sooner.cardId()) != null) {
                 continue;
             }
             try {
@@ -3591,6 +3705,7 @@ public class OverDriveService {
       private Book doBorrowAndImport(String identity, String titleId, Long libraryId, Long pathId,
                                      String title, String author, String coverUrl, String isbn, String preferredFormat,
                                      String titleFormat, Long replaceBookId) {
+        assertNotChurnLimited(identity, "borrowing titles");
         // Track whether this became an import of an existing loan (vs a fresh borrow) so both the
         // success and the failure history entries can report the right action. Hoisted out of the try
         // so the catch can see it.
@@ -4312,6 +4427,7 @@ public class OverDriveService {
        * DELETE /card/{cardId}/loan/{loanId} — return a book.
        */
       public void returnBook(String identity, String loanId) {
+        assertNotChurnLimited(identity, "returning titles");
         String url = sentryBaseUrl + "/card/" + identity + "/loan/" + loanId;
 
         try {
@@ -4348,6 +4464,7 @@ public class OverDriveService {
        * GET /card/{cardId}/hold/{formatId} — place a hold.
        */
       public void placeHold(String identity, String titleId) {
+        assertNotChurnLimited(identity, "placing holds");
         String url = sentryBaseUrl + "/card/" + identity + "/hold/" + titleId;
 
         try {
@@ -4372,6 +4489,7 @@ public class OverDriveService {
        * Cancel a hold on a title.
        */
       public void cancelHold(String identity, String titleId) {
+        assertNotChurnLimited(identity, "cancelling holds");
         String url = sentryBaseUrl + "/card/" + identity + "/hold/" + titleId;
 
         try {
@@ -4609,7 +4727,10 @@ public class OverDriveService {
                             owned && t.getCredCard() != null, t.getDefaultLibraryId(), t.getDefaultPathId(),
                             owned, owned ? null : ownerName(t.getUserId()),
                             owned ? cardShareRepository.countByTokenId(t.getId()) : 0,
-                            canAutoRenew(t), t.getExpiresAt());
+                            canAutoRenew(t), t.getExpiresAt(),
+                            // Only while it is still in force; a lapsed one is not worth telling the user about.
+                            t.getChurnCooldownUntil() != null && t.getChurnCooldownUntil().isAfter(Instant.now())
+                                    ? t.getChurnCooldownUntil().toString() : null);
                 })
                 .toList();
       }

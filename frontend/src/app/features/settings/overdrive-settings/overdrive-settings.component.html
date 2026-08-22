@@ -315,6 +315,14 @@
                     @if (card.tokenExpiresAt) {
                       <span class="meta-badge muted" pTooltip="When the current Libby token expires">Token exp {{ formatEpoch(card.tokenExpiresAt) }}</span>
                     }
+                    @if (card.churnCooldownUntil) {
+                      <!-- Without this the card just quietly stops borrowing for a week, with nothing on
+                           screen to say why. -->
+                      <span class="meta-badge warn"
+                        pTooltip="OverDrive reported too many titles borrowed and returned on this card. Borrows and returns are paused until then — searching and syncing still work, and it resumes on its own.">
+                        <i class="pi pi-pause"></i> Resting until {{ formatDateTimeShort(card.churnCooldownUntil) }}
+                      </span>
+                    }
                   </div>
                 </span>
                 <span class="linked-card-actions">

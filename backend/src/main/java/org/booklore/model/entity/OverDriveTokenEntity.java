@@ -74,4 +74,12 @@ public class OverDriveTokenEntity {
     @Column(name = "created_at")
     @Builder.Default
     private Instant createdAt = Instant.now();
+
+    /**
+     * When this card may act again after OverDrive reported it as churning titles, or null when it is
+     * free to. Covers borrows and returns alike — an early return is half of a borrow/return cycle, so
+     * pausing one while continuing the other would not be pausing at all.
+     */
+    @Column(name = "churn_cooldown_until")
+    private java.time.Instant churnCooldownUntil;
 }

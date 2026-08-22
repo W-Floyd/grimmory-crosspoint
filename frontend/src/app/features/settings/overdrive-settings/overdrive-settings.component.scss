@@ -111,6 +111,12 @@
       &.muted {
         color: var(--text-color-secondary);
       }
+
+      // A card OverDrive has flagged for churning: not broken, but deliberately not acting.
+      &.warn {
+        color: var(--orange-500, #f97316);
+        background: color-mix(in srgb, var(--orange-500, #f97316) 15%, transparent);
+      }
     }
 
     .linked-card-label {

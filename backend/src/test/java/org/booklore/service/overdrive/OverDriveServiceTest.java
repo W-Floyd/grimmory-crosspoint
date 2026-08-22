@@ -1187,6 +1187,75 @@ class OverDriveServiceTest {
         assertThat(page.entries().getFirst().titleId()).isEqualTo("2056901");
     }
 
+    // ── Resting a card OverDrive flagged for churning ────────────────────
+
+    /** The body Thunder returns when an account has borrowed and returned too much. */
+    private static final String CHURN_BODY = "400 Bad Request: \"{\"result\":\"upstream_failure\",\"upstream\":"
+            + "{\"errorCode\":\"PatronExceededChurningLimit\",\"service\":\"THUNDER\",\"httpStatus\":400,"
+            + "\"userExplanation\":\"There have been too many titles borrowed and returned from your account "
+            + "within a short period of time.\"}}\"";
+
+    @Test
+    void theChurningLimitIsRecognisedThroughAWrappedFailure() {
+        // Call sites wrap the upstream body in their own exception, so the cause chain and the message
+        // both have to be searched — same shape as the missing-chip detector.
+        assertThat(OverDriveService.isChurningLimit(new RuntimeException(CHURN_BODY))).isTrue();
+        assertThat(OverDriveService.isChurningLimit(
+                new IllegalStateException("import failed", new RuntimeException(CHURN_BODY)))).isTrue();
+    }
+
+    @Test
+    void anOrdinaryFailureIsNotMistakenForTheChurningLimit() {
+        assertThat(OverDriveService.isChurningLimit(new RuntimeException("400 Bad Request: title not found"))).isFalse();
+        assertThat(OverDriveService.isChurningLimit(new RuntimeException("missing_chip"))).isFalse();
+        assertThat(OverDriveService.isChurningLimit(null)).isFalse();
+    }
+
+    private OverDriveTokenEntity restingCard(String identity, Instant until) {
+        OverDriveTokenEntity row = OverDriveTokenEntity.builder()
+                .userId(7L).identity(identity).token("chip-1").build();
+        row.setChurnCooldownUntil(until);
+        return row;
+    }
+
+    @Test
+    void aRestingCardRefusesToReturnATitle() {
+        authAs(7L);
+        Instant until = Instant.now().plus(java.time.Duration.ofDays(5));
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a"))
+                .thenReturn(Optional.of(restingCard("card-a", until)));
+
+        // An early return is the other half of the cycle OverDrive objected to, so it stops as well —
+        // and the refusal says when the card frees up rather than just failing.
+        assertThatThrownBy(() -> service.returnBook("card-a", "loan-1"))
+                .hasMessageContaining("too many titles borrowed and returned")
+                .hasMessageContaining(until.toString());
+        verifyNoInteractions(restClient);
+    }
+
+    @Test
+    void aRestingCardRefusesToBorrow() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a"))
+                .thenReturn(Optional.of(restingCard("card-a", Instant.now().plus(java.time.Duration.ofDays(5)))));
+
+        assertThatThrownBy(() -> service.borrowAndImport("card-a", "2056901", null, null,
+                "Dune", null, null, null, null, null, null))
+                .hasMessageContaining("too many titles borrowed and returned");
+        verifyNoInteractions(overDriveImportService, acsmHandler);
+    }
+
+    @Test
+    void aCooldownThatHasRunOutStopsBlockingTheCard() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a"))
+                .thenReturn(Optional.of(restingCard("card-a", Instant.now().minusSeconds(60))));
+
+        // Past its end the card is simply free again — no unsetting step to forget.
+        assertThatThrownBy(() -> service.returnBook("card-a", "loan-1"))
+                .hasMessageNotContaining("too many titles borrowed and returned");
+    }
+
     // ── Telling the user when a loan goes back ───────────────────────────
 
     private OverDriveLoanEntity fulfilledLoan(String loanId, java.time.Instant borrowedAt) {
