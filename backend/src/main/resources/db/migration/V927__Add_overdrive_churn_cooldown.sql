@@ -36,16 +36,22 @@ ALTER TABLE overdrive_token
 --
 -- Cards whose last refusal is already more than the period old are left alone — they are free, and
 -- freezing them now would punish an account that has served its time.
+--
+-- Both sides of the identity comparison are collated explicitly. These two tables were created by
+-- different migrations and do not agree on a collation — overdrive_audit is utf8mb4_general_ci and
+-- overdrive_token utf8mb4_unicode_ci on at least one real database — and MariaDB refuses to compare
+-- two implicit collations that differ. Naming one for both sides settles it without touching either
+-- table's definition. Same charset either way, so no character can be lost.
 UPDATE overdrive_token t
    SET t.churn_cooldown_until = (
            SELECT TIMESTAMPADD(DAY, 7, MAX(a.created_at))
              FROM overdrive_audit a
-            WHERE a.identity = t.identity
+            WHERE a.identity COLLATE utf8mb4_general_ci = t.identity COLLATE utf8mb4_general_ci
               AND a.success = FALSE
               AND a.detail LIKE '%PatronExceededChurningLimit%')
  WHERE (
            SELECT TIMESTAMPADD(DAY, 7, MAX(a.created_at))
              FROM overdrive_audit a
-            WHERE a.identity = t.identity
+            WHERE a.identity COLLATE utf8mb4_general_ci = t.identity COLLATE utf8mb4_general_ci
               AND a.success = FALSE
               AND a.detail LIKE '%PatronExceededChurningLimit%') > NOW();
