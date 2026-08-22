@@ -2211,6 +2211,12 @@ public class OverDriveService {
       }
 
       /** Actions that take a copy out — what a borrow ceiling counts. */
+      /**
+       * Actions that take a copy out — what a borrow ceiling counts. BORROW_AND_IMPORT is no longer
+       * written for ordinary borrows, which record a BORROW of their own the moment the copy is taken,
+       * but it is still written by the magazine handler (which borrows and fulfils in one step we
+       * cannot split) and it is what older history rows say.
+       */
       private static final List<String> BORROW_ACTIONS = List.of("BORROW", "BORROW_AND_IMPORT");
 
       /**
@@ -4813,6 +4819,9 @@ public class OverDriveService {
         // success and the failure history entries can report the right action. Hoisted out of the try
         // so the catch can see it.
         boolean alreadyBorrowed = false;
+        // Whether a copy was actually taken out during this call. Decides, if something later fails,
+        // whether the failure belongs to the borrow or only to the fetch that followed it.
+        boolean checkedOut = false;
         // Magazines route to their own handler with no Grimmory borrow (the tool borrows + fulfils itself).
         if ("magazine".equals(normalizeTitleFormat(titleFormat)) || isMagazineFormat(preferredFormat)) {
             return importMagazine(identity, titleId, libraryId, pathId, title, author, coverUrl, isbn,
@@ -4846,6 +4855,13 @@ public class OverDriveService {
             Map<String, Object> borrowed = withChipRecovery(identity,
                     token -> borrowLoan(identity, token, titleId, hint));
             loan = new LoanRef(borrowed.get("id").toString(), loanFormatIds(borrowed));
+            checkedOut = true;
+            // Recorded the moment the copy is taken, not when the file lands. The two are minutes
+            // apart now, and the checkout is spent whatever happens to the download — so a single row
+            // written at the end would call a spent checkout a failure if fulfilment then broke, and
+            // the borrow-rate count, which reads these rows, would not see it at all.
+            recordAudit(OverDriveAuditAction.BORROW, identity, titleId, loan.loanId(), null, title,
+                    "Borrowed; fetching the file next");
             pauseBeforeFulfilling(titleId);
         }
         // Resolved after the borrow so a token renewed by the borrow's chip recovery is the one we
@@ -4955,14 +4971,18 @@ public class OverDriveService {
         entity.setLastSync(Instant.now());
         loanRepository.save(entity);
 
-        recordAudit(alreadyBorrowed ? OverDriveAuditAction.IMPORT : OverDriveAuditAction.BORROW_AND_IMPORT,
+        // Always an import at this point: the borrow, if there was one, has its own row already.
+        recordAudit(OverDriveAuditAction.IMPORT,
                 identity, titleId, loanId, book != null ? book.getId() : null, title,
                 book != null ? "Imported to library" : "Dropped into Bookdrop");
         log.info("OverDrive borrow-and-import complete: loan {} ({}) -> {}", loanId, chosenFormat,
                 book != null ? "book " + book.getId() : "Bookdrop");
         return book;
         } catch (RuntimeException e) {
-            recordAuditFailure(alreadyBorrowed ? OverDriveAuditAction.IMPORT : OverDriveAuditAction.BORROW_AND_IMPORT,
+            // Blame the step that actually failed. Once a copy is out, the failure is the fetch's, and
+            // saying otherwise would suggest no checkout was spent when one was.
+            recordAuditFailure(alreadyBorrowed || checkedOut
+                            ? OverDriveAuditAction.IMPORT : OverDriveAuditAction.BORROW,
                     identity, titleId, null, title, e.getMessage());
             throw e;
         } finally {
