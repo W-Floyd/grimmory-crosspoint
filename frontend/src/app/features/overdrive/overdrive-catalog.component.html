@@ -754,12 +754,16 @@
                     }
                   </td>
                   <td class="bookbag-actions">
-                    <p-button icon="pi pi-bolt" severity="success" size="small" label="Borrow now"
-                      pTooltip="Borrow and download this immediately, skipping the queue and its pacing. A card resting after a rate limit still refuses."
-                      tooltipPosition="top"
-                      [disabled]="bookbagBusyId() !== null"
-                      [loading]="bookbagBusyId() === entry.id"
-                      (onClick)="onBorrowBookbagNow(entry)" />
+                    <!-- Only where a copy could actually be taken. Behind a hold that has not come in
+                         there is nothing to borrow, and the button would only produce a refusal. -->
+                    @if (canBorrowBookbagNow(entry)) {
+                      <p-button icon="pi pi-bolt" severity="success" size="small" label="Borrow now"
+                        pTooltip="Borrow and download this immediately, skipping the queue and its pacing. A card resting after a rate limit, or at a borrow ceiling, still refuses."
+                        tooltipPosition="top"
+                        [disabled]="bookbagBusyId() !== null"
+                        [loading]="bookbagBusyId() === entry.id"
+                        (onClick)="onBorrowBookbagNow(entry)" />
+                    }
                     <p-button icon="pi pi-times" severity="danger" [text]="true" size="small" label="Remove"
                       pTooltip="Stop queueing this. Any hold already placed for it is left alone."
                       tooltipPosition="top"

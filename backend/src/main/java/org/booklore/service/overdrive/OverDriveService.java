@@ -1677,6 +1677,11 @@ public class OverDriveService {
         return new BookbagOutcome(borrowed, held, failures);
       }
 
+      /** The card a hold sits on, unless that card is resting or out of borrow budget. */
+      private String holdCardStillUsable(String holdCardId) {
+        return borrowBlockedReason(holdCardId) == null ? holdCardId : null;
+      }
+
       /**
        * Whether any of the user's libraries has this on the shelf at all, ignoring whether we are
        * currently allowed to take it. Distinguishes "no copy exists" — which a hold answers — from
@@ -1896,6 +1901,13 @@ public class OverDriveService {
         // No live loan counts to hand: this is one borrow outside a pass, and the card's own limit
         // check below is what actually protects it.
         String card = borrowableCardFor(options, cardByLibrary, Map.of());
+        if (card == null && entry.getHoldCardId() != null) {
+            // A hold that has come in reserves a copy for this user, which the library's public
+            // availability does not show — the shelf can read zero while a copy is waiting with their
+            // name on it. Borrowing on the hold's own card is how that copy is taken; if the hold is
+            // not ready, OverDrive refuses and says so.
+            card = holdCardStillUsable(entry.getHoldCardId());
+        }
         if (card == null) {
             throw ApiError.CONFLICT.createException(noBorrowNote(options, cardByLibrary, Map.of()));
         }

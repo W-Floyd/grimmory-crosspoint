@@ -201,6 +201,36 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.adoptingHolds()).toBe(false);
   });
 
+  it('does not offer an immediate borrow for a title still waiting in a queue', () => {
+    setup();
+    const entry = {id: 1, titleId: '2056901', position: 1, holdCardId: 'c1'} as OverDriveBookbagEntry;
+    component.bookbag.set([entry]);
+    component.holds.set([{id: '2056901', title: 'Dune', cardId: 'c1', ready: false, estimatedWaitDays: '30'} as never]);
+
+    // There is no copy to take, so the button would only produce a refusal.
+    expect(component.canBorrowBookbagNow(entry)).toBe(false);
+    expect(component.bookbagStatus(entry)).toContain('~30d');
+  });
+
+  it('offers an immediate borrow once the hold has come in', () => {
+    setup();
+    const entry = {id: 1, titleId: '2056901', position: 1, holdCardId: 'c1'} as OverDriveBookbagEntry;
+    component.bookbag.set([entry]);
+    component.holds.set([{id: '2056901', title: 'Dune', cardId: 'c1', ready: true} as never]);
+
+    // A ready hold reserves a copy, even though the library's public shelf shows none.
+    expect(component.canBorrowBookbagNow(entry)).toBe(true);
+    expect(component.bookbagStatus(entry)).toContain('Ready to borrow');
+  });
+
+  it('offers an immediate borrow for an entry with no hold at all', () => {
+    setup();
+    const entry = {id: 1, titleId: '2056901', position: 1} as OverDriveBookbagEntry;
+
+    // The obstacle may only be a card's capacity, which is worth attempting.
+    expect(component.canBorrowBookbagNow(entry)).toBe(true);
+  });
+
   it('knows when a title is already queued', () => {
     setup();
     component.bookbag.set([{id: 1, titleId: '2056901', position: 1} as OverDriveBookbagEntry]);

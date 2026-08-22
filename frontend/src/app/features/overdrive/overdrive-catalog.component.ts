@@ -2027,10 +2027,35 @@ export class OverdriveCatalogComponent {
      });
    }
 
+   /** The user's hold on this queued title, if they have one. */
+   private bookbagHold(entry: OverDriveBookbagEntry): OverDriveHold | undefined {
+     return this.holds().find(h => h.id === entry.titleId);
+   }
+
+   /**
+    * Whether borrowing this entry on demand could actually work.
+    *
+    * <p>A title queued behind a hold that has not come in has no copy to take — offering the button
+    * there just produces a refusal. A hold that is ready does have one reserved, so it stays
+    * offered, and so does an entry with no hold at all, where the obstacle may only be a card's
+    * capacity and worth attempting.
+    */
+   canBorrowBookbagNow(entry: OverDriveBookbagEntry): boolean {
+     const hold = this.bookbagHold(entry);
+     return !entry.holdCardId || hold?.ready === true;
+   }
+
    /** What the bag will do with this entry next, in a few words for the status column. */
    bookbagStatus(entry: OverDriveBookbagEntry): string {
+     const hold = this.bookbagHold(entry);
+     if (hold?.ready) {
+       return `Ready to borrow at ${this.shortCardLabel(hold.cardId)}`;
+     }
      if (entry.holdCardId) {
-       return `Waiting on a hold at ${this.shortCardLabel(entry.holdCardId)}`;
+       const wait = hold?.estimatedWaitDays;
+       return wait
+         ? `Waiting on a hold at ${this.shortCardLabel(entry.holdCardId)} · ~${wait}d`
+         : `Waiting on a hold at ${this.shortCardLabel(entry.holdCardId)}`;
      }
      return entry.lastNote ?? 'Waiting for a card that can borrow it';
    }
