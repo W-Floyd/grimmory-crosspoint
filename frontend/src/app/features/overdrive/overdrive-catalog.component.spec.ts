@@ -264,7 +264,11 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
 
     component.onRunAutoSyncNow();
 
-    expect(taskService.startTask).toHaveBeenCalledWith({taskType: 'OVERDRIVE_AUTO_SYNC'});
+    // The body has to carry all three fields: options is an external-property polymorphic field keyed
+    // on taskType, so omitting it makes Jackson reject the whole request as malformed.
+    expect(taskService.startTask).toHaveBeenCalledWith({
+      taskType: 'OVERDRIVE_AUTO_SYNC', triggeredByCron: false, options: null
+    });
   });
 
   it('knows when a title is already queued', () => {

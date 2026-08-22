@@ -1970,7 +1970,15 @@ export class OverdriveCatalogComponent {
    onRunAutoSyncNow(): void {
      this.startingRun.set(true);
      this.error.set(null);
-     this.taskService.startTask({ taskType: TaskType.OVERDRIVE_AUTO_SYNC }).subscribe({
+     // All three fields, explicitly. TaskCreateRequest declares options as an external-property
+     // polymorphic field keyed on taskType, so Jackson refuses a body that omits it — "Missing
+     // property 'options' for external type id 'taskType'", which the server reports as a malformed
+     // body. triggeredByCron goes with it: it is a primitive, and null is not a value for one.
+     this.taskService.startTask({
+       taskType: TaskType.OVERDRIVE_AUTO_SYNC,
+       triggeredByCron: false,
+       options: null
+     }).subscribe({
        next: () => {
          this.messageService.add({ severity: 'success', summary: 'Run started',
            detail: 'The bookbag is being worked now. Titles are still spaced apart, so give it a few minutes.' });
