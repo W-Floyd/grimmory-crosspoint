@@ -51,6 +51,7 @@ class OverDriveAutoSyncSettingsTest {
     @Mock private org.booklore.repository.OverDriveCardShareRepository cardShareRepository;
     @Mock private org.booklore.repository.OverDriveAuditRepository auditRepository;
     @Mock private org.booklore.repository.OverDriveCardLimitRepository cardLimitRepository;
+    @Mock private org.booklore.repository.OverDriveBookbagRepository bookbagRepository;
     @Mock private org.booklore.repository.OverDriveImportDestinationRepository importDestinationRepository;
     @Mock private OverDriveAutoSyncRepository autoSyncRepository;
     @Mock private java.net.http.HttpClient httpClient;
@@ -67,7 +68,7 @@ class OverDriveAutoSyncSettingsTest {
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
+                cardLimitRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
                 new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService);
     }
 

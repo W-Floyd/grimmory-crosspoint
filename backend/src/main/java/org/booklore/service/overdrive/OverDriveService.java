@@ -8,6 +8,7 @@ import org.booklore.model.dto.overdrive.*;
 import org.booklore.model.dto.response.OverDriveApiResponse;
 import org.booklore.model.entity.BookLoreUserEntity;
 import org.booklore.model.entity.OverDriveAuditEntity;
+import org.booklore.model.entity.OverDriveBookbagEntity;
 import org.booklore.model.entity.OverDriveCardLimitEntity;
 import org.booklore.model.entity.OverDriveAutoSyncEntity;
 import org.booklore.model.entity.OverDriveCardShareEntity;
@@ -104,6 +105,7 @@ public class OverDriveService {
     private final OverDriveCardShareRepository cardShareRepository;
     private final OverDriveAuditRepository auditRepository;
     private final org.booklore.repository.OverDriveCardLimitRepository cardLimitRepository;
+    private final org.booklore.repository.OverDriveBookbagRepository bookbagRepository;
     private final OverDriveImportDestinationRepository importDestinationRepository;
     private final OverDriveAutoSyncRepository autoSyncRepository;
     /**
@@ -1497,6 +1499,323 @@ public class OverDriveService {
         if (!currentUserCanManageAllCards()) {
             throw ApiError.FORBIDDEN.createException("Only an administrator can view or change borrow limits.");
         }
+      }
+
+      /**
+       * How long to wait between borrowing a title and fetching the file.
+       *
+       * <p>A person browses, borrows, and then their reader collects the book a little later. Doing
+       * both in the same breath, for title after title, is the shape of a script. This is deliberately
+       * longer than the gap between titles: the pause that matters is the one inside a single
+       * borrow-and-download, which is where the machine-like tell is.
+       */
+      private static final long FULFIL_GAP_MIN_MILLIS = 20_000;
+      private static final long FULFIL_GAP_MAX_MILLIS = 180_000;
+
+      /**
+       * Let a fresh borrow settle before fetching the file.
+       *
+       * <p>A person borrows a title and their reader collects it a little later; borrowing and
+       * downloading in the same breath, title after title, is the shape of a script. Only for
+       * automated passes — somebody sitting in front of the Borrow button is entitled to their book
+       * immediately, and making them wait minutes would be absurd.
+       *
+       * <p>Skipped when the loan already existed: resuming an earlier attempt is not a fresh checkout,
+       * and the pause is about the gap between taking a book out and reading it.
+       */
+      private void pauseBeforeFulfilling(String titleId) {
+        if (!isAutomated()) {
+            return;
+        }
+        long millis = ThreadLocalRandom.current().nextLong(FULFIL_GAP_MIN_MILLIS, FULFIL_GAP_MAX_MILLIS + 1);
+        log.debug("OverDrive: waiting {}s before fetching title {}", millis / 1000, titleId);
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw ApiError.INTERNAL_SERVER_ERROR.createException("OverDrive automation interrupted before fulfilment");
+        }
+      }
+
+      /** What one bookbag pass did. */
+      record BookbagOutcome(int borrowed, int held, int failures) {} // package-private for testing
+
+      /**
+       * Work the bag: borrow what can be borrowed, place holds on what cannot, in the user's order.
+       *
+       * <p>Order is a priority, not a barrier. A title whose libraries are all lent out would
+       * otherwise stall everything behind it for as long as it stayed unavailable, so a blocked entry
+       * is passed over and keeps its place for next time.
+       *
+       * <p>A title nobody can lend right now gets a hold instead, and stays in the bag until that hold
+       * comes in — which is what makes the bag a want-list rather than a list of things tried once.
+       * The hold is recorded on the entry so a later pass does not queue for the same book twice.
+       *
+       * <p>Runs against the cards' live budget: {@link #borrowBlockedReason} covers both a card
+       * resting after a churning limit and one that has reached an administrator's ceiling, and the
+       * loan-capacity snapshot is shared with the rest of the pass so slots spent here are visible to
+       * it. When every card is out of budget the bag simply waits for the next poll.
+       */
+      BookbagOutcome runBookbag(Long userId, Map<String, OverDriveSyncResponse> syncs,
+                                Map<String, Integer> loanSlotsLeft) { // package-private for testing
+        List<OverDriveBookbagEntity> bag = bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId);
+        if (bag.isEmpty()) {
+            return new BookbagOutcome(0, 0, 0);
+        }
+        Map<String, String> cardByLibrary = new LinkedHashMap<>();
+        for (OverDriveTokenEntity row : accessibleTokenRows(userId)) {
+            if (row.getLibraryKey() != null && !row.getLibraryKey().isBlank()) {
+                cardByLibrary.putIfAbsent(row.getLibraryKey(), row.getIdentity());
+            }
+        }
+        if (cardByLibrary.isEmpty()) {
+            return new BookbagOutcome(0, 0, 0);
+        }
+
+        Map<String, List<OverDriveLibraryAvailability>> availability = availabilityForTitles(
+                bag.stream().map(OverDriveBookbagEntity::getTitleId).distinct().toList(),
+                List.copyOf(cardByLibrary.values()));
+        Map<String, Integer> holdSlotsLeft = holdCapacityByCard(syncs);
+        Map<String, Integer> holdsPerCard = holdCountByCard(syncs);
+        Instant now = Instant.now();
+        int borrowed = 0;
+        int held = 0;
+        int failures = 0;
+
+        for (OverDriveBookbagEntity entry : bag) {
+            List<OverDriveLibraryAvailability> options = availability.getOrDefault(entry.getTitleId(), List.of());
+            entry.setLastTriedAt(now);
+
+            // Already ours — the user got it another way, or a hold we placed came in and was
+            // imported. Either way the bag's work on it is done.
+            Long owned = resolveLinkedBookId(entry.getTitleId(), null, null);
+            if (owned != null) {
+                log.info("OverDrive bookbag: \"{}\" is already in the library as book id={}; dropping it "
+                        + "from user {}'s bag", entry.getTitle(), owned, userId);
+                bookbagRepository.delete(entry);
+                continue;
+            }
+
+            String borrowCard = borrowableCardFor(options, cardByLibrary, loanSlotsLeft);
+            if (borrowCard != null) {
+                try {
+                    pauseBetweenTitles(borrowed + held);
+                    loanSlotsLeft.computeIfPresent(borrowCard, (id, left) -> left - 1);
+                    borrowAndImport(borrowCard, entry.getTitleId(), null, null,
+                            entry.getTitle(), entry.getAuthor(), null, null, null, null, null);
+                    borrowed++;
+                    log.info("OverDrive bookbag: borrowed \"{}\" for user {} on card {}",
+                            entry.getTitle(), userId, borrowCard);
+                    bookbagRepository.delete(entry);
+                    continue;
+                } catch (Exception e) {
+                    failures++;
+                    entry.setLastNote(truncate("Couldn't borrow it: " + e.getMessage(), 512));
+                    bookbagRepository.save(entry);
+                    log.warn("OverDrive bookbag: borrowing \"{}\" for user {} on card {} failed: {}",
+                            entry.getTitle(), userId, borrowCard, e.getMessage());
+                    continue;
+                }
+            }
+
+            // Nobody can lend it now. Queue for it, unless we already have.
+            if (entry.getHoldCardId() != null) {
+                entry.setLastNote("Waiting on the hold placed at " + entry.getHoldCardId() + ".");
+                bookbagRepository.save(entry);
+                continue;
+            }
+            SoonerQueue queue = bestQueueFor(options, cardByLibrary, holdSlotsLeft, holdsPerCard);
+            if (queue == null) {
+                entry.setLastNote(noBorrowNote(options, cardByLibrary, loanSlotsLeft));
+                bookbagRepository.save(entry);
+                continue;
+            }
+            try {
+                pauseBetweenTitles(borrowed + held);
+                placeHold(queue.cardId(), entry.getTitleId());
+                holdSlotsLeft.computeIfPresent(queue.cardId(), (id, left) -> left - 1);
+                entry.setHoldCardId(queue.cardId());
+                entry.setHoldPlacedAt(Instant.now());
+                entry.setLastNote("On the shelf nowhere, so a hold was placed at " + queue.cardId()
+                        + " (~" + queue.waitDays() + "d).");
+                bookbagRepository.save(entry);
+                held++;
+                log.info("OverDrive bookbag: no copy of \"{}\" for user {}; placed a hold at {} (~{}d)",
+                        entry.getTitle(), userId, queue.cardId(), queue.waitDays());
+            } catch (Exception e) {
+                failures++;
+                entry.setLastNote(truncate("Couldn't place a hold: " + e.getMessage(), 512));
+                bookbagRepository.save(entry);
+                log.warn("OverDrive bookbag: placing a hold on \"{}\" for user {} at {} failed: {}",
+                        entry.getTitle(), userId, queue.cardId(), e.getMessage());
+            }
+        }
+        return new BookbagOutcome(borrowed, held, failures);
+      }
+
+      /** A card that can borrow one of these copies now: on the shelf, with room and budget. */
+      private String borrowableCardFor(List<OverDriveLibraryAvailability> options,
+                                       Map<String, String> cardByLibrary, Map<String, Integer> loanSlotsLeft) {
+        for (OverDriveLibraryAvailability option : options) {
+            boolean onShelf = option.available()
+                    || (option.luckyDayAvailableCopies() != null && option.luckyDayAvailableCopies() > 0);
+            String cardId = onShelf ? cardByLibrary.get(option.libraryKey()) : null;
+            if (cardId != null && !atLoanCapacity(loanSlotsLeft, cardId) && borrowBlockedReason(cardId) == null) {
+                return cardId;
+            }
+        }
+        return null;
+      }
+
+      /**
+       * The best queue to join for a title nobody can lend: shortest estimated wait, then the library
+       * owning more copies. The same preference {@link #soonerElsewhere} applies when moving a hold,
+       * minus the "beat the current one" test — there is no current hold to beat.
+       */
+      private SoonerQueue bestQueueFor(List<OverDriveLibraryAvailability> options,
+                                       Map<String, String> cardByLibrary, Map<String, Integer> holdSlotsLeft,
+                                       Map<String, Integer> holdsPerCard) {
+        SoonerQueue best = null;
+        int bestCopies = -1;
+        for (OverDriveLibraryAvailability option : options) {
+            if (!option.holdable() || option.estimatedWaitDays() == null) {
+                continue;
+            }
+            String cardId = cardByLibrary.get(option.libraryKey());
+            if (cardId == null || atHoldCapacity(holdSlotsLeft, cardId) || churnCooldownUntil(cardId) != null) {
+                continue;
+            }
+            int copies = option.ownedCopies() != null ? option.ownedCopies() : 0;
+            boolean better = best == null
+                    || option.estimatedWaitDays() < best.waitDays()
+                    || (option.estimatedWaitDays() == best.waitDays() && copies > bestCopies)
+                    || (option.estimatedWaitDays() == best.waitDays() && copies == bestCopies
+                        && holdsPerCard.getOrDefault(cardId, 0) < holdsPerCard.getOrDefault(best.cardId(), 0));
+            if (better) {
+                best = new SoonerQueue(cardId, option.estimatedWaitDays(), option.estimatedWaitDays());
+                bestCopies = copies;
+            }
+        }
+        return best;
+      }
+
+      /**
+       * Why an entry could be neither borrowed nor held, in words the user can act on. A copy sitting
+       * on a shelf we cannot reach is a different problem from no copy existing, and the note should
+       * not make them look the same.
+       */
+      private String noBorrowNote(List<OverDriveLibraryAvailability> options, Map<String, String> cardByLibrary,
+                                  Map<String, Integer> loanSlotsLeft) {
+        for (OverDriveLibraryAvailability option : options) {
+            boolean onShelf = option.available()
+                    || (option.luckyDayAvailableCopies() != null && option.luckyDayAvailableCopies() > 0);
+            String cardId = onShelf ? cardByLibrary.get(option.libraryKey()) : null;
+            if (cardId == null) {
+                continue;
+            }
+            String blocked = borrowBlockedReason(cardId);
+            if (blocked != null) {
+                return truncate("A copy is available, but " + blocked + ".", 512);
+            }
+            if (atLoanCapacity(loanSlotsLeft, cardId)) {
+                return "A copy is available, but that card is at its checkout limit.";
+            }
+        }
+        return options.isEmpty()
+                ? "None of your libraries carry this title."
+                : "No copy available and no queue to join right now.";
+      }
+
+      // ── Bookbag: titles queued for the poller to borrow as cards allow ───
+
+      /**
+       * One queued title as the UI sees it.
+       *
+       * @param holdCardId the card a hold was placed on while waiting, or null if none has been
+       * @param lastNote   why the last pass could not borrow it, or null after a clean run
+       */
+      public record BookbagEntry(Long id, String titleId, String title, String author, int position,
+                                 String holdCardId, String holdPlacedAt, String lastNote,
+                                 String lastTriedAt, String createdAt) {}
+
+      /** The current user's bag, in the order it will be worked. */
+      public List<BookbagEntry> listBookbag() {
+        return bookbagRepository.findByUserIdOrderByPositionAscIdAsc(currentUserId()).stream()
+                .map(OverDriveService::toBookbagEntry)
+                .toList();
+      }
+
+      private static BookbagEntry toBookbagEntry(OverDriveBookbagEntity e) {
+        return new BookbagEntry(e.getId(), e.getTitleId(), e.getTitle(), e.getAuthor(), e.getPosition(),
+                e.getHoldCardId(),
+                e.getHoldPlacedAt() != null ? e.getHoldPlacedAt().toString() : null,
+                e.getLastNote(),
+                e.getLastTriedAt() != null ? e.getLastTriedAt().toString() : null,
+                e.getCreatedAt() != null ? e.getCreatedAt().toString() : null);
+      }
+
+      /**
+       * Put a title in the bag, at the back. Adding one already there is a no-op that returns the
+       * existing entry rather than an error or a reorder — the natural reading of pressing the button
+       * twice is "I want this", not "move it".
+       */
+      @Transactional
+      public BookbagEntry addToBookbag(String titleId, String title, String author) {
+        if (titleId == null || titleId.isBlank()) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("A title is required.");
+        }
+        Long userId = currentUserId();
+        return bookbagRepository.findByUserIdAndTitleId(userId, titleId)
+                .map(OverDriveService::toBookbagEntry)
+                .orElseGet(() -> {
+                    int back = bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId).stream()
+                            .mapToInt(OverDriveBookbagEntity::getPosition)
+                            .max().orElse(0) + 1;
+                    OverDriveBookbagEntity row = OverDriveBookbagEntity.builder()
+                            .userId(userId).titleId(titleId.trim())
+                            .title(truncate(title, 1024)).author(truncate(author, 255))
+                            .position(back).build();
+                    log.info("OverDrive bookbag: user {} queued \"{}\" ({}) at position {}",
+                            userId, title, titleId, back);
+                    return toBookbagEntry(bookbagRepository.save(row));
+                });
+      }
+
+      /**
+       * Take a title out of the bag. Any hold placed for it is left in place: the user asked to stop
+       * queueing it, not to give up a queue position they have already earned, and cancelling a hold
+       * they may still want is not recoverable.
+       */
+      @Transactional
+      public void removeFromBookbag(Long id) {
+        Long userId = currentUserId();
+        OverDriveBookbagEntity row = bookbagRepository.findById(id)
+                .filter(e -> userId.equals(e.getUserId()))
+                .orElseThrow(() -> ApiError.GENERIC_NOT_FOUND.createException("That title is not in your bookbag."));
+        bookbagRepository.delete(row);
+        log.info("OverDrive bookbag: user {} removed \"{}\" ({})", userId, row.getTitle(), row.getTitleId());
+      }
+
+      /** Reorder the bag to the given entry ids, front first. Ids not belonging to the user are ignored. */
+      @Transactional
+      public List<BookbagEntry> reorderBookbag(List<Long> idsInOrder) {
+        Long userId = currentUserId();
+        List<OverDriveBookbagEntity> rows = bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId);
+        Map<Long, OverDriveBookbagEntity> byId = rows.stream()
+                .collect(Collectors.toMap(OverDriveBookbagEntity::getId, e -> e, (a, b) -> a, LinkedHashMap::new));
+        int position = 1;
+        for (Long id : idsInOrder == null ? List.<Long>of() : idsInOrder) {
+            OverDriveBookbagEntity row = byId.remove(id);
+            if (row != null) {
+                row.setPosition(position++);
+            }
+        }
+        // Anything the client did not mention keeps its relative order, behind what it did.
+        for (OverDriveBookbagEntity leftover : byId.values()) {
+            leftover.setPosition(position++);
+        }
+        bookbagRepository.saveAll(rows);
+        return listBookbag();
       }
 
       /** The windows a borrow rate is measured over, longest label first for readable messages. */
@@ -2968,9 +3287,13 @@ public class OverDriveService {
 
       /** The user ids that opted into at least one automated action — the poller's work list. */
       public List<Long> autoSyncOptedInUserIds() {
-        return autoSyncRepository.findAllOptedIn().stream()
+        // Users who set a switch, plus users whose bookbag has something in it — queueing a title is
+        // an instruction to borrow it, and a user who has only done that must still be polled.
+        Set<Long> ids = autoSyncRepository.findAllOptedIn().stream()
                 .map(OverDriveAutoSyncEntity::getUserId)
-                .toList();
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        ids.addAll(bookbagRepository.findDistinctUserIds());
+        return List.copyOf(ids);
       }
 
       /**
@@ -2979,12 +3302,15 @@ public class OverDriveService {
        * @param loansLinked loans found to be already in the library and linked to the existing book
        *                    rather than downloaded again
        * @param holdsMoved  waiting holds re-placed at another of the user's libraries with a shorter queue
+       * @param bookbagBorrowed titles taken from the bookbag queue
+       * @param bookbagHeld     bookbag titles nobody could lend, queued for with a hold instead
        */
       public record AutoSyncOutcome(int cardsSynced, int holdsBorrowed, int loansImported, int loansLinked,
-                                    int holdsMoved, int loansReturned, int failures) {
+                                    int holdsMoved, int bookbagBorrowed, int bookbagHeld,
+                                    int loansReturned, int failures) {
 
         static AutoSyncOutcome none() {
-            return new AutoSyncOutcome(0, 0, 0, 0, 0, 0, 0);
+            return new AutoSyncOutcome(0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
       }
 
@@ -3014,11 +3340,14 @@ public class OverDriveService {
 
       private AutoSyncOutcome doAutoSync() {
         OverDriveAutoSyncSettings settings = getAutoSyncSettings();
+        Long userId = currentUserId();
+        // A bookbag entry is a standing "borrow this for me", so it is an opt-in in its own right and
+        // does not need one of the switches on as well.
+        boolean hasBookbag = bookbagRepository.countByUserId(userId) > 0;
         if (!settings.autoImportLoans() && !settings.autoBorrowHolds() && !settings.autoReturnEnabled()
-                && !settings.holdShoppingEnabled()) {
+                && !settings.holdShoppingEnabled() && !hasBookbag) {
             return AutoSyncOutcome.none();
         }
-        Long userId = currentUserId();
         List<String> identities = listCards().stream().map(OverDriveCard::cardId).filter(Objects::nonNull).toList();
         if (identities.isEmpty()) {
             return AutoSyncOutcome.none();
@@ -3088,6 +3417,15 @@ public class OverDriveService {
             failures += shopping.failures();
         }
 
+        int bagBorrowed = 0;
+        int bagHeld = 0;
+        if (hasBookbag) {
+            BookbagOutcome bookbag = runBookbag(userId, syncs, loanSlotsLeft);
+            bagBorrowed = bookbag.borrowed();
+            bagHeld = bookbag.held();
+            failures += bookbag.failures();
+        }
+
         // Loan ids the user actually holds right now. The loan table is a cache that is only ever
         // written to — a loan returned in the Libby app, expired, or returned by this very pass leaves
         // its row behind with a stale state. Filtering on the live sync is what stops the automation
@@ -3147,7 +3485,8 @@ public class OverDriveService {
             failures += autoReturn.failures();
         }
 
-        return new AutoSyncOutcome(identities.size(), borrowed, imported, linked, moved, returned, failures);
+        return new AutoSyncOutcome(identities.size(), borrowed, imported, linked, moved,
+                bagBorrowed, bagHeld, returned, failures);
       }
 
       /**
@@ -3960,6 +4299,7 @@ public class OverDriveService {
             Map<String, Object> borrowed = withChipRecovery(identity,
                     token -> borrowLoan(identity, token, titleId, hint));
             loan = new LoanRef(borrowed.get("id").toString(), loanFormatIds(borrowed));
+            pauseBeforeFulfilling(titleId);
         }
         // Resolved after the borrow so a token renewed by the borrow's chip recovery is the one we
         // fulfill with (fetchFulfillment can still re-mint reactively on top of it).

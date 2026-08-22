@@ -55,6 +55,7 @@ class OverDriveServiceTest {
     @Mock private org.booklore.repository.OverDriveCardShareRepository cardShareRepository;
     @Mock private org.booklore.repository.OverDriveAuditRepository auditRepository;
     @Mock private org.booklore.repository.OverDriveCardLimitRepository cardLimitRepository;
+    @Mock private org.booklore.repository.OverDriveBookbagRepository bookbagRepository;
     @Mock private org.booklore.repository.OverDriveImportDestinationRepository importDestinationRepository;
     @Mock private org.booklore.repository.OverDriveAutoSyncRepository autoSyncRepository;
     @Mock private java.net.http.HttpClient httpClient;
@@ -73,7 +74,7 @@ class OverDriveServiceTest {
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
+                cardLimitRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
     }
 
@@ -741,7 +742,7 @@ class OverDriveServiceTest {
         return new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
+                cardLimitRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
     }
 
@@ -1186,6 +1187,125 @@ class OverDriveServiceTest {
         // still links it to Libby.
         assertThat(page.entries().getFirst().title()).isNull();
         assertThat(page.entries().getFirst().titleId()).isEqualTo("2056901");
+    }
+
+    // ── The bookbag ──────────────────────────────────────────────────────
+
+    private static org.booklore.model.entity.OverDriveBookbagEntity bagged(long id, String titleId, int position) {
+        return org.booklore.model.entity.OverDriveBookbagEntity.builder()
+                .id(id).userId(7L).titleId(titleId).title("Title " + titleId).position(position).build();
+    }
+
+    @Test
+    void queueingATitleAlreadyInTheBagChangesNothing() {
+        authAs(7L);
+        var existing = bagged(1L, "2056901", 3);
+        when(bookbagRepository.findByUserIdAndTitleId(7L, "2056901")).thenReturn(Optional.of(existing));
+
+        var entry = service.addToBookbag("2056901", "Dune", "Frank Herbert");
+
+        // Pressing the button twice means "I want this", not "move it to the back".
+        assertThat(entry.position()).isEqualTo(3);
+        verify(bookbagRepository, never()).save(any());
+    }
+
+    @Test
+    void aNewTitleGoesToTheBackOfTheBag() {
+        authAs(7L);
+        when(bookbagRepository.findByUserIdAndTitleId(7L, "2056901")).thenReturn(Optional.empty());
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L))
+                .thenReturn(List.of(bagged(1L, "aaa", 1), bagged(2L, "bbb", 4)));
+        when(bookbagRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(service.addToBookbag("2056901", "Dune", "Frank Herbert").position()).isEqualTo(5);
+    }
+
+    @Test
+    void removingSomeoneElsesBookbagEntryIsNotFound() {
+        authAs(7L);
+        var theirs = org.booklore.model.entity.OverDriveBookbagEntity.builder()
+                .id(9L).userId(8L).titleId("2056901").build();
+        when(bookbagRepository.findById(9L)).thenReturn(Optional.of(theirs));
+
+        // The bag is personal; another user's entry must not even be acknowledged as existing.
+        assertThatThrownBy(() -> service.removeFromBookbag(9L)).hasMessageContaining("not in your bookbag");
+        verify(bookbagRepository, never()).delete(any());
+    }
+
+    @Test
+    void reorderingPutsUnmentionedEntriesBehindTheOnesGiven() {
+        authAs(7L);
+        var a = bagged(1L, "aaa", 1);
+        var b = bagged(2L, "bbb", 2);
+        var c = bagged(3L, "ccc", 3);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(a, b, c));
+
+        service.reorderBookbag(List.of(3L, 1L));
+
+        // A client that sends a partial order must not silently drop what it left out.
+        assertThat(c.getPosition()).isEqualTo(1);
+        assertThat(a.getPosition()).isEqualTo(2);
+        assertThat(b.getPosition()).isEqualTo(3);
+    }
+
+    @Test
+    void aBookbagTitleAlreadyInTheLibraryIsDroppedRatherThanBorrowedAgain() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build(),
+                OverDriveTokenEntity.builder().userId(7L).identity("card-b").libraryKey("bpl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
+        // The user got it another way, or a hold we placed came in and was imported.
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
+
+        var outcome = service.runBookbag(7L, Map.of(), new java.util.HashMap<>());
+
+        assertThat(outcome).isEqualTo(new OverDriveService.BookbagOutcome(0, 0, 0));
+        verify(bookbagRepository).delete(entry);
+    }
+
+    @Test
+    void anEmptyBagCostsNothing() {
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of());
+
+        assertThat(service.runBookbag(7L, Map.of(), new java.util.HashMap<>()))
+                .isEqualTo(new OverDriveService.BookbagOutcome(0, 0, 0));
+        verifyNoInteractions(overDriveParser, tokenRepository);
+    }
+
+    @Test
+    void aBagIsWorkedEvenWithEveryAutomationSwitchOff() {
+        authAs(7L);
+        when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.empty());
+        when(bookbagRepository.countByUserId(7L)).thenReturn(1L);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of());
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+
+        service.runAutoSync();
+
+        // Queueing a title is itself an instruction to borrow it, so the pass must not short-circuit
+        // on the switches — it gets as far as looking for cards.
+        verify(tokenRepository).findByUserId(7L);
+    }
+
+    @Test
+    void aUserWhoseOnlyIntentIsAFullBagIsStillPolled() {
+        when(autoSyncRepository.findAllOptedIn()).thenReturn(List.of());
+        when(bookbagRepository.findDistinctUserIds()).thenReturn(List.of(11L));
+
+        assertThat(service.autoSyncOptedInUserIds()).containsExactly(11L);
+    }
+
+    @Test
+    void theWorkListDoesNotRepeatAUserWhoBothOptedInAndHasABag() {
+        when(autoSyncRepository.findAllOptedIn()).thenReturn(List.of(
+                org.booklore.model.entity.OverDriveAutoSyncEntity.builder().userId(11L).autoImportLoans(true).build()));
+        when(bookbagRepository.findDistinctUserIds()).thenReturn(List.of(11L));
+
+        assertThat(service.autoSyncOptedInUserIds()).containsExactly(11L);
     }
 
     // ── Learning and enforcing a card's borrow rate ──────────────────────
@@ -2300,7 +2420,7 @@ class OverDriveServiceTest {
         OverDriveService svc = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler,
                 magazineHandler, ebookHandler, bookService,
                 client, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
+                cardLimitRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
                 new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService);
         return new SyncHarness(svc, calls);
     }

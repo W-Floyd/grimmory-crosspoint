@@ -582,6 +582,54 @@ public class OverDriveController {
 
     record TitlesAvailabilityRequest(List<String> titleIds, List<String> cards) {}
 
+    /** GET /api/overdrive/bookbag — the current user's queue of wanted titles, in working order. */
+    @Operation(summary = "List the current user's bookbag")
+    @ApiResponse(responseCode = "200", description = "Bookbag returned")
+    @GetMapping("/bookbag")
+    public ResponseEntity<List<OverDriveService.BookbagEntry>> bookbag() {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.listBookbag());
+    }
+
+    /**
+     * POST /api/overdrive/bookbag — queue a title. Adding one already queued returns the existing
+     * entry untouched rather than erroring or moving it.
+     */
+    @Operation(summary = "Add a title to the bookbag")
+    @ApiResponse(responseCode = "200", description = "Title queued")
+    @PostMapping("/bookbag")
+    public ResponseEntity<OverDriveService.BookbagEntry> addToBookbag(@RequestBody BookbagAddRequest request) {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.addToBookbag(
+                request != null ? request.titleId() : null,
+                request != null ? request.title() : null,
+                request != null ? request.author() : null));
+    }
+
+    record BookbagAddRequest(String titleId, String title, String author) {}
+
+    /**
+     * DELETE /api/overdrive/bookbag/{id} — stop queueing a title. Any hold already placed for it is
+     * left alone: the user asked to stop queueing, not to give up a place they have earned.
+     */
+    @Operation(summary = "Remove a title from the bookbag")
+    @ApiResponse(responseCode = "204", description = "Title removed")
+    @DeleteMapping("/bookbag/{id}")
+    public ResponseEntity<Void> removeFromBookbag(@PathVariable Long id) {
+        requireEnabled();
+        overDriveService.removeFromBookbag(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** PUT /api/overdrive/bookbag/order — reorder the bag, front first. */
+    @Operation(summary = "Reorder the bookbag")
+    @ApiResponse(responseCode = "200", description = "New order returned")
+    @PutMapping("/bookbag/order")
+    public ResponseEntity<List<OverDriveService.BookbagEntry>> reorderBookbag(@RequestBody List<Long> idsInOrder) {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.reorderBookbag(idsInOrder));
+    }
+
     /**
      * GET /api/overdrive/card-limits — every card's borrow ceilings and its current rate.
      *
