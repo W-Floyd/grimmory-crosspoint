@@ -24,6 +24,8 @@ export interface OverDriveCard {
   canAutoRenew?: boolean;
   /** While OverDrive has this card flagged for churning: borrows and returns are paused until then. */
   churnCooldownUntil?: string | null;
+  /** An administrator's ceiling this card has hit ("100 of 100 allowed this 30 days"), or null. */
+  borrowLimitReached?: string | null;
   /** Epoch-seconds expiry of the current Libby token (non-sensitive), or null. */
   tokenExpiresAt?: number | null;
 }

@@ -2043,6 +2043,20 @@ public class OverDriveService {
                 .orElse(BorrowLimits.DEFAULTS);
       }
 
+      /**
+       * Ceilings for several cards in one query, defaulting the ones nobody has configured. Saves a
+       * lookup per card where a whole card list is being described at once.
+       */
+      private Map<String, BorrowLimits> borrowLimitsFor(Collection<String> identities) {
+        Map<String, BorrowLimits> byIdentity = new HashMap<>();
+        for (OverDriveCardLimitEntity row : cardLimitRepository.findByIdentityIn(identities)) {
+            byIdentity.put(row.getIdentity(), new BorrowLimits(row.getMaxPerMinute(), row.getMaxPerHour(),
+                    row.getMaxPerDay(), row.getMaxPerWeek(), row.getMaxPerMonth()));
+        }
+        identities.forEach(id -> byIdentity.putIfAbsent(id, BorrowLimits.DEFAULTS));
+        return byIdentity;
+      }
+
       /** The ceilings a card falls back on until an administrator sets its own. */
       public BorrowLimits defaultBorrowLimits() {
         return BorrowLimits.DEFAULTS;
@@ -2059,7 +2073,11 @@ public class OverDriveService {
        * unconfigured cards started falling back to defaults.
        */
       private String borrowCeilingReached(String identity) {
-        BorrowLimits limits = borrowLimits(identity);
+        return borrowCeilingReached(identity, borrowLimits(identity));
+      }
+
+      /** As above, for a caller that has already looked the ceilings up — see {@link #listCards()}. */
+      private String borrowCeilingReached(String identity, BorrowLimits limits) {
         if (!limits.anySet()) {
             return null;
         }
@@ -2289,7 +2307,7 @@ public class OverDriveService {
                         // Freshly read from a live sync during linking — always the current user's own card.
                         // Credential/expiry details aren't known here; reloadCards() (listCards) is authoritative.
                         cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey, false, null, null,
-                                true, null, 0, false, null, null));
+                                true, null, 0, false, null, null, null));
                     }
                 }
             }
@@ -5524,17 +5542,28 @@ public class OverDriveService {
        */
       public List<OverDriveCard> listCards() {
         Long userId = currentUserId();
-        return accessibleTokenRows(userId).stream()
+        List<OverDriveTokenEntity> rows = accessibleTokenRows(userId);
+        Instant now = Instant.now();
+        // One ceilings query for the whole list. Both meters can show room on a card that has stopped
+        // borrowing, so the card list is where the reason has to be legible.
+        Map<String, BorrowLimits> limits = borrowLimitsFor(rows.stream()
+                .map(OverDriveTokenEntity::getIdentity).filter(Objects::nonNull).collect(Collectors.toSet()));
+        return rows.stream()
                 .map(t -> {
                     boolean owned = userId.equals(t.getUserId());
+                    // Only while it is still in force; a lapsed one is not worth telling the user about.
+                    boolean resting = t.getChurnCooldownUntil() != null && t.getChurnCooldownUntil().isAfter(now);
                     return new OverDriveCard(t.getIdentity(), t.getCardName(), t.getLibraryKey(),
                             owned && t.getCredCard() != null, t.getDefaultLibraryId(), t.getDefaultPathId(),
                             owned, owned ? null : ownerName(t.getUserId()),
                             owned ? cardShareRepository.countByTokenId(t.getId()) : 0,
                             canAutoRenew(t), t.getExpiresAt(),
-                            // Only while it is still in force; a lapsed one is not worth telling the user about.
-                            t.getChurnCooldownUntil() != null && t.getChurnCooldownUntil().isAfter(Instant.now())
-                                    ? t.getChurnCooldownUntil().toString() : null);
+                            resting ? t.getChurnCooldownUntil().toString() : null,
+                            // Not computed while resting: OverDrive's own refusal outranks a ceiling we
+                            // set ourselves, and reporting both would say the same thing twice.
+                            resting ? null
+                                    : borrowCeilingReached(t.getIdentity(),
+                                            limits.getOrDefault(t.getIdentity(), BorrowLimits.DEFAULTS)));
                 })
                 .toList();
       }

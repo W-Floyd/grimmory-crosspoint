@@ -1194,6 +1194,59 @@ class OverDriveServiceTest {
         assertThat(page.entries().getFirst().titleId()).isEqualTo("2056901");
     }
 
+    @Test
+    void aCardListSaysWhichCeilingHasStoppedACard() {
+        authAs(7L);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").cardName("MCPL").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(cardLimitRepository.findByIdentityIn(java.util.Set.of("card-a"))).thenReturn(List.of(
+                org.booklore.model.entity.OverDriveCardLimitEntity.builder()
+                        .identity("card-a").maxPerMonth(100).build()));
+        borrowCounts("card-a", 100);
+
+        var card = service.listCards().getFirst();
+
+        // Both meters can show room on a card that has stopped borrowing, so the list has to say why.
+        assertThat(card.borrowLimitReached()).isEqualTo("100 of 100 allowed this 30 days");
+        assertThat(card.churnCooldownUntil()).isNull();
+    }
+
+    @Test
+    void aRestingCardReportsTheRestRatherThanACeiling() {
+        authAs(7L);
+        Instant until = Instant.now().plus(java.time.Duration.ofDays(5));
+        OverDriveTokenEntity row = OverDriveTokenEntity.builder()
+                .userId(7L).identity("card-a").cardName("MCPL").build();
+        row.setChurnCooldownUntil(until);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(row));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(cardLimitRepository.findByIdentityIn(java.util.Set.of("card-a"))).thenReturn(List.of());
+
+        var card = service.listCards().getFirst();
+
+        // OverDrive's own refusal outranks a ceiling we set, and saying both would say it twice — so
+        // the ceiling is not even measured.
+        assertThat(card.churnCooldownUntil()).isEqualTo(until.toString());
+        assertThat(card.borrowLimitReached()).isNull();
+        verifyNoInteractions(auditRepository);
+    }
+
+    @Test
+    void aCardWithRoomLeftReportsNoObstacle() {
+        authAs(7L);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").cardName("MCPL").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(cardLimitRepository.findByIdentityIn(java.util.Set.of("card-a"))).thenReturn(List.of());
+        borrowCounts("card-a", 0);
+
+        var card = service.listCards().getFirst();
+
+        assertThat(card.churnCooldownUntil()).isNull();
+        assertThat(card.borrowLimitReached()).isNull();
+    }
+
     // ── The bookbag ──────────────────────────────────────────────────────
 
     private static org.booklore.model.entity.OverDriveBookbagEntity bagged(long id, String titleId, int position) {
