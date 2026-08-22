@@ -40,6 +40,10 @@ public class OverDriveCardLimitEntity {
     @Column(name = "max_per_week")
     private Integer maxPerWeek;
 
+    /** Over a rolling thirty days — the window this deployment's refusals actually correlate with. */
+    @Column(name = "max_per_month")
+    private Integer maxPerMonth;
+
     @Column(name = "updated_at")
     private Instant updatedAt;
 }

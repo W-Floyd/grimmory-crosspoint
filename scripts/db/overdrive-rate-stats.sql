@@ -4,8 +4,12 @@
 --
 -- The point is to turn "too many titles borrowed and returned within a short period of time" into
 -- numbers you can put in the per-card borrow limits. Query 1 is the one that matters: it says what
--- the account was doing in the minute, hour, day and week before each refusal. Set each ceiling
--- comfortably below the lowest number you see there.
+-- the account was doing in the minute, hour, day, week and thirty days before each refusal. Set each
+-- ceiling comfortably below the lowest number you see there.
+--
+-- On this deployment the thirty-day figure was the one that correlated: refusals at 144 and 148 in a
+-- rolling month, on a card that had already survived a 68-borrow week and 50 borrows of 50 distinct
+-- titles in the refused week. Check the long window before concluding a short one is to blame.
 --
 -- A borrow is a successful BORROW or BORROW_AND_IMPORT. IMPORT is excluded throughout: it resumes a
 -- loan already held and takes no new copy out, so it does not count against a borrow rate. Failures
@@ -37,6 +41,12 @@ SELECT
         AND b.action IN ('BORROW', 'BORROW_AND_IMPORT')
         AND b.created_at >  a.created_at - INTERVAL 7 DAY
         AND b.created_at <= a.created_at)                                AS prev_week,
+    -- The window that actually correlated with refusals here. Keep it in front of any shorter one.
+    (SELECT COUNT(*) FROM overdrive_audit b
+      WHERE b.identity = a.identity AND b.success = 1
+        AND b.action IN ('BORROW', 'BORROW_AND_IMPORT')
+        AND b.created_at >  a.created_at - INTERVAL 30 DAY
+        AND b.created_at <= a.created_at)                                AS prev_30_days,
     -- Returns count toward churning too, so the picture is incomplete without them.
     (SELECT COUNT(*) FROM overdrive_audit b
       WHERE b.identity = a.identity AND b.success = 1 AND b.action IN ('RETURN', 'AUTO_RETURN')
@@ -55,7 +65,8 @@ SELECT
     MAX(in_minute) AS peak_per_minute,
     MAX(in_hour)   AS peak_per_hour,
     MAX(in_day)    AS peak_per_day,
-    MAX(in_week)   AS peak_per_week
+    MAX(in_week)   AS peak_per_week,
+    MAX(in_month)  AS peak_per_30_days
 FROM (
     SELECT a.identity,
         (SELECT COUNT(*) FROM overdrive_audit b WHERE b.identity = a.identity AND b.success = 1
@@ -69,7 +80,10 @@ FROM (
            AND b.created_at > a.created_at - INTERVAL 1 DAY AND b.created_at <= a.created_at) AS in_day,
         (SELECT COUNT(*) FROM overdrive_audit b WHERE b.identity = a.identity AND b.success = 1
            AND b.action IN ('BORROW','BORROW_AND_IMPORT')
-           AND b.created_at > a.created_at - INTERVAL 7 DAY AND b.created_at <= a.created_at) AS in_week
+           AND b.created_at > a.created_at - INTERVAL 7 DAY AND b.created_at <= a.created_at) AS in_week,
+        (SELECT COUNT(*) FROM overdrive_audit b WHERE b.identity = a.identity AND b.success = 1
+           AND b.action IN ('BORROW','BORROW_AND_IMPORT')
+           AND b.created_at > a.created_at - INTERVAL 30 DAY AND b.created_at <= a.created_at) AS in_month
     FROM overdrive_audit a
     WHERE a.success = 1 AND a.action IN ('BORROW','BORROW_AND_IMPORT')
 ) rolling

@@ -1476,10 +1476,12 @@ public class OverDriveService {
         row.setMaxPerHour(limits.perHour());
         row.setMaxPerDay(limits.perDay());
         row.setMaxPerWeek(limits.perWeek());
+        row.setMaxPerMonth(limits.perMonth());
         row.setUpdatedAt(Instant.now());
         cardLimitRepository.save(row);
-        log.info("OverDrive: borrow limits for card {} set to {}/min {}/hr {}/day {}/week",
-                identity, limits.perMinute(), limits.perHour(), limits.perDay(), limits.perWeek());
+        log.info("OverDrive: borrow limits for card {} set to {}/min {}/hr {}/day {}/week {}/30d",
+                identity, limits.perMinute(), limits.perHour(), limits.perDay(), limits.perWeek(),
+                limits.perMonth());
         recordAudit(OverDriveAuditAction.CARD_RELABELED, identity, null, null, null, null,
                 "Borrow limits set to " + describe(limits) + ".");
         return new CardBorrowBudget(identity, identity, limits, borrowRate(identity));
@@ -1825,7 +1827,8 @@ public class OverDriveService {
         MINUTE("minute", java.time.Duration.ofMinutes(1)),
         HOUR("hour", java.time.Duration.ofHours(1)),
         DAY("day", java.time.Duration.ofDays(1)),
-        WEEK("week", java.time.Duration.ofDays(7));
+        WEEK("week", java.time.Duration.ofDays(7)),
+        MONTH("30 days", java.time.Duration.ofDays(30));
 
         final String label;
         final java.time.Duration length;
@@ -1837,12 +1840,14 @@ public class OverDriveService {
       }
 
       /** How many checkouts a card has taken in each window. */
-      public record BorrowRate(long lastMinute, long lastHour, long lastDay, long lastWeek) {}
+      public record BorrowRate(long lastMinute, long lastHour, long lastDay, long lastWeek,
+                               long last30Days) {}
 
       /** A card's configured ceilings; null in any position means no ceiling is known for that window. */
-      public record BorrowLimits(Integer perMinute, Integer perHour, Integer perDay, Integer perWeek) {
+      public record BorrowLimits(Integer perMinute, Integer perHour, Integer perDay, Integer perWeek,
+                                 Integer perMonth) {
 
-        static final BorrowLimits NONE = new BorrowLimits(null, null, null, null);
+        static final BorrowLimits NONE = new BorrowLimits(null, null, null, null, null);
 
         Integer forWindow(BorrowWindow window) {
             return switch (window) {
@@ -1850,11 +1855,13 @@ public class OverDriveService {
                 case HOUR -> perHour;
                 case DAY -> perDay;
                 case WEEK -> perWeek;
+                case MONTH -> perMonth;
             };
         }
 
         boolean anySet() {
-            return perMinute != null || perHour != null || perDay != null || perWeek != null;
+            return perMinute != null || perHour != null || perDay != null || perWeek != null
+                    || perMonth != null;
         }
       }
 
@@ -1865,7 +1872,8 @@ public class OverDriveService {
                 borrowsSince(identity, now.minus(BorrowWindow.MINUTE.length)),
                 borrowsSince(identity, now.minus(BorrowWindow.HOUR.length)),
                 borrowsSince(identity, now.minus(BorrowWindow.DAY.length)),
-                borrowsSince(identity, now.minus(BorrowWindow.WEEK.length)));
+                borrowsSince(identity, now.minus(BorrowWindow.WEEK.length)),
+                borrowsSince(identity, now.minus(BorrowWindow.MONTH.length)));
       }
 
       private long borrowsSince(String identity, Instant since) {
@@ -1879,7 +1887,7 @@ public class OverDriveService {
         }
         return cardLimitRepository.findById(identity)
                 .map(l -> new BorrowLimits(l.getMaxPerMinute(), l.getMaxPerHour(),
-                        l.getMaxPerDay(), l.getMaxPerWeek()))
+                        l.getMaxPerDay(), l.getMaxPerWeek(), l.getMaxPerMonth()))
                 .orElse(BorrowLimits.NONE);
       }
 
@@ -1922,8 +1930,10 @@ public class OverDriveService {
         try {
             BorrowRate rate = borrowRate(identity);
             String detail = String.format(
-                    "Churning limit hit on card %s. Borrows in the preceding minute/hour/day/week: %d/%d/%d/%d.",
-                    identity, rate.lastMinute(), rate.lastHour(), rate.lastDay(), rate.lastWeek());
+                    "Churning limit hit on card %s. Borrows in the preceding minute/hour/day/week/30 days: "
+                            + "%d/%d/%d/%d/%d.",
+                    identity, rate.lastMinute(), rate.lastHour(), rate.lastDay(), rate.lastWeek(),
+                    rate.last30Days());
             log.warn("OverDrive: {} Set a per-card limit below these numbers to stay under it.", detail);
             recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null, detail, false);
         } catch (Exception e) {

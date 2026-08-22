@@ -1311,10 +1311,15 @@ class OverDriveServiceTest {
     // ── Learning and enforcing a card's borrow rate ──────────────────────
 
     private void limits(String identity, Integer perMinute, Integer perHour, Integer perDay, Integer perWeek) {
+        limits(identity, perMinute, perHour, perDay, perWeek, null);
+    }
+
+    private void limits(String identity, Integer perMinute, Integer perHour, Integer perDay,
+                        Integer perWeek, Integer perMonth) {
         when(cardLimitRepository.findById(identity)).thenReturn(Optional.of(
                 org.booklore.model.entity.OverDriveCardLimitEntity.builder()
                         .identity(identity).maxPerMinute(perMinute).maxPerHour(perHour)
-                        .maxPerDay(perDay).maxPerWeek(perWeek).build()));
+                        .maxPerDay(perDay).maxPerWeek(perWeek).maxPerMonth(perMonth).build()));
     }
 
     @Test
@@ -1375,11 +1380,37 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void aMonthlyCeilingIsEnforcedWhenNoShorterWindowIsFull() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        limits("card-a", null, null, null, null, 145);
+        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
+                .thenReturn(145L);
+
+        // The window this deployment's refusals actually correlate with: a card can be well inside
+        // every shorter limit and still have crossed a monthly cap.
+        assertThat(service.borrowBlockedReason("card-a"))
+                .isEqualTo("this card has already borrowed 145 of 145 allowed this 30 days");
+    }
+
+    @Test
+    void aShorterFullWindowStillOutranksTheMonthlyOne() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        limits("card-a", null, 6, null, null, 145);
+        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
+                .thenReturn(200L);
+
+        // Both are full; the hour clears first, so it is the one worth telling the caller about.
+        assertThat(service.borrowBlockedReason("card-a")).contains("this hour");
+    }
+
+    @Test
     void aLimitOfZeroIsRefusedRatherThanSilentlyGroundingTheCard() {
         authAsCardManager(7L);
 
         assertThatThrownBy(() -> service.setCardBorrowLimits("card-a",
-                new OverDriveService.BorrowLimits(null, 0, null, null)))
+                new OverDriveService.BorrowLimits(null, 0, null, null, null)))
                 .hasMessageContaining("would stop this card borrowing altogether");
         verify(cardLimitRepository, never()).save(any());
     }
@@ -1390,7 +1421,7 @@ class OverDriveServiceTest {
 
         // The ceilings are policy on a shared library account, not a personal preference.
         assertThatThrownBy(() -> service.setCardBorrowLimits("card-a",
-                new OverDriveService.BorrowLimits(null, 5, null, null)))
+                new OverDriveService.BorrowLimits(null, 5, null, null, null)))
                 .hasMessageContaining("Only an administrator");
         assertThatThrownBy(() -> service.listCardBorrowBudgets())
                 .hasMessageContaining("Only an administrator");
@@ -1401,7 +1432,7 @@ class OverDriveServiceTest {
         authAsCardManager(7L);
         when(cardLimitRepository.findById("card-a")).thenReturn(Optional.empty());
 
-        service.setCardBorrowLimits("card-a", new OverDriveService.BorrowLimits(null, null, null, null));
+        service.setCardBorrowLimits("card-a", new OverDriveService.BorrowLimits(null, null, null, null, null));
 
         ArgumentCaptor<org.booklore.model.entity.OverDriveCardLimitEntity> saved =
                 ArgumentCaptor.forClass(org.booklore.model.entity.OverDriveCardLimitEntity.class);
