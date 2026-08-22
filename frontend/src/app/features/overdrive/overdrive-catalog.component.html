@@ -204,7 +204,7 @@
                   [title]="item.title"
                   [subtitle]="item.subtitle"
                   [bookId]="item.bookId"
-                  [libbyUrl]="libbyUrl(item.titleId, chosenCard(item)?.libraryKey)" />
+                  [libbyUrl]="libbyUrl(item.titleId, libraryKeyForItem(item))" />
                 @if (narratorLabel(item) || durationLabel(item) || isOnLoan(item) || isForeignLanguage(item) || item.edition) {
                   <div class="result-tags">
                     @if (narratorLabel(item); as narrator) {

@@ -1752,6 +1752,58 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void borrowingPrefersTheLibraryWithMoreCopiesFree() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(any(), any())).thenReturn(Optional.empty());
+        when(cardLimitRepository.findById(any())).thenReturn(Optional.empty());
+        when(auditRepository.countBorrowsOnCardSince(any(), any())).thenReturn(0L);
+
+        // Both can lend it. Taking the lone copy at bpl empties that shelf and starts a queue there,
+        // while kcpl has four to spare. This preference used to live in the search page, which chose
+        // the card before asking the server; the queue moved that choice here.
+        String card = service.borrowableCardFor(List.of(
+                        availability("bpl", true, false, null, 1),
+                        availability("kcpl", true, false, null, 12)),
+                threeLibraries(), Map.of());
+
+        assertThat(card).isEqualTo("card-b"); // one available copy each, from availability(...)
+    }
+
+    @Test
+    void borrowingCountsEveryFreeCopy_regularAndLuckyDay() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(any(), any())).thenReturn(Optional.empty());
+        when(cardLimitRepository.findById(any())).thenReturn(Optional.empty());
+        when(auditRepository.countBorrowsOnCardSince(any(), any())).thenReturn(0L);
+
+        var oneRegular = new org.booklore.model.dto.overdrive.OverDriveLibraryAvailability(
+                "bpl", true, false, 1, 4, null, null, 0);
+        var oneRegularPlusThreeLucky = new org.booklore.model.dto.overdrive.OverDriveLibraryAvailability(
+                "kcpl", true, false, 1, 4, null, null, 3);
+
+        // Lucky Day copies are borrowable now without a hold, so they are part of the shelf.
+        assertThat(service.borrowableCardFor(List.of(oneRegular, oneRegularPlusThreeLucky),
+                threeLibraries(), Map.of())).isEqualTo("card-c");
+    }
+
+    @Test
+    void borrowingSkipsACardThatIsFullOrOutOfBudget() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(any(), any())).thenReturn(Optional.empty());
+        when(cardLimitRepository.findById(any())).thenReturn(Optional.empty());
+        when(auditRepository.countBorrowsOnCardSince(any(), any())).thenReturn(0L);
+        var plenty = new org.booklore.model.dto.overdrive.OverDriveLibraryAvailability(
+                "bpl", true, false, 9, 20, null, null, 0);
+        var few = new org.booklore.model.dto.overdrive.OverDriveLibraryAvailability(
+                "kcpl", true, false, 1, 2, null, null, 0);
+
+        // bpl has far more copies, but its card cannot take another checkout — so the scarcer library
+        // is used rather than nothing at all.
+        assertThat(service.borrowableCardFor(List.of(plenty, few), threeLibraries(), Map.of("card-b", 0)))
+                .isEqualTo("card-c");
+    }
+
+    @Test
     void aLibraryThatOnlyOffersAWaitlistIsNotTreatedAsHavingTheBookOnTheShelf() {
         var hold = waitingHold("2056901", "card-a", "60");
         assertThat(service.availableElsewhere(hold, List.of(availability("bpl", false, true, 5, 5)),

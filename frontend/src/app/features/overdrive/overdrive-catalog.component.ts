@@ -20,7 +20,6 @@ import { ConfirmationService, MenuItem, MessageService } from '@openng/optimus-u
 import { TooltipModule } from '@openng/optimus-ui/tooltip';
 import { InputTextModule } from '@openng/optimus-ui/inputtext';
 import { TabsModule } from '@openng/optimus-ui/tabs';
-import { LibraryService } from '../../features/book/service/library.service';
 import { ProgressBar } from '@openng/optimus-ui/progressbar';
 import { SplitButton } from '@openng/optimus-ui/splitbutton';
 import { ConfirmDialog } from '@openng/optimus-ui/confirmdialog';
@@ -82,7 +81,6 @@ export function toolProgressPct(e: { pct?: number; current?: number; total?: num
 export class OverdriveCatalogComponent {
   private readonly overdriveService = inject(OverDriveService);
   private readonly messageService = inject(MessageService);
-  private readonly libraryService = inject(LibraryService);
   private readonly transloco = inject(TranslocoService);
   private readonly confirmationService = inject(ConfirmationService);
   // Split-button menus for already-imported loans, keyed by loan id (see importMenuItems).
@@ -134,8 +132,7 @@ export class OverdriveCatalogComponent {
   holdAvailability = signal<Record<string, OverDriveLibraryAvailability[]>>({});
   checkingHoldId = signal<string | null>(null);
 
-   // Catalog search + import
-  readonly grimmoryLibraries = this.libraryService.libraries;
+  // Catalog search
   searchQuery = signal('');
   searching = signal(false);
   results = signal<OverDriveCatalogItem[]>([]);
@@ -497,13 +494,6 @@ export class OverdriveCatalogComponent {
   /** Entry id currently being removed, so only that row's button spins. */
   bookbagBusyId = signal<number | null>(null);
 
-  // Per-title chosen download format (titleId → formatId); defaults to the title's top preference.
-  selectedFormats = signal<Record<string, string>>({});
-  // Per-title chosen card to borrow/hold with (titleId → cardId); defaults to the eligible card with
-  // the fewest current loans (borrow) / holds (hold).
-  selectedActionCard = signal<Record<string, string>>({});
-  // Title ids the user has explicitly chosen to re-borrow despite already being in the library.
-  reborrowOverrides = signal<Set<string>>(new Set());
   // Per-row outcome of the last borrow/import/hold action (keyed by titleId / loanId / holdId).
   actionOutcome = signal<Record<string, 'success' | 'error'>>({});
   // Optional per-row success label overriding the table's default word (e.g. "Hold moved" vs "Borrowed").
@@ -951,9 +941,6 @@ export class OverdriveCatalogComponent {
      this.overdriveService.search(query, this.selectedCards().map(c => c.cardId), filter, limit).subscribe({
        next: (items) => {
          this.results.set(items ?? []);
-         if (!isLoadMore) {
-           this.selectedActionCard.set({}); // reset per-title card choices to fresh defaults
-         }
          this.searching.set(false);
          this.loadingMore.set(false);
          this.searched = true;
@@ -985,11 +972,6 @@ export class OverdriveCatalogComponent {
    }
 
    // --- Eligible cards + default selection ---
-
-   /** True when a per-library availability entry offers a borrow now — a regular copy or a Lucky Day copy. */
-   private borrowableAt(a: OverDriveLibraryAvailability): boolean {
-     return a.available || (a.luckyDayAvailableCopies ?? 0) > 0;
-   }
 
    /** True when this title has a "Lucky Day" (skip-the-line) copy available now at some selected library. */
    hasLuckyDay(item: OverDriveCatalogItem): boolean {
@@ -1130,53 +1112,6 @@ export class OverdriveCatalogComponent {
    }
 
    /**
-    * Cards (among the selected set) whose library has this title borrowable now — a regular available
-    * copy or a Lucky Day copy — and that aren't at their loan limit.
-    */
-   borrowEligibleCards(item: OverDriveCatalogItem): OverDriveCard[] {
-     const keys = new Set((item.availability ?? []).filter(a => this.borrowableAt(a)).map(a => a.libraryKey));
-     return this.selectedCards()
-       .filter(c => c.libraryKey != null && keys.has(c.libraryKey) && !this.atLoanLimitFor(c.cardId))
-       .sort((a, b) => this.compareBorrowPreference(item, a, b));
-   }
-
-   /**
-    * Order two cards that can both borrow this title right now. Copies free at the library come first:
-    * every card here has one available, but taking the only copy at a small library empties its shelf
-    * and starts a queue there, while the same read sitting behind several copies elsewhere costs nobody
-    * a wait — and a lone copy is likelier to be gone by the time the borrow lands. Remaining loan
-    * capacity breaks the tie (limit − count, so cards with different limits compare fairly: a 14/50
-    * card with 36 left beats a 13/15 card with 2), and the shorter queue settles the rest.
-    */
-   private compareBorrowPreference(item: OverDriveCatalogItem, a: OverDriveCard, b: OverDriveCard): number {
-     return (this.borrowableCopiesForCard(item, b) - this.borrowableCopiesForCard(item, a))
-       || (this.loanRemainingFor(b.cardId) - this.loanRemainingFor(a.cardId))
-       || (this.queuedHoldsForCard(item, a) - this.queuedHoldsForCard(item, b));
-   }
-
-   /**
-    * Copies of this title borrowable now at a card's library, regular plus Lucky Day. A library that
-    * reports availability without a count still has at least one, or it would not be in this list.
-    */
-   private borrowableCopiesForCard(item: OverDriveCatalogItem, card: OverDriveCard): number {
-     const a = this.availabilityForCard(item, card);
-     if (!a) return 0;
-     return (a.availableCopies ?? (a.available ? 1 : 0)) + (a.luckyDayAvailableCopies ?? 0);
-   }
-
-   /** People already queued for this title at a card's library; an unreported queue sorts as empty. */
-   private queuedHoldsForCard(item: OverDriveCatalogItem, card: OverDriveCard): number {
-     return this.availabilityForCard(item, card)?.holdsCount ?? 0;
-   }
-
-   /** Remaining loan capacity for a card (limit − count); an unreported limit is treated as unlimited. */
-   private loanRemainingFor(cardId: string): number {
-     const count = this.loanCountFor(cardId);
-     const limit = this.loanLimitFor(cardId);
-     return count != null && limit != null ? limit - count : Number.POSITIVE_INFINITY;
-   }
-
-   /**
     * Cards (among the selected set) where the user can still place a hold on this title: the library
     * allows holds, the card isn't at its hold limit, and it doesn't already hold the title (so an
     * existing hold at one library doesn't block offering a hold at the others).
@@ -1227,192 +1162,20 @@ export class OverdriveCatalogComponent {
      return cardId ? this.shortCardLabel(cardId) : '';
    }
 
-   /** Estimated wait (days) at the currently-chosen hold library for this title, or null. */
-   chosenHoldWaitDays(item: OverDriveCatalogItem): number | null {
-     return this.availabilityForCard(item, this.chosenCard(item))?.estimatedWaitDays ?? null;
-   }
-
    /**
-    * True when the chosen other library's estimated wait is shorter than the user's existing hold — so
-    * placing a hold there (or borrowing) would likely come through sooner.
+    * A library to open a search result in, for its Libby link: the first selected card whose library
+    * carries the title. Nothing to do with which card will borrow it — the server decides that when
+    * the queue reaches it — so this only needs to name a library that has the book.
     */
-   soonerElsewhere(item: OverDriveCatalogItem): boolean {
-     if (!this.isOnHold(item)) return false;
-     const current = Number(this.holds().find(h => h.id === item.titleId)?.estimatedWaitDays);
-     const other = this.chosenHoldWaitDays(item);
-     return Number.isFinite(current) && other != null && other < current;
+   libraryKeyForItem(item: OverDriveCatalogItem): string | null {
+     const keys = new Set((item.availability ?? []).map(a => a.libraryKey));
+     return this.selectedCards().find(c => c.libraryKey && keys.has(c.libraryKey))?.libraryKey ?? null;
    }
-
-   /** The eligible cards for a title given its current action (borrow when available now, else hold). */
-   eligibleCards(item: OverDriveCatalogItem): OverDriveCard[] {
-     return this.borrowableNow(item) ? this.borrowEligibleCards(item) : this.holdEligibleCards(item);
-   }
-
-   /** {label,value} options for a title's eligible-card dropdown (value = cardId). */
-   eligibleCardOptions(item: OverDriveCatalogItem): { label: string; value: string }[] {
-     return this.eligibleCards(item).map(c => ({ label: c.name || c.cardId, value: c.cardId }));
-   }
-
-   /**
-    * The default card for a title: the first eligible card, which is already ordered best-first — most
-    * remaining loan capacity for a borrow, shortest estimated wait for a hold.
-    */
-   private defaultActionCard(item: OverDriveCatalogItem): OverDriveCard | null {
-     return this.eligibleCards(item)[0] ?? null;
-   }
-
-   /** The chosen card for a title: the user's per-title override if still eligible, else the default. */
-   chosenCard(item: OverDriveCatalogItem): OverDriveCard | null {
-     const eligible = this.eligibleCards(item);
-     const overrideId = this.selectedActionCard()[item.titleId];
-     const override = overrideId ? eligible.find(c => c.cardId === overrideId) : undefined;
-     return override ?? this.defaultActionCard(item);
-   }
-
-   chosenCardId(item: OverDriveCatalogItem): string | null {
-     return this.chosenCard(item)?.cardId ?? null;
-   }
-
-   setActionCard(titleId: string, cardId: string): void {
-     this.selectedActionCard.update(m => ({ ...m, [titleId]: cardId }));
-   }
-
-   /** True when a title has no eligible card to borrow/hold (e.g. only available at an unselected library). */
-   noEligibleCard(item: OverDriveCatalogItem): boolean {
-     return this.eligibleCards(item).length === 0;
-   }
-
-   /** Selected cards whose library has this title borrowable now (regular or Lucky Day), ignoring loan limit. */
-   private borrowableCardsIgnoringLimit(item: OverDriveCatalogItem): OverDriveCard[] {
-     const keys = new Set((item.availability ?? []).filter(a => this.borrowableAt(a)).map(a => a.libraryKey));
-     return this.selectedCards().filter(c => c.libraryKey != null && keys.has(c.libraryKey));
-   }
-
-   /** Selected cards whose library allows a hold on this title (not already held there), ignoring hold limit. */
-   private holdableCardsIgnoringLimit(item: OverDriveCatalogItem): OverDriveCard[] {
-     const keys = new Set((item.availability ?? []).filter(a => a.holdable).map(a => a.libraryKey));
-     const held = this.heldCardIds(item);
-     return this.selectedCards().filter(c => c.libraryKey != null && keys.has(c.libraryKey) && !held.has(c.cardId));
-   }
-
-   /** True when this title is borrowable at a selected library, but every such card is at its loan limit. */
-   borrowBlockedByLimit(item: OverDriveCatalogItem): boolean {
-     return this.borrowEligibleCards(item).length === 0 && this.borrowableCardsIgnoringLimit(item).length > 0;
-   }
-
-   /** True when this title is only holdable, and every card that could hold it is at its hold limit. */
-   holdBlockedByLimit(item: OverDriveCatalogItem): boolean {
-     return !this.borrowableNow(item) && !this.isOnHold(item)
-       && this.holdEligibleCards(item).length === 0 && this.holdableCardsIgnoringLimit(item).length > 0;
-   }
-
-   /** Label of a library where this title is borrowable/holdable but blocked by your loan/hold limit. */
-   limitBlockedLibraryLabel(item: OverDriveCatalogItem): string {
-     const card = this.borrowableCardsIgnoringLimit(item)[0] ?? this.holdableCardsIgnoringLimit(item)[0];
-     return card ? this.shortCardLabel(card.cardId) : '';
-   }
-
-   /**
-    * Whether an actionable borrow/hold button is shown for this title, so a card must be picked. True
-    * when it's borrowable now (available at some selected library, or a ready hold) or holdable and not
-    * already on hold. A title can be on hold at one library yet borrowable at another, so this is not
-    * suppressed just because the user holds it somewhere.
-    */
-   needsActionCard(item: OverDriveCatalogItem): boolean {
-     return this.borrowableNow(item) || this.holdEligibleCards(item).length > 0;
-   }
-
-   onBorrowImport(item: OverDriveCatalogItem): void {
-     const card = this.chosenCard(item);
-     if (!card) {
-       this.error.set('No eligible card for this title — select a card whose library has it');
-       return;
-       }
-     if (!item.titleId) {
-       this.error.set('This title is not borrowable');
-       return;
-       }
-
-     this.importingTitleId.set(item.titleId);
-     this.error.set(null);
-     this.overdriveService.borrowAndImport(card.cardId, {
-       titleId: item.titleId,
-       libraryId: null,
-       pathId: null,
-       title: this.fullTitle(item),
-       author: item.author,
-       coverUrl: item.coverUrl,
-       isbn: item.isbn,
-       formatId: this.chosenFormat(item),
-       titleFormat: this.titleFormatOf(item)
-     }).subscribe({
-       next: (book) => {
-         if (book?.id != null) {
-           this.messageService.add({
-             severity: 'success',
-             summary: 'Imported',
-             detail: `"${this.fullTitle(item)}" borrowed and imported (book #${book.id})`
-            });
-           this.markResultImported(item.titleId, book.id);
-         } else {
-           this.messageService.add({
-             severity: 'success',
-             summary: 'Sent to Bookdrop',
-             detail: `"${this.fullTitle(item)}" borrowed and dropped into Bookdrop for review`
-            });
-         }
-         this.setOutcome(item.titleId, 'success');
-         this.importingTitleId.set(null);
-         this.syncSelectedCards();
-         },
-       error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Borrow & import failed'));
-         this.setOutcome(item.titleId, 'error');
-         this.importingTitleId.set(null);
-         // The borrow may have placed the loan even when the import step failed (e.g. no importable
-         // format) — resync so the placed loan appears in Your Loans (usable in the Libby app).
-         this.syncSelectedCards();
-         }
-       });
-     }
-
-   /** Combined title for display/import: "Series: Book" when OverDrive splits the name into a subtitle. */
-   fullTitle(item: OverDriveCatalogItem): string {
-     return item.subtitle ? `${item.title}: ${item.subtitle}` : item.title;
-     }
-
-   /** Borrow a title onto the Libby account without importing it into grimmory. */
-   onBorrowOnly(item: OverDriveCatalogItem): void {
-     const card = this.chosenCard(item);
-     if (!card || !item.titleId) return;
-     this.importingTitleId.set(item.titleId);
-     this.error.set(null);
-     this.overdriveService.borrow(card.cardId, item.titleId, this.titleFormatOf(item)).subscribe({
-       next: () => {
-         this.messageService.add({ severity: 'success', summary: 'Borrowed',
-           detail: `"${this.fullTitle(item)}" borrowed to Libby (not imported)` });
-         this.setOutcome(item.titleId, 'success');
-         this.importingTitleId.set(null);
-         this.syncSelectedCards();
-         },
-       error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Borrow failed'));
-         this.setOutcome(item.titleId, 'error');
-         this.importingTitleId.set(null);
-         this.syncSelectedCards();
-         }
-       });
-     }
 
    /** Human label for the format a loan was taken in (the locked/chosen format), or null. */
    loanFormat(loan: OverDriveLoan): string | null {
      const id = loan.formatId ?? loan.formats?.[0]?.id ?? null;
      return id ? this.formatLabel(id) : null;
-     }
-
-   /** True when a search result already matches a book in the library (by ISBN). */
-   isInLibrary(item: OverDriveCatalogItem): boolean {
-     return item.bookId != null;
      }
 
    /**
@@ -1452,44 +1215,6 @@ export class OverdriveCatalogComponent {
        : 'This title isn\'t offered in a format Grimmory can import.';
      }
 
-   /** Warning shown on the borrow button for a title with no importable format. */
-   unsupportedBorrowTooltip(item: OverDriveCatalogItem): string {
-     return this.unsupportedFormatTooltip(item)
-       + ' Borrowing won\'t import it here, but it still places the loan on your Libby account for use in the Libby app.';
-     }
-
-   /** Warning shown on the hold button for a title with no importable format. */
-   unsupportedHoldTooltip(item: OverDriveCatalogItem): string {
-     return this.unsupportedFormatTooltip(item)
-       + ' Placing a hold won\'t let you import it here, but it still holds the title on your Libby account for use in the Libby app.';
-     }
-
-   /**
-    * Whether the Borrow & Import button should be enabled: always for titles not in the library, and for
-    * in-library titles only once the user has explicitly chosen to re-borrow (override).
-    */
-   canBorrow(item: OverDriveCatalogItem): boolean {
-     return !this.isInLibrary(item) || this.reborrowOverrides().has(item.titleId);
-     }
-
-   /** Allow re-borrowing a title that is already in the library. */
-   allowReborrow(item: OverDriveCatalogItem): void {
-     this.reborrowOverrides.update((s) => new Set(s).add(item.titleId));
-     }
-
-   /**
-    * Reflect a just-completed import in the search results without re-querying OverDrive: link the
-    * matching result to the new book and clear any re-borrow override so it shows the in-library state.
-    */
-   private markResultImported(titleId: string, bookId: number): void {
-     this.results.update((items) => items.map((r) => (r.titleId === titleId ? { ...r, bookId } : r)));
-     this.reborrowOverrides.update((s) => {
-       const next = new Set(s);
-       next.delete(titleId);
-       return next;
-       });
-     }
-
    /** Human-friendly label for an OverDrive format id. */
    formatLabel(formatId: string): string {
      const labels: Record<string, string> = {
@@ -1505,26 +1230,10 @@ export class OverdriveCatalogComponent {
      return formatId;
      }
 
-   /** p-select options for a title's available formats (preference order). */
-   formatOptions(item: OverDriveCatalogItem): { label: string; value: string }[] {
-     return (item.formats ?? []).map((f) => ({ label: this.formatLabel(f), value: f }));
-     }
-
    /** Comma-joined friendly labels of a title's importable formats, for read-only display. */
    formatSummary(item: OverDriveCatalogItem): string {
      return (item.formats ?? []).map((f) => this.formatLabel(f)).join(', ');
      }
-
-   /** The currently chosen format for a title (user selection, else the default/top preference). */
-   chosenFormat(item: OverDriveCatalogItem): string | null {
-     return this.selectedFormats()[item.titleId] ?? item.formatId ?? item.formats?.[0] ?? null;
-     }
-
-   /** Record the user's format choice for a title. */
-   setFormat(titleId: string, formatId: string): void {
-     this.selectedFormats.update((m) => ({ ...m, [titleId]: formatId }));
-     }
-
 
    /**
     * Best author label for a loan or hold: sync provides a flat firstCreatorName rather than a
@@ -1930,31 +1639,6 @@ export class OverdriveCatalogComponent {
      });
    }
 
-   onPlaceHold(item: OverDriveCatalogItem): void {
-     const card = this.chosenCard(item);
-     if (!card) {
-       this.error.set('No eligible card to hold this title');
-       return;
-       }
-     if (!item.titleId) {
-       return;
-       }
-     this.error.set(null);
-     this.overdriveService.placeHold(card.cardId, item.titleId).subscribe({
-       next: () => {
-         this.messageService.add({
-           severity: 'success',
-           summary: 'Hold placed',
-           detail: `Placed a hold on "${item.title}"`
-          });
-         this.syncSelectedCards();
-         },
-       error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Place hold failed'));
-         }
-      });
-     }
-
    onCancelHold(hold: OverDriveHold): void {
      const cardId = hold.cardId;
      if (!cardId) return;
@@ -2116,10 +1800,6 @@ export class OverdriveCatalogComponent {
      const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
      return match ? decodeURIComponent(match[1]) : fallback;
    }
-
-   clearError(): void {
-     this.error.set(null);
-     }
 
    /** Prefer the backend's structured error body message, falling back to a generic string. */
    private errorMessage(err: unknown, fallback: string): string {

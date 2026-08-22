@@ -1670,8 +1670,8 @@ public class OverDriveService {
        * server to borrow. Acquisition now goes through the queue, so the choice is the server's and
        * the preference has to live here.
        */
-      private String borrowableCardFor(List<OverDriveLibraryAvailability> options,
-                                       Map<String, String> cardByLibrary, Map<String, Integer> loanSlotsLeft) {
+      String borrowableCardFor(List<OverDriveLibraryAvailability> options, Map<String, String> cardByLibrary,
+                               Map<String, Integer> loanSlotsLeft) { // package-private for testing
         String best = null;
         int bestCopies = -1;
         for (OverDriveLibraryAvailability option : options) {

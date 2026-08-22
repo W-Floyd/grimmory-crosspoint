@@ -87,18 +87,6 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     return {c1, c2};
   }
 
-  it('lists only cards whose library has the title available to borrow', () => {
-    setup();
-    const it1 = item({
-      available: true,
-      availability: [
-        {libraryKey: 'lapl', available: false, holdable: true},
-        {libraryKey: 'bpl', available: true, holdable: false},
-      ],
-    });
-    expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c2']);
-  });
-
   it('lists only cards whose library allows a hold when the title is unavailable', () => {
     setup();
     const it1 = item({
@@ -110,31 +98,6 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       ],
     });
     expect(component.holdEligibleCards(it1).map(c => c.cardId)).toEqual(['c1']);
-  });
-
-  it('excludes a card that is at its loan limit from borrow eligibility', () => {
-    setup({lapl: {loanCount: 5, loanLimit: 5}, bpl: {loanCount: 1, loanLimit: 10}});
-    const it1 = item({
-      available: true,
-      availability: [
-        {libraryKey: 'lapl', available: true, holdable: false},
-        {libraryKey: 'bpl', available: true, holdable: false},
-      ],
-    });
-    expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c2']);
-  });
-
-  it('defaults the borrow card to the one with the most remaining loan capacity', () => {
-    // Different limits: lapl 13/15 = 2 left, bpl 14/50 = 36 left → prefer bpl despite MORE loans.
-    setup({lapl: {loanCount: 13, loanLimit: 15}, bpl: {loanCount: 14, loanLimit: 50}});
-    const it1 = item({
-      available: true,
-      availability: [
-        {libraryKey: 'lapl', available: true, holdable: false},
-        {libraryKey: 'bpl', available: true, holdable: false},
-      ],
-    });
-    expect(component.chosenCardId(it1)).toBe('c2');
   });
 
   it('states the time to the minute once the poller has drawn it', () => {
@@ -281,156 +244,6 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.libbyUrl(undefined, null)).toBeNull();
   });
 
-  it('prefers the library with more copies free, leaving a scarce one for the queue behind it', () => {
-    // lapl has the only copy of its stock; bpl has four. Capacity alone would pick lapl (more slots).
-    setup({lapl: {loanCount: 0, loanLimit: 50}, bpl: {loanCount: 10, loanLimit: 50}});
-    const it1 = item({
-      available: true,
-      availability: [
-        {libraryKey: 'lapl', available: true, holdable: false, availableCopies: 1, ownedCopies: 1},
-        {libraryKey: 'bpl', available: true, holdable: false, availableCopies: 4, ownedCopies: 12},
-      ],
-    });
-    // Taking the lone copy empties that shelf and starts a queue there; the same read is sitting
-    // behind four copies elsewhere.
-    expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c2', 'c1']);
-  });
-
-  it('counts a Lucky Day copy toward how freely a library can lend the title', () => {
-    setup();
-    const it1 = item({
-      available: true,
-      availability: [
-        {libraryKey: 'lapl', available: true, holdable: false, availableCopies: 1, luckyDayAvailableCopies: 3},
-        {libraryKey: 'bpl', available: true, holdable: false, availableCopies: 2},
-      ],
-    });
-    // Lucky Day copies are borrowable now without a hold, so they are part of the shelf.
-    expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c1', 'c2']);
-  });
-
-  it('falls back to the shorter queue when copies and capacity both tie', () => {
-    setup({lapl: {loanCount: 5, loanLimit: 10}, bpl: {loanCount: 5, loanLimit: 10}});
-    const it1 = item({
-      available: true,
-      availability: [
-        {libraryKey: 'lapl', available: true, holdable: false, availableCopies: 2, holdsCount: 9},
-        {libraryKey: 'bpl', available: true, holdable: false, availableCopies: 2, holdsCount: 1},
-      ],
-    });
-    expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c2', 'c1']);
-  });
-
-  it('defaults the hold card to the eligible card with the fewest current holds', () => {
-    setup({lapl: {holdCount: 3, holdLimit: 10}, bpl: {holdCount: 0, holdLimit: 10}});
-    const it1 = item({
-      available: false,
-      holdable: true,
-      availability: [
-        {libraryKey: 'lapl', available: false, holdable: true},
-        {libraryKey: 'bpl', available: false, holdable: true},
-      ],
-    });
-    expect(component.chosenCardId(it1)).toBe('c2'); // bpl has fewer holds
-  });
-
-  it('honors a per-title card override while it remains eligible', () => {
-    setup({lapl: {loanCount: 4, loanLimit: 10}, bpl: {loanCount: 1, loanLimit: 10}});
-    const it1 = item({
-      available: true,
-      availability: [
-        {libraryKey: 'lapl', available: true, holdable: false},
-        {libraryKey: 'bpl', available: true, holdable: false},
-      ],
-    });
-    component.setActionCard(it1.titleId, 'c1');
-    expect(component.chosenCardId(it1)).toBe('c1');
-  });
-
-  it('flags a title with no eligible card', () => {
-    setup();
-    const it1 = item({
-      available: true,
-      availability: [{libraryKey: 'other', available: true, holdable: false}], // no selected card here
-    });
-    expect(component.noEligibleCard(it1)).toBe(true);
-    expect(component.chosenCardId(it1)).toBeNull();
-  });
-
-  it('offers a hold at another library even when already on hold at one', () => {
-    setup();
-    // Already on hold at c1 (lapl); bpl still allows a hold.
-    component.holds.set([{id: 'title-1', title: 'Dune', cardId: 'c1'}]);
-    const it1 = item({
-      available: false,
-      holdable: true,
-      availability: [
-        {libraryKey: 'lapl', available: false, holdable: true},
-        {libraryKey: 'bpl', available: false, holdable: true},
-      ],
-    });
-    // c1 already holds it → excluded; c2 remains eligible, and an action card is still needed.
-    expect(component.holdEligibleCards(it1).map(c => c.cardId)).toEqual(['c2']);
-    expect(component.needsActionCard(it1)).toBe(true);
-  });
-
-  it('flags when another library estimates a sooner wait than the current hold', () => {
-    setup();
-    component.holds.set([{id: 'title-1', title: 'Dune', cardId: 'c1', estimatedWaitDays: '40'}]);
-    const it1 = item({
-      available: false,
-      holdable: true,
-      availability: [
-        {libraryKey: 'lapl', available: false, holdable: true, estimatedWaitDays: 40},
-        {libraryKey: 'bpl', available: false, holdable: true, estimatedWaitDays: 10},
-      ],
-    });
-    // The only eligible card is c2 (bpl, ~10d) vs the current 40d hold → sooner.
-    expect(component.soonerElsewhere(it1)).toBe(true);
-    expect(component.chosenHoldWaitDays(it1)).toBe(10);
-  });
-
-  it('treats a Lucky Day copy as borrowable now, even with no regular copies', () => {
-    setup();
-    const it1 = item({
-      available: false,
-      holdable: true,
-      luckyDayAvailableCopies: 1,
-      availability: [
-        {libraryKey: 'lapl', available: false, holdable: true, luckyDayAvailableCopies: 1},
-        {libraryKey: 'bpl', available: false, holdable: true, luckyDayAvailableCopies: 0},
-      ],
-    });
-    expect(component.hasLuckyDay(it1)).toBe(true);
-    expect(component.borrowableNow(it1)).toBe(true);
-    // Only the library with a Lucky Day copy is borrow-eligible.
-    expect(component.borrowEligibleCards(it1).map(c => c.cardId)).toEqual(['c1']);
-  });
-
-  it('flags when a title is available but you are at your loan limit', () => {
-    setup({lapl: {loanCount: 5, loanLimit: 5}, bpl: {loanCount: 0, loanLimit: 10}});
-    const it1 = item({
-      available: true,
-      availability: [{libraryKey: 'lapl', available: true, holdable: false}], // only lapl offers it
-    });
-    expect(component.borrowEligibleCards(it1)).toEqual([]);
-    expect(component.noEligibleCard(it1)).toBe(true);
-    expect(component.borrowBlockedByLimit(it1)).toBe(true);
-    expect(component.limitBlockedLibraryLabel(it1)).toBe('LAPL');
-  });
-
-  it('flags when a title is only holdable but you are at your hold limit', () => {
-    setup({lapl: {holdCount: 10, holdLimit: 10}, bpl: {holdCount: 0, holdLimit: 10}});
-    const it1 = item({
-      available: false,
-      holdable: true,
-      availability: [{libraryKey: 'lapl', available: false, holdable: true}], // only lapl offers it
-    });
-    expect(component.holdEligibleCards(it1)).toEqual([]);
-    expect(component.holdBlockedByLimit(it1)).toBe(true);
-    expect(component.limitBlockedLibraryLabel(it1)).toBe('LAPL');
-  });
-
   it('builds a per-library availability breakdown for the hover tooltip', () => {
     setup();
     const it1 = item({
@@ -457,21 +270,6 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(hold.pct).toBe(100);
     expect(hold.atLimit).toBe(true);
     expect(hold.canHold).toBe(true);
-  });
-
-  it('orders hold-eligible cards by shortest wait and defaults to the soonest', () => {
-    setup();
-    const it1 = item({
-      available: false,
-      holdable: true,
-      availability: [
-        {libraryKey: 'lapl', available: false, holdable: true, estimatedWaitDays: 40},
-        {libraryKey: 'bpl', available: false, holdable: true, estimatedWaitDays: 12},
-      ],
-    });
-    // bpl (12d) sorts before lapl (40d); default is the shortest wait.
-    expect(component.holdEligibleCards(it1).map(c => c.cardId)).toEqual(['c2', 'c1']);
-    expect(component.chosenCardId(it1)).toBe('c2');
   });
 
   it('shows the shortest wait across libraries in the availability cell', () => {
