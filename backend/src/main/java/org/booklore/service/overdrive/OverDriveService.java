@@ -1509,8 +1509,8 @@ public class OverDriveService {
        * longer than the gap between titles: the pause that matters is the one inside a single
        * borrow-and-download, which is where the machine-like tell is.
        */
-      private static final long FULFIL_GAP_MIN_MILLIS = 20_000;
-      private static final long FULFIL_GAP_MAX_MILLIS = 180_000;
+      private static final long FULFIL_GAP_MIN_MILLIS = 75_000;
+      private static final long FULFIL_GAP_MAX_MILLIS = 240_000;
 
       /**
        * Let a fresh borrow settle before fetching the file.
@@ -1599,7 +1599,7 @@ public class OverDriveService {
             String borrowCard = borrowableCardFor(options, cardByLibrary, loanSlotsLeft);
             if (borrowCard != null) {
                 try {
-                    pauseBetweenTitles(borrowed + held);
+                    pauseBetweenLoanActions(borrowed);
                     loanSlotsLeft.computeIfPresent(borrowCard, (id, left) -> left - 1);
                     borrowAndImport(borrowCard, entry.getTitleId(), null, null,
                             entry.getTitle(), entry.getAuthor(), null, null, null, null, null);
@@ -1631,7 +1631,9 @@ public class OverDriveService {
                 continue;
             }
             try {
-                pauseBetweenTitles(borrowed + held);
+                // A hold takes no copy out, so it is paced like the light actions rather than the
+                // checkouts — queueing for ten books is not what the churning limit counts.
+                pauseBetweenTitles(held);
                 placeHold(queue.cardId(), entry.getTitleId());
                 holdSlotsLeft.computeIfPresent(queue.cardId(), (id, left) -> left - 1);
                 entry.setHoldCardId(queue.cardId());
@@ -3211,9 +3213,25 @@ public class OverDriveService {
        */
       private static final int MAX_AUTO_IMPORT_FAILURES = 3;
 
-      /** Bounds on the randomised gap between two titles handled in the same automation pass. */
+      /**
+       * Bounds on the randomised gap between two titles handled in the same automation pass, for work
+       * that changes nothing at the library: importing a loan already held, moving a hold, cancelling
+       * one. These cost the account nothing, so they only need enough spacing not to arrive as a
+       * single burst.
+       */
       private static final long TITLE_GAP_MIN_MILLIS = 2_000;
       private static final long TITLE_GAP_MAX_MILLIS = 8_000;
+
+      /**
+       * Bounds on the gap between two actions that take a copy out or give one back.
+       *
+       * <p>Far wider than the gap above, because these are the two halves of the cycle
+       * PatronExceededChurningLimit counts. Returns are paced like borrows deliberately: the limit is
+       * on titles "borrowed and returned", so handing five books back in twenty seconds is the same
+       * signal as taking five out that fast, and pacing one while bursting the other is not pacing.
+       */
+      private static final long LOAN_ACTION_GAP_MIN_MILLIS = 45_000;
+      private static final long LOAN_ACTION_GAP_MAX_MILLIS = 150_000;
 
       /** Defaults for a user who has never opted in: everything off, with the schema's suggested values. */
       private static final OverDriveAutoSyncSettings AUTO_SYNC_DEFAULTS =
@@ -3396,7 +3414,7 @@ public class OverDriveService {
                     // the loan, which is why doBorrowAndImport knows how to resume one.
                     loanSlotsLeft.computeIfPresent(cardId, (id, left) -> left - 1);
                     try {
-                        pauseBetweenTitles(borrowed);
+                        pauseBetweenLoanActions(borrowed);
                         borrowAndImport(entry.getKey(), hold.getId(), null, null,
                                 hold.getTitle(), hold.getFirstCreatorName(), null, null, null, null, null);
                         borrowed++;
@@ -3533,10 +3551,23 @@ public class OverDriveService {
        * titles will be picked up on the next poll.
        */
       private void pauseBetweenTitles(int handledSoFar) {
+        pauseBetween(handledSoFar, TITLE_GAP_MIN_MILLIS, TITLE_GAP_MAX_MILLIS);
+      }
+
+      /**
+       * Wait before taking another copy out or giving one back. See
+       * {@link #LOAN_ACTION_GAP_MIN_MILLIS} — these are the actions the churning limit counts, so they
+       * are spaced in minutes rather than seconds. Does nothing before the first of a pass.
+       */
+      private void pauseBetweenLoanActions(int handledSoFar) {
+        pauseBetween(handledSoFar, LOAN_ACTION_GAP_MIN_MILLIS, LOAN_ACTION_GAP_MAX_MILLIS);
+      }
+
+      private void pauseBetween(int handledSoFar, long minMillis, long maxMillis) {
         if (handledSoFar == 0) {
             return;
         }
-        long millis = ThreadLocalRandom.current().nextLong(TITLE_GAP_MIN_MILLIS, TITLE_GAP_MAX_MILLIS + 1);
+        long millis = ThreadLocalRandom.current().nextLong(minMillis, maxMillis + 1);
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
@@ -3590,7 +3621,7 @@ public class OverDriveService {
             boolean waitlisted = settings.autoReturnPromptWhenWaitlisted() && holds > 0;
 
             try {
-                pauseBetweenTitles(returned);
+                pauseBetweenLoanActions(returned);
                 returnBook(loan.getIdentity(), loan.getOverdriveLoanId());
                 returned++;
                 log.info("OverDrive auto-return: returned loan {} (\"{}\") for user {}{}",
@@ -3876,7 +3907,7 @@ public class OverDriveService {
             }
             if (borrowCard != null) {
                 try {
-                    pauseBetweenTitles(borrowed + moved);
+                    pauseBetweenLoanActions(borrowed + moved);
                     loanSlotsLeft.computeIfPresent(borrowCard, (id, left) -> left - 1);
                     borrowAndImport(borrowCard, hold.getId(), null, null,
                             hold.getTitle(), hold.getFirstCreatorName(), null, null, null, null, null);
