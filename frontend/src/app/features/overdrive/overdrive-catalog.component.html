@@ -87,6 +87,15 @@
                     @if (hold.canHold) {{{ hold.count ?? '—' }} / {{ hold.limit ?? '—' }}} @else {n/a}
                   </span>
                 </div>
+                @if (card.churnCooldownUntil) {
+                  <!-- Otherwise a card with room on both meters just quietly stops borrowing, and the
+                       only clue is in the settings page or the logs. -->
+                  <span class="capacity-resting"
+                    pTooltip="OverDrive reported too many titles borrowed and returned on this card. Borrows and returns are paused until then — searching and syncing still work, and it resumes on its own."
+                    tooltipPosition="top">
+                    <i class="pi pi-pause"></i> Resting until {{ formatDateTimeShort(card.churnCooldownUntil) }}
+                  </span>
+                }
               </div>
             }
           </div>

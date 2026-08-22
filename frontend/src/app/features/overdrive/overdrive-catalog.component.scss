@@ -188,6 +188,21 @@
     gap: 0.25rem 1rem;
     flex-wrap: wrap;
 
+    // A card OverDrive has flagged. Sits after the meters and wraps with them, since it is the
+    // explanation for a card that looks free on both bars and still is not borrowing.
+    .capacity-resting {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--orange-500, #f97316);
+
+      i {
+        font-size: 0.7rem;
+      }
+    }
+
     .capacity-card {
       flex: 0 0 12rem;
       max-width: 12rem;

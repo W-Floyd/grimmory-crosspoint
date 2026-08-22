@@ -233,6 +233,15 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       .toBe('Waiting for a card that can borrow it');
   });
 
+  it('renders a resting card\'s cooldown as a readable local time', () => {
+    setup();
+
+    // The Library Cards panel shows meters with room left on a resting card, so the only thing that
+    // explains why it is not borrowing is this.
+    expect(component.formatDateTimeShort('2026-08-27T06:27:23Z')).not.toBe('—');
+    expect(component.formatDateTimeShort(null)).toBe('—');
+  });
+
   it('links a title into its own library catalog when the card is known', () => {
     setup();
     expect(component.libbyUrl('2056901', 'lapl'))
