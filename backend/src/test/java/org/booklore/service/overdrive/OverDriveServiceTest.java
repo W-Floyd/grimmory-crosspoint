@@ -1202,7 +1202,7 @@ class OverDriveServiceTest {
         var existing = bagged(1L, "2056901", 3);
         when(bookbagRepository.findByUserIdAndTitleId(7L, "2056901")).thenReturn(Optional.of(existing));
 
-        var entry = service.addToBookbag("2056901", "Dune", "Frank Herbert");
+        var entry = service.addToBookbag("2056901", "Dune", "Frank Herbert", false);
 
         // Pressing the button twice means "I want this", not "move it to the back".
         assertThat(entry.position()).isEqualTo(3);
@@ -1217,7 +1217,61 @@ class OverDriveServiceTest {
                 .thenReturn(List.of(bagged(1L, "aaa", 1), bagged(2L, "bbb", 4)));
         when(bookbagRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        assertThat(service.addToBookbag("2056901", "Dune", "Frank Herbert").position()).isEqualTo(5);
+        assertThat(service.addToBookbag("2056901", "Dune", "Frank Herbert", false).position()).isEqualTo(5);
+    }
+
+    @Test
+    void queueingToTheFrontJumpsAheadOfEverythingAlreadyThere() {
+        authAs(7L);
+        when(bookbagRepository.findByUserIdAndTitleId(7L, "2056901")).thenReturn(Optional.empty());
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L))
+                .thenReturn(List.of(bagged(1L, "aaa", 1), bagged(2L, "bbb", 4)));
+        when(bookbagRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // Positions are only ever compared, never counted, so going below the current minimum is fine.
+        assertThat(service.addToBookbag("2056901", "Dune", null, true).position()).isEqualTo(0);
+    }
+
+    @Test
+    void askingForTheFrontMovesATitleAlreadyQueued() {
+        authAs(7L);
+        var existing = bagged(1L, "2056901", 3);
+        when(bookbagRepository.findByUserIdAndTitleId(7L, "2056901")).thenReturn(Optional.of(existing));
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L))
+                .thenReturn(List.of(bagged(9L, "aaa", 1), existing));
+
+        service.addToBookbag("2056901", "Dune", null, true);
+
+        // "Put this first" is an instruction about order, where a plain add is not — so unlike a plain
+        // add, this one does move an entry that is already queued.
+        assertThat(existing.getPosition()).isEqualTo(0);
+        verify(bookbagRepository).save(existing);
+    }
+
+    @Test
+    void borrowingNowFromSomeoneElsesBagIsNotFound() {
+        authAs(7L);
+        var theirs = org.booklore.model.entity.OverDriveBookbagEntity.builder()
+                .id(9L).userId(8L).titleId("2056901").build();
+        when(bookbagRepository.findById(9L)).thenReturn(Optional.of(theirs));
+
+        assertThatThrownBy(() -> service.borrowBookbagEntryNow(9L)).hasMessageContaining("not in your bookbag");
+    }
+
+    @Test
+    void borrowingNowSaysWhyWhenNothingCanLendIt() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        when(bookbagRepository.findById(1L)).thenReturn(Optional.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
+
+        // The impatient path still reports the real obstacle rather than failing vaguely.
+        assertThatThrownBy(() -> service.borrowBookbagEntryNow(1L))
+                .hasMessageContaining("None of your libraries carry this title");
+        verify(bookbagRepository, never()).delete(any());
     }
 
     @Test

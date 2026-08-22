@@ -2225,12 +2225,14 @@ export class OverdriveCatalogComponent {
      });
    }
 
-   /** Queue a search result. The button stays available afterwards — adding twice is harmless. */
-   onAddToBookbag(item: OverDriveCatalogItem): void {
-     this.overdriveService.addToBookbag(item.titleId, item.title, item.author ?? null).subscribe({
+   /** Queue a search result, at the front when the user asked for it to be next. */
+   onAddToBookbag(item: OverDriveCatalogItem, front = false): void {
+     this.overdriveService.addToBookbag(item.titleId, item.title, item.author ?? null, front).subscribe({
        next: () => {
-         this.messageService.add({ severity: 'success', summary: 'Added to bookbag',
-           detail: `"${item.title}" will be borrowed when a card can take it.` });
+         this.messageService.add({ severity: 'success', summary: front ? 'Queued next' : 'Added to bookbag',
+           detail: front
+             ? `"${item.title}" is now first in the bookbag.`
+             : `"${item.title}" will be borrowed when a card can take it.` });
          this.setOutcome(item.titleId, 'success', 'In bookbag');
          // Keep the tab count honest without making the user open the tab.
          this.loadBookbag();
@@ -2245,6 +2247,30 @@ export class OverdriveCatalogComponent {
    /** Whether a title is already queued, so the row can say so instead of offering to add it again. */
    isInBookbag(titleId: string): boolean {
      return this.bookbag().some(e => e.titleId === titleId);
+   }
+
+   /**
+    * Borrow one queued title now, skipping the queue and the pacing — the deliberate way out of the
+    * schedule, for the title that will not wait. The card's own state still applies: a rest after a
+    * churning limit, or an administrator's ceiling, refuses and says so.
+    */
+   onBorrowBookbagNow(entry: OverDriveBookbagEntry): void {
+     this.bookbagBusyId.set(entry.id);
+     this.error.set(null);
+     this.overdriveService.borrowBookbagEntryNow(entry.id).subscribe({
+       next: () => {
+         this.messageService.add({ severity: 'success', summary: 'Borrowed',
+           detail: `"${entry.title ?? entry.titleId}" was borrowed and imported.` });
+         this.bookbag.update(list => list.filter(e => e.id !== entry.id));
+         this.bookbagBusyId.set(null);
+         // It is a loan now, so the tab that lists loans is stale.
+         this.syncSelectedCards();
+       },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Could not borrow that title right now'));
+         this.bookbagBusyId.set(null);
+       }
+     });
    }
 
    onRemoveFromBookbag(entry: OverDriveBookbagEntry): void {

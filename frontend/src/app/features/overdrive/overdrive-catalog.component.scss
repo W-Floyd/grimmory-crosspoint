@@ -623,6 +623,14 @@
     }
   }
 
+  // Two buttons side by side; keep them on one line so the column stays predictable.
+  .bookbag-actions {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
   .bookbag-status {
     color: var(--text-color-secondary);
     font-size: 0.85rem;

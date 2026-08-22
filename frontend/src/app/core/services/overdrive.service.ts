@@ -670,8 +670,14 @@ export class OverDriveService {
   }
 
   /** Queue a title. Adding one already queued returns the existing entry rather than moving it. */
-  addToBookbag(titleId: string, title?: string | null, author?: string | null): Observable<OverDriveBookbagEntry> {
-    return this.http.post<OverDriveBookbagEntry>(`${this.baseUrl}/bookbag`, { titleId, title, author });
+  addToBookbag(titleId: string, title?: string | null, author?: string | null,
+               front = false): Observable<OverDriveBookbagEntry> {
+    return this.http.post<OverDriveBookbagEntry>(`${this.baseUrl}/bookbag`, { titleId, title, author, front });
+  }
+
+  /** Borrow one queued title immediately, skipping the queue and its pacing. */
+  borrowBookbagEntryNow(id: number): Observable<unknown> {
+    return this.http.post<unknown>(`${this.baseUrl}/bookbag/${id}/borrow-now`, null);
   }
 
   removeFromBookbag(id: number): Observable<void> {

@@ -293,166 +293,57 @@
           </td>
           <td>
             <div class="borrow-action">
-              <!-- Format display: a picker when borrowable with a choice, otherwise a read-only
-              summary of the importable formats (shown even for hold-required titles). -->
+              <!--
+                Read-only now. Both the format and the card used to be chosen here to parameterise a
+                borrow from this row; with acquisition going through the bookbag, the schedule picks
+                the card by availability and budget, and the format by the operator's preference
+                order. What is left is worth seeing — which formats exist, and whether anything can
+                lend it — but there is nothing here to set.
+              -->
               @if (hasImportableFormat(item)) {
-                @if (borrowableNow(item) && (item.formats?.length ?? 0) > 1) {
-                  <p-select
-                    [options]="formatOptions(item)"
-                    optionLabel="label"
-                    optionValue="value"
-                    [ngModel]="chosenFormat(item)"
-                    (ngModelChange)="setFormat(item.titleId, $event)"
-                    [disabled]="importingTitleId() !== null"
-                    pTooltip="Choose which format to download & import"
-                    styleClass="format-select" />
-                }
-                @if (borrowableNow(item) && (item.formats?.length ?? 0) <= 1 && chosenFormat(item)) {
-                  <span class="format-single"
-                  pTooltip="Format that will be downloaded">{{ formatLabel(chosenFormat(item)!) }}</span>
-                }
-                @if (!borrowableNow(item)) {
-                  <span class="format-single" pTooltip="Available in these formats">{{ formatSummary(item) }}</span>
-                }
+                <span class="format-single" pTooltip="Available in these formats">{{ formatSummary(item) }}</span>
+              }
+              @if (borrowableNow(item)) {
+                <span class="card-single" pTooltip="On the shelf now, so the next pass can borrow it">Available now</span>
+              } @else if (isOnHold(item)) {
+                <span class="no-action on-hold">On hold at {{ heldLibraryLabel(item) }}</span>
+              } @else if (holdEligibleCards(item).length > 0) {
+                <span class="card-single" pTooltip="No copy on the shelf, so queueing it will place a hold">Wait list</span>
               } @else {
-                <span class="format-single unsupported" [pTooltip]="unsupportedFormatTooltip(item)">No supported format</span>
+                <span class="card-single none" pTooltip="None of your selected libraries can lend or hold this">Unavailable</span>
               }
-              <!-- Card picker: which eligible card to borrow/hold with (defaults to the one with the
-              fewest current loans/holds). Shown whenever an action button is offered — including when the
-              title is on hold at one library but borrowable at another. A single eligible card is shown
-              read-only; none → a hint. -->
-              @if (needsActionCard(item)) {
-                @if (noEligibleCard(item)) {
-                  @if (borrowBlockedByLimit(item)) {
-                    <span class="card-single limit" pTooltip="Available at {{ limitBlockedLibraryLabel(item) }}, but you're at your loan limit — return a loan to borrow it">At loan limit · {{ limitBlockedLibraryLabel(item) }}</span>
-                  } @else {
-                    <span class="card-single none" [pTooltip]="borrowableNow(item) ? 'No selected card has this available to borrow' : 'No selected card can place a hold on this title'">No eligible card</span>
-                  }
-                } @else if (eligibleCards(item).length > 1) {
-                  <p-select
-                    [options]="eligibleCardOptions(item)"
-                    optionLabel="label"
-                    optionValue="value"
-                    [ngModel]="chosenCardId(item)"
-                    (ngModelChange)="setActionCard(item.titleId, $event)"
-                    [ngModelOptions]="{ standalone: true }"
-                    [disabled]="importingTitleId() !== null"
-                    pTooltip="Choose which card to borrow/hold with"
-                    appendTo="body"
-                    styleClass="card-select" />
-                } @else {
-                  <span class="card-single" pTooltip="Card this will use">{{ shortCardLabel(chosenCardId(item)) }}</span>
-                }
-              }
-              <!-- Action: borrow when available, hold when not, disabled when no importable format. -->
-              @if (hasImportableFormat(item)) {
-                @if (borrowableNow(item)) {
-                  @if (isInLibrary(item) && !canBorrow(item)) {
-                    <p-button
-                      label="Borrow anyway"
-                      icon="pi pi-exclamation-triangle"
-                      severity="warn"
-                      pTooltip="Already in your library — borrow and import another copy"
-                      (onClick)="allowReborrow(item)" />
-                  }
-                  @if (canBorrow(item)) {
-                    <p-button
-                      [label]="isInLibrary(item) ? 'Import anyway' : 'Borrow &amp; Import'"
-                      icon="pi pi-download"
-                      [severity]="isInLibrary(item) ? 'warn' : 'success'"
-                      [pTooltip]="isInLibrary(item) ? 'You already have this book — borrow and import another copy' : 'Borrow this title and import it (server-side) into the selected library, or into Bookdrop if none is selected'"
-                      [disabled]="!item.titleId || importingTitleId() !== null || !chosenCardId(item)"
-                      [loading]="importingTitleId() === item.titleId"
-                      (onClick)="onBorrowImport(item)" />
-                    <p-button
-                      label="Borrow"
-                      icon="pi pi-bookmark"
-                      severity="secondary"
-                      [outlined]="true"
-                      pTooltip="Borrow to your Libby account only — don't import into grimmory"
-                      [disabled]="!item.titleId || importingTitleId() !== null || !chosenCardId(item)"
-                      [loading]="importingTitleId() === item.titleId"
-                      (onClick)="onBorrowOnly(item)" />
-                  }
-                }
-                @if (!borrowableNow(item)) {
-                  @if (isOnHold(item)) {
-                    <span class="no-action on-hold">On hold at {{ heldLibraryLabel(item) }}</span>
-                  }
-                  @if (holdEligibleCards(item).length > 0) {
-                    <p-button
-                      [label]="isOnHold(item) ? 'Also hold' : 'Place Hold'"
-                      icon="pi pi-clock"
-                      severity="secondary"
-                      [pTooltip]="isOnHold(item) ? 'Place an additional hold at another of your libraries' : 'Place a hold at the selected library'"
-                      [disabled]="!item.titleId || !chosenCardId(item)"
-                      (onClick)="onPlaceHold(item)" />
-                    @if (soonerElsewhere(item)) {
-                      <span class="sooner-hint" pTooltip="This library's estimated wait is shorter than your current hold">~{{ chosenHoldWaitDays(item) }}d · sooner</span>
-                    }
-                  }
-                  @if (!isOnHold(item) && holdEligibleCards(item).length === 0) {
-                    @if (holdBlockedByLimit(item)) {
-                      <span class="no-action limit" pTooltip="Holdable at {{ limitBlockedLibraryLabel(item) }}, but you're at your hold limit — cancel a hold to place one">At hold limit · {{ limitBlockedLibraryLabel(item) }}</span>
-                    } @else {
-                      <span class="no-action">—</span>
-                    }
-                  }
-                }
-              }
-              <!-- No importable format: borrow to Libby only (can't import here), warning as much. -->
-              @if (!hasImportableFormat(item)) {
-                @if (borrowableNow(item)) {
-                  <p-button
-                    label="Borrow anyway"
-                    icon="pi pi-exclamation-triangle"
-                    severity="warn"
-                    [pTooltip]="unsupportedBorrowTooltip(item)"
-                    [disabled]="!item.titleId || importingTitleId() !== null || !chosenCardId(item)"
-                    [loading]="importingTitleId() === item.titleId"
-                    (onClick)="onBorrowOnly(item)" />
-                }
-                @if (!borrowableNow(item)) {
-                  @if (isOnHold(item)) {
-                    <span class="no-action on-hold">On hold at {{ heldLibraryLabel(item) }}</span>
-                  }
-                  @if (holdEligibleCards(item).length > 0) {
-                    <p-button
-                      [label]="isOnHold(item) ? 'Also hold anyway' : 'Place Hold anyway'"
-                      icon="pi pi-exclamation-triangle"
-                      severity="warn"
-                      [pTooltip]="unsupportedHoldTooltip(item)"
-                      [disabled]="!item.titleId || !chosenCardId(item)"
-                      (onClick)="onPlaceHold(item)" />
-                    @if (soonerElsewhere(item)) {
-                      <span class="sooner-hint" pTooltip="This library's estimated wait is shorter than your current hold">~{{ chosenHoldWaitDays(item) }}d · sooner</span>
-                    }
-                  }
-                  @if (!isOnHold(item) && holdEligibleCards(item).length === 0) {
-                    @if (holdBlockedByLimit(item)) {
-                      <span class="no-action limit" pTooltip="Holdable at {{ limitBlockedLibraryLabel(item) }}, but you're at your hold limit — cancel a hold to place one">At hold limit · {{ limitBlockedLibraryLabel(item) }}</span>
-                    } @else {
-                      <span class="no-action">—</span>
-                    }
-                  }
-                }
-              }
-              <!-- Always offered, whatever the row's borrow/hold state: queueing says "get this for
-                   me eventually", which is a different intention from either button above. -->
+              <!--
+                Everything is acquired through the bookbag. Borrowing straight from a search result is
+                what produced the bursts OverDrive refused the account for — twenty titles found at
+                once became twenty checkouts in a minute. Queueing instead lets the schedule take them
+                at a defensible rate, and the Bookbag tab still offers an immediate borrow for the one
+                title that will not wait.
+              -->
               @if (isInBookbag(item.titleId)) {
-                <span class="no-action in-bookbag" pTooltip="Already queued — the scheduled task will borrow it when a card can">
+                <span class="no-action in-bookbag" pTooltip="Already queued. Open the Bookbag tab to reorder it, or to borrow it right now.">
                   <i class="pi pi-briefcase"></i> In bookbag
                 </span>
               } @else {
                 <p-button
-                  label="Bookbag"
-                  icon="pi pi-briefcase"
-                  severity="secondary"
-                  [text]="true"
-                  pTooltip="Queue this title. It gets borrowed when one of your cards has room and budget, or held for if nobody has a copy."
+                  label="Queue next"
+                  icon="pi pi-angle-double-up"
+                  severity="success"
+                  pTooltip="Put this at the front of the bookbag, so it is the next thing borrowed."
                   tooltipPosition="top"
                   [disabled]="!item.titleId"
-                  (onClick)="onAddToBookbag(item)" />
+                  (onClick)="onAddToBookbag(item, true)" />
+                <p-button
+                  label="Queue"
+                  icon="pi pi-briefcase"
+                  severity="secondary"
+                  [outlined]="true"
+                  pTooltip="Add to the end of the bookbag. It gets borrowed when a card has room and budget, or held for if nobody has a copy."
+                  tooltipPosition="top"
+                  [disabled]="!item.titleId"
+                  (onClick)="onAddToBookbag(item, false)" />
+              }
+              @if (!hasImportableFormat(item)) {
+                <span class="format-single unsupported" [pTooltip]="unsupportedFormatTooltip(item)">No supported format</span>
               }
               @if (actionOutcome()[item.titleId]; as st) {
                 <span class="action-status" [class.error]="st === 'error'">
@@ -785,10 +676,12 @@
 
         <p-tabpanel value="bookbag">
           <p class="tab-intro">
-            Titles queued for the scheduled task. Each pass takes them in this order and borrows what it
-            can — a card needs a copy on the shelf, a free checkout slot and borrow budget left. Anything
-            nobody can lend gets a hold placed for it and stays here until that hold comes in. A title
-            that can't be taken doesn't hold up the ones behind it.
+            Everything is borrowed through here. Each pass takes these in order and borrows what it can
+            — a card needs a copy on the shelf, a free checkout slot and borrow budget left — spacing
+            each checkout out so the account doesn't look like a script. Anything nobody can lend gets a
+            hold placed for it and stays here until that hold comes in, and a title that can't be taken
+            doesn't hold up the ones behind it. <strong>Borrow now</strong> skips all of that for a
+            single title.
           </p>
           @if (bookbagLoading()) {
             <div class="bookbag-empty"><i class="pi pi-spin pi-spinner"></i> Loading…</div>
@@ -805,7 +698,7 @@
                   <th>Title</th>
                   <th>Author</th>
                   <th>Status</th>
-                  <th style="width: 8rem">Actions</th>
+                  <th style="width: 12rem">Actions</th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-entry let-i="rowIndex">
@@ -837,11 +730,17 @@
                       <small class="bookbag-tried">Last checked {{ formatDateTimeShort(entry.lastTriedAt) }}</small>
                     }
                   </td>
-                  <td>
-                    <p-button icon="pi pi-times" severity="danger" [text]="true" label="Remove"
+                  <td class="bookbag-actions">
+                    <p-button icon="pi pi-bolt" severity="success" size="small" label="Borrow now"
+                      pTooltip="Borrow and download this immediately, skipping the queue and its pacing. A card resting after a rate limit still refuses."
+                      tooltipPosition="top"
+                      [disabled]="bookbagBusyId() !== null"
+                      [loading]="bookbagBusyId() === entry.id"
+                      (onClick)="onBorrowBookbagNow(entry)" />
+                    <p-button icon="pi pi-times" severity="danger" [text]="true" size="small" label="Remove"
                       pTooltip="Stop queueing this. Any hold already placed for it is left alone."
                       tooltipPosition="top"
-                      [loading]="bookbagBusyId() === entry.id"
+                      [disabled]="bookbagBusyId() !== null"
                       (onClick)="onRemoveFromBookbag(entry)" />
                   </td>
                 </tr>

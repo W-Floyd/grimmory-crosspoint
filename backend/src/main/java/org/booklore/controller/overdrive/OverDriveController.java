@@ -592,8 +592,10 @@ public class OverDriveController {
     }
 
     /**
-     * POST /api/overdrive/bookbag — queue a title. Adding one already queued returns the existing
-     * entry untouched rather than erroring or moving it.
+     * POST /api/overdrive/bookbag — queue a title, at the back unless {@code front} is set.
+     *
+     * <p>Adding one already queued is a no-op unless the front was asked for, in which case it moves:
+     * "put this first" is an instruction about order, where a plain add is not.
      */
     @Operation(summary = "Add a title to the bookbag")
     @ApiResponse(responseCode = "200", description = "Title queued")
@@ -603,10 +605,27 @@ public class OverDriveController {
         return ResponseEntity.ok(overDriveService.addToBookbag(
                 request != null ? request.titleId() : null,
                 request != null ? request.title() : null,
-                request != null ? request.author() : null));
+                request != null ? request.author() : null,
+                request != null && Boolean.TRUE.equals(request.front())));
     }
 
-    record BookbagAddRequest(String titleId, String title, String author) {}
+    record BookbagAddRequest(String titleId, String title, String author, Boolean front) {}
+
+    /**
+     * POST /api/overdrive/bookbag/{id}/borrow-now — borrow one queued title immediately.
+     *
+     * <p>The deliberate way past the schedule: the queue and its pacing are skipped, and the download
+     * follows the borrow straight away rather than minutes later. A card resting after a churning
+     * limit, or one at an administrator's ceiling, still refuses — that protection is most needed
+     * exactly when somebody is impatient.
+     */
+    @Operation(summary = "Borrow a queued title immediately")
+    @ApiResponse(responseCode = "200", description = "Borrowed and imported")
+    @PostMapping("/bookbag/{id}/borrow-now")
+    public ResponseEntity<Book> borrowBookbagEntryNow(@PathVariable Long id) {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.borrowBookbagEntryNow(id));
+    }
 
     /**
      * DELETE /api/overdrive/bookbag/{id} — stop queueing a title. Any hold already placed for it is

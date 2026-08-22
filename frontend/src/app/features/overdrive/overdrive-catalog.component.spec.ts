@@ -44,6 +44,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     bookbag: vi.fn(() => of([] as OverDriveBookbagEntry[])),
     addToBookbag: vi.fn(() => of({id: 1, titleId: 't', position: 1} as OverDriveBookbagEntry)),
     removeFromBookbag: vi.fn(() => of(void 0)),
+    borrowBookbagEntryNow: vi.fn(() => of({})),
     reorderBookbag: vi.fn(() => of([] as OverDriveBookbagEntry[])),
   };
   const libraryService = {libraries: () => []};
@@ -194,8 +195,27 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
 
     component.onAddToBookbag(it1);
 
-    expect(overdriveService.addToBookbag).toHaveBeenCalledWith('2056901', 'Dune', 'Frank Herbert');
+    expect(overdriveService.addToBookbag).toHaveBeenCalledWith('2056901', 'Dune', 'Frank Herbert', false);
     expect(overdriveService.bookbag).toHaveBeenCalled();
+  });
+
+  it('queues to the front when asked for it next', () => {
+    setup();
+
+    component.onAddToBookbag(item({titleId: '2056901', title: 'Dune'}), true);
+
+    expect(overdriveService.addToBookbag).toHaveBeenCalledWith('2056901', 'Dune', null, true);
+  });
+
+  it('borrows a queued title on demand and drops it from the bag', () => {
+    setup();
+    const entry = {id: 7, titleId: '2056901', title: 'Dune', position: 1} as OverDriveBookbagEntry;
+    component.bookbag.set([entry]);
+
+    component.onBorrowBookbagNow(entry);
+
+    expect(overdriveService.borrowBookbagEntryNow).toHaveBeenCalledWith(7);
+    expect(component.bookbag()).toEqual([]);
   });
 
   it('knows when a title is already queued', () => {
