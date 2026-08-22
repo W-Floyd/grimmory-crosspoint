@@ -339,20 +339,26 @@
                   <i class="pi pi-briefcase"></i> In bookbag
                 </span>
               } @else {
+                <!-- A title already in the library is a second copy, not a new one. Worth saying on the
+                     buttons as well as by the title, since this is where the decision is made. -->
                 <p-button
-                  label="Queue next"
+                  [label]="item.bookId ? 'Queue next again' : 'Queue next'"
                   icon="pi pi-angle-double-up"
-                  severity="success"
-                  pTooltip="Put this at the front of the bookbag, so it is the next thing borrowed."
+                  [severity]="item.bookId ? 'warn' : 'success'"
+                  [pTooltip]="item.bookId
+                    ? 'You already have this book. Queueing it borrows and imports another copy, at the front of the bookbag.'
+                    : 'Put this at the front of the bookbag, so it is the next thing borrowed.'"
                   tooltipPosition="top"
                   [disabled]="!item.titleId"
                   (onClick)="onAddToBookbag(item, true)" />
                 <p-button
-                  label="Queue"
+                  [label]="item.bookId ? 'Queue again' : 'Queue'"
                   icon="pi pi-briefcase"
-                  severity="secondary"
+                  [severity]="item.bookId ? 'warn' : 'secondary'"
                   [outlined]="true"
-                  pTooltip="Add to the end of the bookbag. It gets borrowed when a card has room and budget, or held for if nobody has a copy."
+                  [pTooltip]="item.bookId
+                    ? 'You already have this book. Queueing it borrows and imports another copy when a card has room.'
+                    : 'Add to the end of the bookbag. It gets borrowed when a card has room and budget, or held for if nobody has a copy.'"
                   tooltipPosition="top"
                   [disabled]="!item.titleId"
                   (onClick)="onAddToBookbag(item, false)" />
@@ -745,6 +751,11 @@
                   </td>
                   <td>{{ entry.author || '—' }}</td>
                   <td class="bookbag-status">
+                    @if (entry.allowReborrow) {
+                      <span class="bookbag-reborrow" pTooltip="You already have this book — this entry is for another copy, and the pass will not drop it as redundant.">
+                        <i class="pi pi-copy"></i> Second copy
+                      </span>
+                    }
                     @if (entry.holdCardId) {
                       <i class="pi pi-clock"></i>
                     }

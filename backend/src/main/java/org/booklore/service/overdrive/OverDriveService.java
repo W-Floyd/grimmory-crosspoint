@@ -1601,7 +1601,7 @@ public class OverDriveService {
 
             // Already ours — the user got it another way, or a hold we placed came in and was
             // imported. Either way the bag's work on it is done.
-            Long owned = resolveLinkedBookId(entry.getTitleId(), null, null);
+            Long owned = entry.isAllowReborrow() ? null : resolveLinkedBookId(entry.getTitleId(), null, null);
             if (owned != null) {
                 log.info("OverDrive bookbag: \"{}\" is already in the library as book id={}; dropping it "
                         + "from user {}'s bag", entry.getTitle(), owned, userId);
@@ -1806,7 +1806,7 @@ public class OverDriveService {
        */
       public record BookbagEntry(Long id, String titleId, String title, String author, int position,
                                  String holdCardId, String holdPlacedAt, String lastNote,
-                                 String lastTriedAt, String createdAt) {}
+                                 String lastTriedAt, String createdAt, boolean allowReborrow) {}
 
       /** The current user's bag, in the order it will be worked. */
       public List<BookbagEntry> listBookbag() {
@@ -1821,7 +1821,8 @@ public class OverDriveService {
                 e.getHoldPlacedAt() != null ? e.getHoldPlacedAt().toString() : null,
                 e.getLastNote(),
                 e.getLastTriedAt() != null ? e.getLastTriedAt().toString() : null,
-                e.getCreatedAt() != null ? e.getCreatedAt().toString() : null);
+                e.getCreatedAt() != null ? e.getCreatedAt().toString() : null,
+                e.isAllowReborrow());
       }
 
       /**
@@ -1848,10 +1849,19 @@ public class OverDriveService {
             return toBookbagEntry(row);
         }
         int position = front ? frontPosition(existing) : backPosition(existing);
+        // Queueing a title the library already has can only mean a second copy is wanted — a damaged
+        // file, another edition, a format the first import could not produce. Recorded now, because
+        // by the time a pass looks at it the entry is indistinguishable from one that simply became
+        // redundant while it waited.
+        boolean reborrow = resolveLinkedBookId(titleId.trim(), null, null) != null;
         OverDriveBookbagEntity row = OverDriveBookbagEntity.builder()
                 .userId(userId).titleId(titleId.trim())
                 .title(truncate(title, 1024)).author(truncate(author, 255))
-                .position(position).build();
+                .position(position).allowReborrow(reborrow).build();
+        if (reborrow) {
+            log.info("OverDrive bookbag: user {} queued \"{}\" ({}), which the library already has — "
+                    + "treating it as a deliberate re-borrow", userId, title, titleId);
+        }
         log.info("OverDrive bookbag: user {} queued \"{}\" ({}) at {} of the queue",
                 userId, title, titleId, front ? "the front" : "the back");
         return toBookbagEntry(bookbagRepository.save(row));

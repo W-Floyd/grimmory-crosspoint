@@ -1362,6 +1362,38 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void queueingATitleTheLibraryAlreadyHasIsRecordedAsADeliberateReborrow() {
+        authAsAdmin(7L);
+        when(bookbagRepository.findByUserIdAndTitleId(7L, "2056901")).thenReturn(Optional.empty());
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of());
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
+        when(bookbagRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // Intent has to be captured now: by the time a pass looks, this entry is indistinguishable
+        // from one that merely became redundant while it waited.
+        assertThat(service.addToBookbag("2056901", "Dune", null, false).allowReborrow()).isTrue();
+    }
+
+    @Test
+    void aDeliberateReborrowIsNotDroppedAsRedundant() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        entry.setAllowReborrow(true);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
+
+        service.runBookbag(7L, Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), pacer());
+
+        // Without the flag this entry vanished on the first pass, so a second copy could never be had.
+        verify(bookbagRepository, never()).delete(entry);
+        verify(bookRepository, never()).findIdsByOverdriveId(any());
+    }
+
+    @Test
     void aBookbagTitleAlreadyInTheLibraryIsDroppedRatherThanBorrowedAgain() {
         authAsAdmin(7L);
         var entry = bagged(1L, "2056901", 1);

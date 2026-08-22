@@ -721,6 +721,8 @@ export interface OverDriveBookbagEntry {
   lastNote?: string | null;
   lastTriedAt?: string | null;
   createdAt?: string | null;
+  /** Queued knowing the library already had it, so the pass will not drop it as redundant. */
+  allowReborrow?: boolean;
 }
 
 /** A card's borrow ceilings. Null in any window means no ceiling for it. */

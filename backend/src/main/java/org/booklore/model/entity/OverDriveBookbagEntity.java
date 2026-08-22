@@ -56,6 +56,14 @@ public class OverDriveBookbagEntity {
     @Column(name = "last_tried_at")
     private Instant lastTriedAt;
 
+    /**
+     * Queued knowing the library already had it. Stops the pass dropping the entry as redundant, which
+     * is otherwise the right thing to do with a title that has since arrived by another route.
+     */
+    @Column(name = "allow_reborrow", nullable = false)
+    @Builder.Default
+    private boolean allowReborrow = false;
+
     @Column(name = "created_at")
     @Builder.Default
     private Instant createdAt = Instant.now();

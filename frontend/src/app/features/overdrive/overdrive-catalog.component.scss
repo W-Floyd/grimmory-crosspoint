@@ -650,6 +650,20 @@
     flex-wrap: wrap;
   }
 
+  // Marks a bag entry that is deliberately a second copy of something already held.
+  .bookbag-reborrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-right: 0.4rem;
+    font-weight: 600;
+    color: var(--orange-500, #f97316);
+
+    i {
+      font-size: 0.7rem;
+    }
+  }
+
   .bookbag-status {
     color: var(--text-color-secondary);
     font-size: 0.85rem;
