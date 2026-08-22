@@ -54,6 +54,7 @@ class OverDriveServiceTest {
     @Mock private OverDriveTokenRepository tokenRepository;
     @Mock private org.booklore.repository.OverDriveCardShareRepository cardShareRepository;
     @Mock private org.booklore.repository.OverDriveAuditRepository auditRepository;
+    @Mock private org.booklore.repository.OverDriveCardLimitRepository cardLimitRepository;
     @Mock private org.booklore.repository.OverDriveImportDestinationRepository importDestinationRepository;
     @Mock private org.booklore.repository.OverDriveAutoSyncRepository autoSyncRepository;
     @Mock private java.net.http.HttpClient httpClient;
@@ -72,7 +73,7 @@ class OverDriveServiceTest {
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
+                cardLimitRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
     }
 
@@ -740,7 +741,7 @@ class OverDriveServiceTest {
         return new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
+                cardLimitRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
     }
 
@@ -1185,6 +1186,108 @@ class OverDriveServiceTest {
         // still links it to Libby.
         assertThat(page.entries().getFirst().title()).isNull();
         assertThat(page.entries().getFirst().titleId()).isEqualTo("2056901");
+    }
+
+    // ── Learning and enforcing a card's borrow rate ──────────────────────
+
+    private void limits(String identity, Integer perMinute, Integer perHour, Integer perDay, Integer perWeek) {
+        when(cardLimitRepository.findById(identity)).thenReturn(Optional.of(
+                org.booklore.model.entity.OverDriveCardLimitEntity.builder()
+                        .identity(identity).maxPerMinute(perMinute).maxPerHour(perHour)
+                        .maxPerDay(perDay).maxPerWeek(perWeek).build()));
+    }
+
+    @Test
+    void aCardWithNoConfiguredCeilingIsNeverBlocked_andIsNotCounted() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        when(cardLimitRepository.findById("card-a")).thenReturn(Optional.empty());
+
+        assertThat(service.borrowBlockedReason("card-a")).isNull();
+        // Every card is in this state until an administrator sets a number, so it must cost no queries.
+        verifyNoInteractions(auditRepository);
+    }
+
+    @Test
+    void aCardAtItsCeilingIsBlocked_namingTheWindow() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        limits("card-a", null, 5, null, null);
+        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
+                .thenReturn(5L);
+
+        assertThat(service.borrowBlockedReason("card-a")).isEqualTo("this card has already borrowed 5 of 5 allowed this hour");
+    }
+
+    @Test
+    void theShortestFullWindowIsTheOneReported() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        limits("card-a", 2, 5, null, null);
+        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
+                .thenReturn(9L);
+
+        // Both are full; the minute is the one that clears soonest, so it is the useful thing to say.
+        assertThat(service.borrowBlockedReason("card-a")).contains("this minute");
+    }
+
+    @Test
+    void restingOutranksACeilingWeSetOurselves() {
+        authAs(7L);
+        Instant until = Instant.now().plus(java.time.Duration.ofDays(3));
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a"))
+                .thenReturn(Optional.of(restingCard("card-a", until)));
+
+        // OverDrive's own refusal is the more important fact, and the ceiling is not even measured.
+        assertThat(service.borrowBlockedReason("card-a")).contains("too many titles borrowed and returned");
+        verifyNoInteractions(auditRepository, cardLimitRepository);
+    }
+
+    @Test
+    void aCardUnderItsCeilingCanStillBorrow() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        limits("card-a", null, 5, null, null);
+        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
+                .thenReturn(4L);
+
+        assertThat(service.borrowBlockedReason("card-a")).isNull();
+    }
+
+    @Test
+    void aLimitOfZeroIsRefusedRatherThanSilentlyGroundingTheCard() {
+        authAsCardManager(7L);
+
+        assertThatThrownBy(() -> service.setCardBorrowLimits("card-a",
+                new OverDriveService.BorrowLimits(null, 0, null, null)))
+                .hasMessageContaining("would stop this card borrowing altogether");
+        verify(cardLimitRepository, never()).save(any());
+    }
+
+    @Test
+    void settingLimitsNeedsCardAdministration() {
+        authAsOverdriveUser(7L);
+
+        // The ceilings are policy on a shared library account, not a personal preference.
+        assertThatThrownBy(() -> service.setCardBorrowLimits("card-a",
+                new OverDriveService.BorrowLimits(null, 5, null, null)))
+                .hasMessageContaining("Only an administrator");
+        assertThatThrownBy(() -> service.listCardBorrowBudgets())
+                .hasMessageContaining("Only an administrator");
+    }
+
+    @Test
+    void clearingALimitIsAllowed() {
+        authAsCardManager(7L);
+        when(cardLimitRepository.findById("card-a")).thenReturn(Optional.empty());
+
+        service.setCardBorrowLimits("card-a", new OverDriveService.BorrowLimits(null, null, null, null));
+
+        ArgumentCaptor<org.booklore.model.entity.OverDriveCardLimitEntity> saved =
+                ArgumentCaptor.forClass(org.booklore.model.entity.OverDriveCardLimitEntity.class);
+        verify(cardLimitRepository).save(saved.capture());
+        // Null is "no ceiling known", which is a legitimate state to return a card to.
+        assertThat(saved.getValue().getMaxPerHour()).isNull();
     }
 
     // ── Resting a card OverDrive flagged for churning ────────────────────
@@ -2197,7 +2300,7 @@ class OverDriveServiceTest {
         OverDriveService svc = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler,
                 magazineHandler, ebookHandler, bookService,
                 client, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
+                cardLimitRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
                 new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService);
         return new SyncHarness(svc, calls);
     }

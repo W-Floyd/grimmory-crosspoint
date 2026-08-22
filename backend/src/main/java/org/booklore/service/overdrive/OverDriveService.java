@@ -8,6 +8,7 @@ import org.booklore.model.dto.overdrive.*;
 import org.booklore.model.dto.response.OverDriveApiResponse;
 import org.booklore.model.entity.BookLoreUserEntity;
 import org.booklore.model.entity.OverDriveAuditEntity;
+import org.booklore.model.entity.OverDriveCardLimitEntity;
 import org.booklore.model.entity.OverDriveAutoSyncEntity;
 import org.booklore.model.entity.OverDriveCardShareEntity;
 import org.booklore.model.entity.OverDriveImportDestinationEntity;
@@ -102,6 +103,7 @@ public class OverDriveService {
     private final OverDriveTokenRepository tokenRepository;
     private final OverDriveCardShareRepository cardShareRepository;
     private final OverDriveAuditRepository auditRepository;
+    private final org.booklore.repository.OverDriveCardLimitRepository cardLimitRepository;
     private final OverDriveImportDestinationRepository importDestinationRepository;
     private final OverDriveAutoSyncRepository autoSyncRepository;
     /**
@@ -1393,6 +1395,223 @@ public class OverDriveService {
       private static final java.time.Duration CHURN_COOLDOWN = java.time.Duration.ofDays(7);
 
       /**
+       * Why this card cannot borrow right now, or null when it can.
+       *
+       * <p>One answer covering both reasons a card is out of action, so every caller — the poller, the
+       * bookbag, a person clicking Borrow — asks the same question and gets the same wording. Resting
+       * is checked first: it is OverDrive's own refusal, and it outranks a ceiling we set ourselves.
+       */
+      String borrowBlockedReason(String identity) { // package-private for testing
+        Instant resting = churnCooldownUntil(identity);
+        if (resting != null) {
+            return "OverDrive reported too many titles borrowed and returned on this card; it resumes at "
+                    + resting;
+        }
+        String ceiling = borrowCeilingReached(identity);
+        return ceiling == null ? null : "this card has already borrowed " + ceiling;
+      }
+
+      /** Refuse a borrow a person asked for, saying which of the two reasons applies. */
+      private void assertCanBorrow(String identity) {
+        String blocked = borrowBlockedReason(identity);
+        if (blocked != null) {
+            throw ApiError.CONFLICT.createException("Can't borrow on this card: " + blocked + ".");
+        }
+      }
+
+      /**
+       * A card's ceilings and what it has actually done lately, for the administrator setting them.
+       *
+       * @param identity the card
+       * @param cardName its label, so the admin screen need not join this back to the card list
+       * @param limits   the configured ceilings; nulls where none is set
+       * @param rate     borrows counted over each window, right now
+       */
+      public record CardBorrowBudget(String identity, String cardName, BorrowLimits limits, BorrowRate rate) {}
+
+      /**
+       * Every card on the server with its ceilings and current borrow rate. Administrators only: the
+       * ceilings are deployment-wide policy on a shared library account, not a per-user preference.
+       */
+      public List<CardBorrowBudget> listCardBorrowBudgets() {
+        requireCardLimitAdmin();
+        // One row per identity: a card linked by several users is one account with one budget.
+        Map<String, String> namesByIdentity = new LinkedHashMap<>();
+        for (OverDriveTokenEntity row : tokenRepository.findAll()) {
+            if (row.getIdentity() != null) {
+                namesByIdentity.putIfAbsent(row.getIdentity(),
+                        row.getCardName() != null ? row.getCardName() : row.getIdentity());
+            }
+        }
+        return namesByIdentity.entrySet().stream()
+                .map(e -> new CardBorrowBudget(e.getKey(), e.getValue(),
+                        borrowLimits(e.getKey()), borrowRate(e.getKey())))
+                .toList();
+      }
+
+      /**
+       * Set a card's ceilings. A null in any position clears that window's ceiling; a value of zero
+       * would stop the card borrowing entirely, so it is rejected as almost certainly a mistake —
+       * unlinking or resting the card is how you stop it on purpose.
+       */
+      @Transactional
+      public CardBorrowBudget setCardBorrowLimits(String identity, BorrowLimits limits) {
+        requireCardLimitAdmin();
+        if (identity == null || identity.isBlank()) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("A card is required.");
+        }
+        for (BorrowWindow window : BorrowWindow.values()) {
+            Integer value = limits.forWindow(window);
+            if (value != null && value <= 0) {
+                throw ApiError.GENERIC_BAD_REQUEST.createException(
+                        "A limit of " + value + " per " + window.label + " would stop this card borrowing "
+                                + "altogether. Leave it blank for no limit, or unlink the card to stop using it.");
+            }
+        }
+        OverDriveCardLimitEntity row = cardLimitRepository.findById(identity)
+                .orElseGet(() -> OverDriveCardLimitEntity.builder().identity(identity).build());
+        row.setMaxPerMinute(limits.perMinute());
+        row.setMaxPerHour(limits.perHour());
+        row.setMaxPerDay(limits.perDay());
+        row.setMaxPerWeek(limits.perWeek());
+        row.setUpdatedAt(Instant.now());
+        cardLimitRepository.save(row);
+        log.info("OverDrive: borrow limits for card {} set to {}/min {}/hr {}/day {}/week",
+                identity, limits.perMinute(), limits.perHour(), limits.perDay(), limits.perWeek());
+        recordAudit(OverDriveAuditAction.CARD_RELABELED, identity, null, null, null, null,
+                "Borrow limits set to " + describe(limits) + ".");
+        return new CardBorrowBudget(identity, identity, limits, borrowRate(identity));
+      }
+
+      private static String describe(BorrowLimits limits) {
+        StringJoiner joiner = new StringJoiner(", ");
+        for (BorrowWindow window : BorrowWindow.values()) {
+            Integer value = limits.forWindow(window);
+            joiner.add(value == null ? "no " + window.label + " limit" : value + " per " + window.label);
+        }
+        return joiner.toString();
+      }
+
+      /** Ceilings are deployment policy on a shared account, so only a card administrator may set them. */
+      private void requireCardLimitAdmin() {
+        if (!currentUserCanManageAllCards()) {
+            throw ApiError.FORBIDDEN.createException("Only an administrator can view or change borrow limits.");
+        }
+      }
+
+      /** The windows a borrow rate is measured over, longest label first for readable messages. */
+      enum BorrowWindow { // package-private for testing
+        MINUTE("minute", java.time.Duration.ofMinutes(1)),
+        HOUR("hour", java.time.Duration.ofHours(1)),
+        DAY("day", java.time.Duration.ofDays(1)),
+        WEEK("week", java.time.Duration.ofDays(7));
+
+        final String label;
+        final java.time.Duration length;
+
+        BorrowWindow(String label, java.time.Duration length) {
+            this.label = label;
+            this.length = length;
+        }
+      }
+
+      /** How many checkouts a card has taken in each window. */
+      public record BorrowRate(long lastMinute, long lastHour, long lastDay, long lastWeek) {}
+
+      /** A card's configured ceilings; null in any position means no ceiling is known for that window. */
+      public record BorrowLimits(Integer perMinute, Integer perHour, Integer perDay, Integer perWeek) {
+
+        static final BorrowLimits NONE = new BorrowLimits(null, null, null, null);
+
+        Integer forWindow(BorrowWindow window) {
+            return switch (window) {
+                case MINUTE -> perMinute;
+                case HOUR -> perHour;
+                case DAY -> perDay;
+                case WEEK -> perWeek;
+            };
+        }
+
+        boolean anySet() {
+            return perMinute != null || perHour != null || perDay != null || perWeek != null;
+        }
+      }
+
+      /** Count this card's checkouts over every window, for reporting or for checking a ceiling. */
+      public BorrowRate borrowRate(String identity) {
+        Instant now = Instant.now();
+        return new BorrowRate(
+                borrowsSince(identity, now.minus(BorrowWindow.MINUTE.length)),
+                borrowsSince(identity, now.minus(BorrowWindow.HOUR.length)),
+                borrowsSince(identity, now.minus(BorrowWindow.DAY.length)),
+                borrowsSince(identity, now.minus(BorrowWindow.WEEK.length)));
+      }
+
+      private long borrowsSince(String identity, Instant since) {
+        return auditRepository.countBorrowsOnCardSince(identity, since);
+      }
+
+      /** A card's configured ceilings, or none when an administrator has not set any. */
+      public BorrowLimits borrowLimits(String identity) {
+        if (identity == null) {
+            return BorrowLimits.NONE;
+        }
+        return cardLimitRepository.findById(identity)
+                .map(l -> new BorrowLimits(l.getMaxPerMinute(), l.getMaxPerHour(),
+                        l.getMaxPerDay(), l.getMaxPerWeek()))
+                .orElse(BorrowLimits.NONE);
+      }
+
+      /**
+       * Which ceiling this card has reached, or null when it is free to borrow.
+       *
+       * <p>Checked shortest window first, so the message names the one that will clear soonest: being
+       * told "3 this minute" is more useful than "40 this week" when both are full.
+       *
+       * <p>Costs nothing for a card with no ceilings configured, which is every card until somebody
+       * sets one — the counting queries only run for windows that have a number to compare against.
+       */
+      private String borrowCeilingReached(String identity) {
+        BorrowLimits limits = borrowLimits(identity);
+        if (!limits.anySet()) {
+            return null;
+        }
+        Instant now = Instant.now();
+        for (BorrowWindow window : BorrowWindow.values()) {
+            Integer ceiling = limits.forWindow(window);
+            if (ceiling == null) {
+                continue;
+            }
+            long taken = borrowsSince(identity, now.minus(window.length));
+            if (taken >= ceiling) {
+                return taken + " of " + ceiling + " allowed this " + window.label;
+            }
+        }
+        return null;
+      }
+
+      /**
+       * Record what the account was actually doing when OverDrive refused it for churning.
+       *
+       * <p>The refusal carries no numbers — "too many titles within a short period of time" — so the
+       * only way to learn the real ceiling is to write down the rate at the moment it was hit. Several
+       * of these, across a few incidents, are what a per-card limit can then be set from.
+       */
+      private void recordBorrowRateAtLimit(String identity) {
+        try {
+            BorrowRate rate = borrowRate(identity);
+            String detail = String.format(
+                    "Churning limit hit on card %s. Borrows in the preceding minute/hour/day/week: %d/%d/%d/%d.",
+                    identity, rate.lastMinute(), rate.lastHour(), rate.lastDay(), rate.lastWeek());
+            log.warn("OverDrive: {} Set a per-card limit below these numbers to stay under it.", detail);
+            recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null, detail, false);
+        } catch (Exception e) {
+            // Diagnostics must never be what turns a refused borrow into a broken pass.
+            log.debug("OverDrive: could not measure the borrow rate for {} ({})", identity, e.getMessage());
+        }
+      }
+
+      /**
        * Whether a failure is OverDrive refusing an account for borrowing and returning too much.
        *
        * <p>Matched on the error code rather than the prose: the {@code userExplanation} is a sentence
@@ -1908,7 +2127,7 @@ public class OverDriveService {
        * Returns the created loan id.
        */
       public String borrow(String identity, String titleId, String titleFormat) {
-        assertNotChurnLimited(identity, "borrowing titles");
+        assertCanBorrow(identity);
         try {
             Map<String, Object> loan = withChipRecovery(identity,
                     token -> borrowLoan(identity, token, titleId, titleFormat));
@@ -1990,6 +2209,8 @@ public class OverDriveService {
             // request to stop. Stand the card down before the error propagates, so the rest of this
             // pass and every pass until the cooldown lifts leaves it alone.
             if (isChurningLimit(e)) {
+                // Measure before resting the card: the point is to learn what rate tripped it.
+                recordBorrowRateAtLimit(cardId);
                 beginChurnCooldown(cardId);
             }
             throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(e, "OverDrive borrow failed: " + e.getMessage());
@@ -2828,10 +3049,10 @@ public class OverDriveService {
                     // be told so — once per ready hold, on every poll, for as long as the card stays
                     // full. Counted as a skip rather than a failure: nothing went wrong, there is just
                     // no room until something is returned.
-                    if (churnCooldownUntil(cardId) != null) {
-                        log.info("OverDrive auto-borrow: card {} is resting after a churning limit; leaving "
-                                + "ready hold {} (\"{}\") for user {} until {}",
-                                cardId, hold.getId(), hold.getTitle(), userId, churnCooldownUntil(cardId));
+                    String blocked = borrowBlockedReason(cardId);
+                    if (blocked != null) {
+                        log.info("OverDrive auto-borrow: leaving ready hold {} (\"{}\") for user {} — {}",
+                                hold.getId(), hold.getTitle(), userId, blocked);
                         continue;
                     }
                     if (atLoanCapacity(loanSlotsLeft, cardId)) {
@@ -2895,8 +3116,8 @@ public class OverDriveService {
                     linked++;
                     continue;
                 }
-                if (churnCooldownUntil(loan.getIdentity()) != null) {
-                    continue; // resting card — importing resumes with it, and it is not a failure
+                if (borrowBlockedReason(loan.getIdentity()) != null) {
+                    continue; // card out of action — it resumes on its own, and this is not a failure
                 }
                 try {
                     pauseBetweenTitles(borrowed + imported);
@@ -3311,7 +3532,7 @@ public class OverDriveService {
                     : null;
             // Checked out here, not in the selector: that stays a pure comparison over the availability
             // data and does not reach for the card rows.
-            if (borrowCard != null && churnCooldownUntil(borrowCard) != null) {
+            if (borrowCard != null && borrowBlockedReason(borrowCard) != null) {
                 borrowCard = null;
             }
             if (borrowCard != null) {
@@ -3705,7 +3926,7 @@ public class OverDriveService {
       private Book doBorrowAndImport(String identity, String titleId, Long libraryId, Long pathId,
                                      String title, String author, String coverUrl, String isbn, String preferredFormat,
                                      String titleFormat, Long replaceBookId) {
-        assertNotChurnLimited(identity, "borrowing titles");
+        assertCanBorrow(identity);
         // Track whether this became an import of an existing loan (vs a fresh borrow) so both the
         // success and the failure history entries can report the right action. Hoisted out of the try
         // so the catch can see it.

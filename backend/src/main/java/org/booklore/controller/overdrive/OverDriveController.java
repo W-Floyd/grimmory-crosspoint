@@ -583,6 +583,36 @@ public class OverDriveController {
     record TitlesAvailabilityRequest(List<String> titleIds, List<String> cards) {}
 
     /**
+     * GET /api/overdrive/card-limits — every card's borrow ceilings and its current rate.
+     *
+     * <p>Administrators only. The ceilings are deployment policy on a shared library account, and the
+     * rate beside each one is what an administrator sets them from: OverDrive publishes no numbers, so
+     * the only evidence is what the account was doing when it was last refused.
+     */
+    @Operation(summary = "List every card's borrow limits and current borrow rate")
+    @ApiResponse(responseCode = "200", description = "Card borrow budgets returned")
+    @GetMapping("/card-limits")
+    public ResponseEntity<List<OverDriveService.CardBorrowBudget>> cardLimits() {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.listCardBorrowBudgets());
+    }
+
+    /**
+     * PUT /api/overdrive/card-limits/{identity} — set one card's borrow ceilings.
+     * A null in any window clears that ceiling; zero is refused (see the service).
+     */
+    @Operation(summary = "Set a card's borrow limits")
+    @ApiResponse(responseCode = "200", description = "Limits saved")
+    @PutMapping("/card-limits/{identity}")
+    public ResponseEntity<OverDriveService.CardBorrowBudget> setCardLimits(
+            @PathVariable String identity,
+            @RequestBody OverDriveService.BorrowLimits limits
+    ) {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.setCardBorrowLimits(identity, limits));
+    }
+
+    /**
      * POST /api/overdrive/{identity}/borrow-and-import — borrow a title, fulfill it, and import the EPUB.
      */
     @Operation(summary = "Borrow an OverDrive title and import it into a library",
