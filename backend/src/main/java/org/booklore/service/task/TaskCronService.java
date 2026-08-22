@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 @Service
@@ -43,6 +44,37 @@ public class TaskCronService {
                         .enabled(false)
                         .jitterSeconds(0)
                         .build());
+    }
+
+    /**
+     * The firing this task was committed to before the current process started, if one was recorded.
+     *
+     * <p>Read once at scheduling time and then owned by the trigger, which decides whether it is still
+     * worth honouring — a stored time in the future is a slot to keep, one in the past is a run that
+     * was missed.
+     */
+    @Transactional(readOnly = true)
+    public Optional<java.time.Instant> pendingRunAt(TaskType taskType) {
+        return repository.findByTaskType(taskType).map(TaskCronConfigurationEntity::getNextRunAt);
+    }
+
+    /**
+     * Write down when this task will next fire. Called by the trigger each time it draws one, so the
+     * stored value always describes the firing currently scheduled rather than a recomputed guess.
+     *
+     * <p>Never allowed to break scheduling: if the write fails the task still runs, it just loses the
+     * ability to survive a restart, and that is not worth taking the scheduler down for.
+     */
+    @Transactional
+    public void recordNextRunAt(TaskType taskType, java.time.Instant nextRunAt) {
+        try {
+            repository.findByTaskType(taskType).ifPresent(config -> {
+                config.setNextRunAt(nextRunAt);
+                repository.save(config);
+            });
+        } catch (Exception e) {
+            log.warn("Could not record the next run time for {}: {}", taskType, e.getMessage());
+        }
     }
 
     @Transactional

@@ -98,7 +98,11 @@ public class TaskService {
 
         try {
             long jitter = config.getJitterSeconds() == null ? 0 : config.getJitterSeconds();
-            JitteredCronTrigger trigger = new JitteredCronTrigger(config.getCronExpression(), jitter);
+            // The firing this task was already committed to before the last shutdown, if any. Honouring
+            // it is what stops a restart inside the jitter window silently skipping a run.
+            Instant pending = taskCronService.pendingRunAt(config.getTaskType()).orElse(null);
+            JitteredCronTrigger trigger = new JitteredCronTrigger(config.getCronExpression(), jitter,
+                    pending, planned -> taskCronService.recordNextRunAt(config.getTaskType(), planned));
             ScheduledFuture<?> scheduledTask = taskScheduler.schedule(
                     () -> executeCronTask(config.getTaskType()),
                     trigger

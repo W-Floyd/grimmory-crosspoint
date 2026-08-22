@@ -1,0 +1,21 @@
+-- The exact moment a task is next due, jitter included.
+--
+-- The jitter for a firing is drawn when the scheduler asks for the next execution time, and until now
+-- that instant lived only in memory. Two consequences followed from that:
+--
+--   * A restart between the plain cron slot and the jittered firing lost the run entirely. The next
+--     execution was recomputed from "now", which is already past the slot, so it skipped to the one
+--     after — a window as wide as the jitter, on every restart.
+--
+--   * Nothing outside the scheduler could say when anything would happen, so a queue of work had no
+--     way to tell the user when it would be worked.
+--
+-- Writing the drawn instant down fixes both. On boot the stored time is honoured rather than
+-- recomputed, so a redeploy keeps its slot instead of quietly dropping it.
+--
+-- Only the next firing is stored, deliberately. Later ones are computed from the completion of the
+-- one before, so a pass that overruns moves everything after it — and passes here can run for tens of
+-- minutes. Times written down three firings ahead would be wrong as soon as that happened, and a
+-- schedule that is confidently wrong is worse than one that admits to being approximate.
+ALTER TABLE task_cron_configuration
+    ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMP NULL;

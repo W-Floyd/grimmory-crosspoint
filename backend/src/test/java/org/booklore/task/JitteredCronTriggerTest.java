@@ -7,6 +7,8 @@ import org.springframework.scheduling.support.SimpleTriggerContext;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -20,6 +22,55 @@ class JitteredCronTriggerTest {
         SimpleTriggerContext context = new SimpleTriggerContext();
         context.update(instant, instant, instant);
         return context;
+    }
+
+    @Test
+    void aFiringDrawnBeforeARestartIsHonouredRatherThanRecomputed() {
+        Instant committed = Instant.now().plusSeconds(600);
+        JitteredCronTrigger trigger = new JitteredCronTrigger("0 0 */2 * * *", 1200, committed, i -> { });
+
+        // The slot this task was already committed to. Recomputing from "now" would skip past it,
+        // which is how a restart inside the jitter window used to lose a whole run.
+        assertThat(trigger.nextExecution(contextAt(Instant.now()))).isEqualTo(committed);
+    }
+
+    @Test
+    void aStoredFiringIsUsedOnceAndThenTheScheduleResumes() {
+        Instant committed = Instant.now().plusSeconds(600);
+        JitteredCronTrigger trigger = new JitteredCronTrigger("0 0 */2 * * *", 0, committed, i -> { });
+        Instant basis = Instant.parse("2026-08-19T01:00:00Z");
+
+        assertThat(trigger.nextExecution(contextAt(Instant.now()))).isEqualTo(committed);
+        // Consumed, not sticky: the second call is an ordinary cron computation again.
+        assertThat(trigger.nextExecution(contextAt(basis)))
+                .isEqualTo(new CronTrigger("0 0 */2 * * *").nextExecution(contextAt(basis)));
+    }
+
+    @Test
+    void aMissedFiringIsRecoveredSoon_butNotTheInstantTheProcessStarts() {
+        Instant missed = Instant.now().minusSeconds(3600);
+        JitteredCronTrigger trigger = new JitteredCronTrigger("0 0 */2 * * *", 1200, missed, i -> { });
+
+        Instant next = trigger.nextExecution(contextAt(Instant.now()));
+
+        // Doing the work beats dropping it, but firing the moment the application is ready would put
+        // a "runs right after every deploy" signature on the account.
+        assertThat(next).isAfter(Instant.now());
+        assertThat(next).isBefore(Instant.now().plusSeconds(360));
+    }
+
+    @Test
+    void everyDrawnFiringIsReportedSoItCanBeWrittenDown() {
+        List<Instant> reported = new ArrayList<>();
+        JitteredCronTrigger trigger = new JitteredCronTrigger("0 0 */2 * * *", 600, null, reported::add);
+        Instant basis = Instant.parse("2026-08-19T01:00:00Z");
+
+        Instant first = trigger.nextExecution(contextAt(basis));
+        Instant second = trigger.nextExecution(contextAt(basis.plusSeconds(7200)));
+
+        // What is stored has to be the firing actually scheduled, not a recomputation of it — the
+        // jitter means those are different instants.
+        assertThat(reported).containsExactly(first, second);
     }
 
     @Test

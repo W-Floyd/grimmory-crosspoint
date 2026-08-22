@@ -38,6 +38,13 @@ public class TaskCronConfigurationEntity {
     @Builder.Default
     private Integer jitterSeconds = 0;
 
+    /**
+     * When this task next fires, jitter included, as drawn by the scheduler. Persisted so a restart
+     * honours the firing that was already planned instead of recomputing past it.
+     */
+    @Column(name = "next_run_at")
+    private java.time.Instant nextRunAt;
+
     @Column(name = "created_by", nullable = false)
     private Long createdBy;
 
