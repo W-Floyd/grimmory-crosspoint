@@ -12,7 +12,11 @@
 -- A title nobody can lend right now gets a hold placed for it instead, and stays in the bag until
 -- that hold comes in. That is what makes the bag a want-list rather than a list of things to try
 -- once: hold_card_id records where the hold went, so the entry is not held twice.
-CREATE TABLE overdrive_bookbag (
+-- Guarded because MariaDB does not roll DDL back. A migration that fails after this statement leaves
+-- the change behind but unrecorded, and FlywayConfig repairs and retries on the next boot — which
+-- re-runs this statement, fails on the duplicate, and crash-loops the container. Idempotent DDL makes
+-- the retry the harmless thing it is supposed to be.
+CREATE TABLE IF NOT EXISTS overdrive_bookbag (
     id            BIGINT       NOT NULL AUTO_INCREMENT,
     user_id       BIGINT       NOT NULL,
     title_id      VARCHAR(255) NOT NULL,
@@ -32,4 +36,4 @@ CREATE TABLE overdrive_bookbag (
     CONSTRAINT uq_overdrive_bookbag_user_title UNIQUE (user_id, title_id)
 );
 
-CREATE INDEX idx_overdrive_bookbag_user_position ON overdrive_bookbag (user_id, position);
+CREATE INDEX IF NOT EXISTS idx_overdrive_bookbag_user_position ON overdrive_bookbag (user_id, position);

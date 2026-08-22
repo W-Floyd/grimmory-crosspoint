@@ -14,8 +14,12 @@
 -- So the card stops for the period the message names. Returns stop too, not just borrows: an early
 -- return is half of a churn cycle, and going quiet on one side while still cycling on the other is
 -- not going quiet. Syncing continues — it only reads, and the loan cache has to stay honest.
+-- Guarded because MariaDB does not roll DDL back. A migration that fails after this statement leaves
+-- the change behind but unrecorded, and FlywayConfig repairs and retries on the next boot — which
+-- re-runs this statement, fails on the duplicate, and crash-loops the container. Idempotent DDL makes
+-- the retry the harmless thing it is supposed to be.
 ALTER TABLE overdrive_token
-    ADD COLUMN churn_cooldown_until TIMESTAMP NULL;
+    ADD COLUMN IF NOT EXISTS churn_cooldown_until TIMESTAMP NULL;
 
 -- Seed the cooldown from history, so the first poll after this deploys does not walk straight back
 -- into the limit.
