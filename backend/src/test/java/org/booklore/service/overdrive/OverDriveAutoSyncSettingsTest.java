@@ -72,6 +72,11 @@ class OverDriveAutoSyncSettingsTest {
                 new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService);
     }
 
+    /** A fresh pass counter. Each of these tests exercises one phase on its own. */
+    private static OverDriveService.LoanActionPacer pacer() {
+        return new OverDriveService.LoanActionPacer();
+    }
+
     private void authAs(long userId) {
         when(authenticationService.getAuthenticatedUser()).thenReturn(BookLoreUser.builder().id(userId).build());
     }
@@ -436,7 +441,7 @@ class OverDriveAutoSyncSettingsTest {
 
         // Absent from the live sync: already returned, expired, or handed back in the Libby app.
         OverDriveService.AutoReturnOutcome outcome =
-                service.runAutoReturn(7L, service.getAutoSyncSettings(), Map.of(), Set.of());
+                service.runAutoReturn(7L, service.getAutoSyncSettings(), Map.of(), Set.of(), pacer());
 
         assertThat(outcome.returned()).isZero();
     }

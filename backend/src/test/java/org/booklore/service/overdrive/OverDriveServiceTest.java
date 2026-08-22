@@ -78,6 +78,11 @@ class OverDriveServiceTest {
                 notificationService, bookFileAttachmentService);
     }
 
+    /** A fresh pass counter. Each of these tests exercises one phase on its own. */
+    private static OverDriveService.LoanActionPacer pacer() {
+        return new OverDriveService.LoanActionPacer();
+    }
+
     private void authAs(long userId) {
         when(authenticationService.getAuthenticatedUser()).thenReturn(BookLoreUser.builder().id(userId).build());
     }
@@ -1315,7 +1320,8 @@ class OverDriveServiceTest {
         // The user got it another way, or a hold we placed came in and was imported.
         when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
 
-        var outcome = service.runBookbag(7L, Map.of(), new java.util.HashMap<>());
+        var outcome = service.runBookbag(7L, new java.util.HashMap<>(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), pacer());
 
         assertThat(outcome).isEqualTo(new OverDriveService.BookbagOutcome(0, 0, 0));
         verify(bookbagRepository).delete(entry);
@@ -1325,7 +1331,8 @@ class OverDriveServiceTest {
     void anEmptyBagCostsNothing() {
         when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of());
 
-        assertThat(service.runBookbag(7L, Map.of(), new java.util.HashMap<>()))
+        assertThat(service.runBookbag(7L, new java.util.HashMap<>(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), pacer()))
                 .isEqualTo(new OverDriveService.BookbagOutcome(0, 0, 0));
         verifyNoInteractions(overDriveParser, tokenRepository);
     }
@@ -1378,11 +1385,9 @@ class OverDriveServiceTest {
 
     @Test
     void anUnconfiguredCardFallsBackToTheDefaultCeilings() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        notResting("card-a");
         when(cardLimitRepository.findById("card-a")).thenReturn(Optional.empty());
-        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
-                .thenReturn(0L);
+        borrowCounts("card-a", 0);
 
         // Unmeasured is not the same as known to be free, and the cost of guessing high is an account
         // refused for days — so an untouched card is still bounded.
@@ -1392,11 +1397,9 @@ class OverDriveServiceTest {
 
     @Test
     void anUnconfiguredCardIsBlockedOnceItPassesADefault() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        notResting("card-a");
         when(cardLimitRepository.findById("card-a")).thenReturn(Optional.empty());
-        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
-                .thenReturn(2L);
+        borrowCounts("card-a", 2);
 
         // Two in a minute is the default burst guard — the wall a runaway loop should hit early.
         assertThat(service.borrowBlockedReason("card-a")).contains("this minute");
@@ -1404,8 +1407,7 @@ class OverDriveServiceTest {
 
     @Test
     void anExplicitlyBlankLimitMeansNoCeiling_notTheDefault() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        notResting("card-a");
         limits("card-a", null, null, null, null, null);
 
         // Saving a row of blanks is how an administrator opts a card out; it must not silently
@@ -1416,22 +1418,18 @@ class OverDriveServiceTest {
 
     @Test
     void aCardAtItsCeilingIsBlocked_namingTheWindow() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        notResting("card-a");
         limits("card-a", null, 5, null, null);
-        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
-                .thenReturn(5L);
+        borrowCounts("card-a", 5);
 
         assertThat(service.borrowBlockedReason("card-a")).isEqualTo("this card has already borrowed 5 of 5 allowed this hour");
     }
 
     @Test
     void theShortestFullWindowIsTheOneReported() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        notResting("card-a");
         limits("card-a", 2, 5, null, null);
-        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
-                .thenReturn(9L);
+        borrowCounts("card-a", 9);
 
         // Both are full; the minute is the one that clears soonest, so it is the useful thing to say.
         assertThat(service.borrowBlockedReason("card-a")).contains("this minute");
@@ -1439,10 +1437,8 @@ class OverDriveServiceTest {
 
     @Test
     void restingOutranksACeilingWeSetOurselves() {
-        authAs(7L);
         Instant until = Instant.now().plus(java.time.Duration.ofDays(3));
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a"))
-                .thenReturn(Optional.of(restingCard("card-a", until)));
+        when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(restingCard("card-a", until)));
 
         // OverDrive's own refusal is the more important fact, and the ceiling is not even measured.
         assertThat(service.borrowBlockedReason("card-a")).contains("too many titles borrowed and returned");
@@ -1451,22 +1447,18 @@ class OverDriveServiceTest {
 
     @Test
     void aCardUnderItsCeilingCanStillBorrow() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        notResting("card-a");
         limits("card-a", null, 5, null, null);
-        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
-                .thenReturn(4L);
+        borrowCounts("card-a", 4);
 
         assertThat(service.borrowBlockedReason("card-a")).isNull();
     }
 
     @Test
     void aMonthlyCeilingIsEnforcedWhenNoShorterWindowIsFull() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        notResting("card-a");
         limits("card-a", null, null, null, null, 145);
-        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
-                .thenReturn(145L);
+        borrowCounts("card-a", 145);
 
         // The window this deployment's refusals actually correlate with: a card can be well inside
         // every shorter limit and still have crossed a monthly cap.
@@ -1476,11 +1468,9 @@ class OverDriveServiceTest {
 
     @Test
     void aShorterFullWindowStillOutranksTheMonthlyOne() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        notResting("card-a");
         limits("card-a", null, 6, null, null, 145);
-        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
-                .thenReturn(200L);
+        borrowCounts("card-a", 200);
 
         // Both are full; the hour clears first, so it is the one worth telling the caller about.
         assertThat(service.borrowBlockedReason("card-a")).contains("this hour");
@@ -1546,6 +1536,18 @@ class OverDriveServiceTest {
         assertThat(OverDriveService.isChurningLimit(null)).isFalse();
     }
 
+    /** Stub this card's borrow counts; the same number is reported for every window. */
+    private void borrowCounts(String identity, long perWindow) {
+        when(auditRepository.countBorrowsPerWindow(org.mockito.ArgumentMatchers.eq(identity),
+                any(), any(), any(), any(), any()))
+                .thenReturn(List.<Object[]>of(new Object[]{perWindow, perWindow, perWindow, perWindow, perWindow}));
+    }
+
+    /** A card nobody has rested. */
+    private void notResting(String identity) {
+        when(tokenRepository.findByIdentity(identity)).thenReturn(List.of());
+    }
+
     private OverDriveTokenEntity restingCard(String identity, Instant until) {
         OverDriveTokenEntity row = OverDriveTokenEntity.builder()
                 .userId(7L).identity(identity).token("chip-1").build();
@@ -1555,10 +1557,8 @@ class OverDriveServiceTest {
 
     @Test
     void aRestingCardRefusesToReturnATitle() {
-        authAs(7L);
         Instant until = Instant.now().plus(java.time.Duration.ofDays(5));
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a"))
-                .thenReturn(Optional.of(restingCard("card-a", until)));
+        when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(restingCard("card-a", until)));
 
         // An early return is the other half of the cycle OverDrive objected to, so it stops as well —
         // and the refusal says when the card frees up rather than just failing.
@@ -1569,22 +1569,27 @@ class OverDriveServiceTest {
     }
 
     @Test
-    void aRestingCardRefusesToBorrow() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a"))
-                .thenReturn(Optional.of(restingCard("card-a", Instant.now().plus(java.time.Duration.ofDays(5)))));
+    void aRestingCardIsNeverChosenToBorrowWith() {
+        when(tokenRepository.findByIdentity("card-b"))
+                .thenReturn(List.of(restingCard("card-b", Instant.now().plus(java.time.Duration.ofDays(5)))));
+        notResting("card-c");
+        when(cardLimitRepository.findById(any())).thenReturn(Optional.empty());
+        when(auditRepository.countBorrowsPerWindow(any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.<Object[]>of(new Object[]{0L, 0L, 0L, 0L, 0L}));
 
-        assertThatThrownBy(() -> service.borrowAndImport("card-a", "2056901", null, null,
-                "Dune", null, null, null, null, null, null))
-                .hasMessageContaining("too many titles borrowed and returned");
-        verifyNoInteractions(overDriveImportService, acsmHandler);
+        // bpl has far more copies, but its card is resting after a churning limit — every path that
+        // takes a copy out goes through here, including the immediate one behind Borrow now.
+        assertThat(service.borrowableCardFor(List.of(
+                        availability("bpl", true, false, null, 20),
+                        availability("kcpl", true, false, null, 2)),
+                threeLibraries(), Map.of())).isEqualTo("card-c");
     }
 
     @Test
     void aCooldownThatHasRunOutStopsBlockingTheCard() {
         authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a"))
-                .thenReturn(Optional.of(restingCard("card-a", Instant.now().minusSeconds(60))));
+        when(tokenRepository.findByIdentity("card-a"))
+                .thenReturn(List.of(restingCard("card-a", Instant.now().minusSeconds(60))));
 
         // Past its end the card is simply free again — no unsetting step to forget.
         assertThatThrownBy(() -> service.returnBook("card-a", "loan-1"))
@@ -1753,10 +1758,10 @@ class OverDriveServiceTest {
 
     @Test
     void borrowingPrefersTheLibraryWithMoreCopiesFree() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(any(), any())).thenReturn(Optional.empty());
+        when(tokenRepository.findByIdentity(any())).thenReturn(List.of());
         when(cardLimitRepository.findById(any())).thenReturn(Optional.empty());
-        when(auditRepository.countBorrowsOnCardSince(any(), any())).thenReturn(0L);
+        when(auditRepository.countBorrowsPerWindow(any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.<Object[]>of(new Object[]{0L, 0L, 0L, 0L, 0L}));
 
         // Both can lend it. Taking the lone copy at bpl empties that shelf and starts a queue there,
         // while kcpl has four to spare. This preference used to live in the search page, which chose
@@ -1771,10 +1776,10 @@ class OverDriveServiceTest {
 
     @Test
     void borrowingCountsEveryFreeCopy_regularAndLuckyDay() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(any(), any())).thenReturn(Optional.empty());
+        when(tokenRepository.findByIdentity(any())).thenReturn(List.of());
         when(cardLimitRepository.findById(any())).thenReturn(Optional.empty());
-        when(auditRepository.countBorrowsOnCardSince(any(), any())).thenReturn(0L);
+        when(auditRepository.countBorrowsPerWindow(any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.<Object[]>of(new Object[]{0L, 0L, 0L, 0L, 0L}));
 
         var oneRegular = new org.booklore.model.dto.overdrive.OverDriveLibraryAvailability(
                 "bpl", true, false, 1, 4, null, null, 0);
@@ -1788,10 +1793,10 @@ class OverDriveServiceTest {
 
     @Test
     void borrowingSkipsACardThatIsFullOrOutOfBudget() {
-        authAs(7L);
-        when(tokenRepository.findByUserIdAndIdentity(any(), any())).thenReturn(Optional.empty());
+        when(tokenRepository.findByIdentity(any())).thenReturn(List.of());
         when(cardLimitRepository.findById(any())).thenReturn(Optional.empty());
-        when(auditRepository.countBorrowsOnCardSince(any(), any())).thenReturn(0L);
+        when(auditRepository.countBorrowsPerWindow(any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.<Object[]>of(new Object[]{0L, 0L, 0L, 0L, 0L}));
         var plenty = new org.booklore.model.dto.overdrive.OverDriveLibraryAvailability(
                 "bpl", true, false, 9, 20, null, null, 0);
         var few = new org.booklore.model.dto.overdrive.OverDriveLibraryAvailability(
@@ -1834,7 +1839,8 @@ class OverDriveServiceTest {
         when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
 
         var outcome = service.runHoldShopping(7L, holdShopping(false),
-                Map.of("card-a", body), new java.util.HashMap<>());
+                Map.of("card-a", body), new java.util.HashMap<>(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), pacer());
 
         // One library is nowhere else to look; don't spend an availability call finding that out.
         assertThat(outcome).isEqualTo(new OverDriveService.HoldShoppingOutcome(0, 0, 0));
@@ -1849,7 +1855,8 @@ class OverDriveServiceTest {
         body.setHolds(List.of(ready));
 
         var outcome = service.runHoldShopping(7L, holdShopping(false),
-                Map.of("card-a", body, "card-b", body), new java.util.HashMap<>());
+                Map.of("card-a", body, "card-b", body), new java.util.HashMap<>(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), pacer());
 
         // A ready hold is auto-borrow's business. Shopping it around would cancel a copy already won —
         // and the card lookup is never even reached.

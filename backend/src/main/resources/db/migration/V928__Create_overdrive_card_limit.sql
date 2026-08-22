@@ -3,7 +3,8 @@
 -- OverDrive does not publish the rate it will tolerate. PatronExceededChurningLimit arrives with no
 -- numbers attached — only "too many titles borrowed and returned within a short period of time" — so
 -- the real ceiling has to be learned by watching what was happening when it fired, and then written
--- down here. That is why every column is nullable: unset means "no ceiling known", not "zero".
+-- down here. That is why every column is nullable: unset means "no ceiling set here", not "zero" — a
+-- card with no row at all falls back to conservative defaults in code rather than to no ceiling.
 --
 -- Keyed on identity rather than (user, identity) because the limit belongs to the library patron. A
 -- card shared with three Grimmory users is one account at the library, and its budget is spent by
@@ -14,6 +15,9 @@ CREATE TABLE overdrive_card_limit (
     max_per_hour   INT          NULL,
     max_per_day    INT          NULL,
     max_per_week   INT          NULL,
+    -- Thirty days is the window this deployment's refusals actually correlate with: two, at 148 and
+    -- 144 borrows in the preceding month, on a card that had already survived a 68-borrow week.
+    max_per_month  INT          NULL,
     updated_at     TIMESTAMP    NULL,
     PRIMARY KEY (identity)
 );

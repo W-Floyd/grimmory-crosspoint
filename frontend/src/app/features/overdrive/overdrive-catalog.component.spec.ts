@@ -181,6 +181,14 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.bookbag()).toEqual([]);
   });
 
+  it('loads the bookbag at startup, not on first opening the tab', () => {
+    setup();
+
+    // Search rows ask whether a title is already queued; an empty bag makes every one of them offer
+    // to add it again, and "Queue next" then reorders an entry the user cannot see.
+    expect(overdriveService.bookbag).toHaveBeenCalled();
+  });
+
   it('knows when a title is already queued', () => {
     setup();
     component.bookbag.set([{id: 1, titleId: '2056901', position: 1} as OverDriveBookbagEntry]);

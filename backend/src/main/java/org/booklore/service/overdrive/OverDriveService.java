@@ -1484,7 +1484,7 @@ public class OverDriveService {
                 limits.perMonth());
         recordAudit(OverDriveAuditAction.CARD_RELABELED, identity, null, null, null, null,
                 "Borrow limits set to " + describe(limits) + ".");
-        return new CardBorrowBudget(identity, identity, limits, borrowRate(identity));
+        return new CardBorrowBudget(identity, cardNameOf(identity), limits, borrowRate(identity));
       }
 
       private static String describe(BorrowLimits limits) {
@@ -1494,6 +1494,18 @@ public class OverDriveService {
             joiner.add(value == null ? "no " + window.label + " limit" : value + " per " + window.label);
         }
         return joiner.toString();
+      }
+
+      /**
+       * A card's label, falling back to its identity. The save response feeds the admin grid directly,
+       * so returning the identity here renamed the row to a raw chip id until the page was reloaded.
+       */
+      private String cardNameOf(String identity) {
+        return tokenRepository.findByIdentity(identity).stream()
+                .map(OverDriveTokenEntity::getCardName)
+                .filter(name -> name != null && !name.isBlank())
+                .findFirst()
+                .orElse(identity);
       }
 
       /** Ceilings are deployment policy on a shared account, so only a card administrator may set them. */
@@ -1558,8 +1570,9 @@ public class OverDriveService {
        * loan-capacity snapshot is shared with the rest of the pass so slots spent here are visible to
        * it. When every card is out of budget the bag simply waits for the next poll.
        */
-      BookbagOutcome runBookbag(Long userId, Map<String, OverDriveSyncResponse> syncs,
-                                Map<String, Integer> loanSlotsLeft) { // package-private for testing
+      BookbagOutcome runBookbag(Long userId, Map<String, Integer> loanSlotsLeft,
+                                Map<String, Integer> holdSlotsLeft, Map<String, Integer> holdsPerCard,
+                                LoanActionPacer pacer) { // package-private for testing
         List<OverDriveBookbagEntity> bag = bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId);
         if (bag.isEmpty()) {
             return new BookbagOutcome(0, 0, 0);
@@ -1577,8 +1590,6 @@ public class OverDriveService {
         Map<String, List<OverDriveLibraryAvailability>> availability = availabilityForTitles(
                 bag.stream().map(OverDriveBookbagEntity::getTitleId).distinct().toList(),
                 List.copyOf(cardByLibrary.values()));
-        Map<String, Integer> holdSlotsLeft = holdCapacityByCard(syncs);
-        Map<String, Integer> holdsPerCard = holdCountByCard(syncs);
         Instant now = Instant.now();
         int borrowed = 0;
         int held = 0;
@@ -1601,7 +1612,7 @@ public class OverDriveService {
             String borrowCard = borrowableCardFor(options, cardByLibrary, loanSlotsLeft);
             if (borrowCard != null) {
                 try {
-                    pauseBetweenLoanActions(borrowed);
+                    pauseBetweenLoanActions(pacer);
                     loanSlotsLeft.computeIfPresent(borrowCard, (id, left) -> left - 1);
                     borrowAndImport(borrowCard, entry.getTitleId(), null, null,
                             entry.getTitle(), entry.getAuthor(), null, null, null, null, null);
@@ -1655,6 +1666,19 @@ public class OverDriveService {
             }
         }
         return new BookbagOutcome(borrowed, held, failures);
+      }
+
+      /**
+       * Whether any of the user's libraries has this on the shelf at all, ignoring whether we are
+       * currently allowed to take it. Distinguishes "no copy exists" — which a hold answers — from
+       * "a copy exists but that card is full, resting, or at a ceiling", which only time answers.
+       */
+      private boolean onShelfSomewhere(List<OverDriveLibraryAvailability> options,
+                                       Map<String, String> cardByLibrary) {
+        return options.stream().anyMatch(option ->
+                (option.available()
+                        || (option.luckyDayAvailableCopies() != null && option.luckyDayAvailableCopies() > 0))
+                        && cardByLibrary.containsKey(option.libraryKey()));
       }
 
       /**
@@ -1977,16 +2001,33 @@ public class OverDriveService {
       /** Count this card's checkouts over every window, for reporting or for checking a ceiling. */
       public BorrowRate borrowRate(String identity) {
         Instant now = Instant.now();
-        return new BorrowRate(
-                borrowsSince(identity, now.minus(BorrowWindow.MINUTE.length)),
-                borrowsSince(identity, now.minus(BorrowWindow.HOUR.length)),
-                borrowsSince(identity, now.minus(BorrowWindow.DAY.length)),
-                borrowsSince(identity, now.minus(BorrowWindow.WEEK.length)),
-                borrowsSince(identity, now.minus(BorrowWindow.MONTH.length)));
+        // One query for all five, not one each: this runs inside per-title, per-library loops, and
+        // every card has ceilings now that unconfigured ones fall back to defaults.
+        List<Object[]> rows = auditRepository.countBorrowsPerWindow(identity,
+                now.minus(BorrowWindow.MINUTE.length), now.minus(BorrowWindow.HOUR.length),
+                now.minus(BorrowWindow.DAY.length), now.minus(BorrowWindow.WEEK.length),
+                now.minus(BorrowWindow.MONTH.length));
+        if (rows.isEmpty() || rows.getFirst().length < 5) {
+            return new BorrowRate(0, 0, 0, 0, 0);
+        }
+        Object[] counts = rows.getFirst();
+        // SUM over no rows is null, and every column is null when the card has borrowed nothing.
+        return new BorrowRate(asCount(counts[0]), asCount(counts[1]), asCount(counts[2]),
+                asCount(counts[3]), asCount(counts[4]));
       }
 
-      private long borrowsSince(String identity, Instant since) {
-        return auditRepository.countBorrowsOnCardSince(identity, since);
+      private static long asCount(Object value) {
+        return value instanceof Number n ? n.longValue() : 0L;
+      }
+
+      long borrowsInWindow(BorrowRate rate, BorrowWindow window) { // package-private for testing
+        return switch (window) {
+            case MINUTE -> rate.lastMinute();
+            case HOUR -> rate.lastHour();
+            case DAY -> rate.lastDay();
+            case WEEK -> rate.lastWeek();
+            case MONTH -> rate.last30Days();
+        };
       }
 
       /** A card's configured ceilings, or none when an administrator has not set any. */
@@ -2013,21 +2054,22 @@ public class OverDriveService {
        * <p>Checked shortest window first, so the message names the one that will clear soonest: being
        * told "3 this minute" is more useful than "40 this week" when both are full.
        *
-       * <p>Costs nothing for a card with no ceilings configured, which is every card until somebody
-       * sets one — the counting queries only run for windows that have a number to compare against.
+       * <p>One counting query, covering every window at once. It used to be one per window, on the
+       * reasoning that almost no card would have any configured — which stopped being true the moment
+       * unconfigured cards started falling back to defaults.
        */
       private String borrowCeilingReached(String identity) {
         BorrowLimits limits = borrowLimits(identity);
         if (!limits.anySet()) {
             return null;
         }
-        Instant now = Instant.now();
+        BorrowRate rate = borrowRate(identity);
         for (BorrowWindow window : BorrowWindow.values()) {
             Integer ceiling = limits.forWindow(window);
             if (ceiling == null) {
                 continue;
             }
-            long taken = borrowsSince(identity, now.minus(window.length));
+            long taken = borrowsInWindow(rate, window);
             if (taken >= ceiling) {
                 return taken + " of " + ceiling + " allowed this " + window.label;
             }
@@ -2088,30 +2130,42 @@ public class OverDriveService {
        * an account that has already stopped acting.
        */
       private void beginChurnCooldown(String identity) {
-        tokenRepository.findByUserIdAndIdentity(currentUserId(), identity).ifPresent(row -> {
-            Instant now = Instant.now();
-            if (row.getChurnCooldownUntil() != null && row.getChurnCooldownUntil().isAfter(now)) {
-                return;
-            }
-            Instant until = now.plus(CHURN_COOLDOWN);
-            row.setChurnCooldownUntil(until);
-            tokenRepository.save(row);
-            log.warn("OverDrive: card {} hit the churning limit; borrows and returns on it are paused until {}",
-                    identity, until);
-            recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null,
-                    "OverDrive reported too many titles borrowed and returned. Borrows and returns on this "
-                            + "card are paused until " + until + ".", false);
-        });
+        // Every row for this identity, not just the caller's: the limit belongs to the library patron,
+        // so a card three users hold is one flagged account and all of their rows rest together. This
+        // is what V927's backfill already assumes.
+        List<OverDriveTokenEntity> rows = tokenRepository.findByIdentity(identity);
+        if (rows.isEmpty()) {
+            return;
+        }
+        Instant now = Instant.now();
+        if (rows.stream().anyMatch(r -> r.getChurnCooldownUntil() != null && r.getChurnCooldownUntil().isAfter(now))) {
+            return; // already resting; see the note on not extending an existing cooldown
+        }
+        Instant until = now.plus(CHURN_COOLDOWN);
+        rows.forEach(row -> row.setChurnCooldownUntil(until));
+        tokenRepository.saveAll(rows);
+        log.warn("OverDrive: card {} hit the churning limit; borrows and returns on it are paused until {} "
+                + "for all {} user(s) holding it", identity, until, rows.size());
+        recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null,
+                "OverDrive reported too many titles borrowed and returned. Borrows and returns on this "
+                        + "card are paused until " + until + ".", false);
       }
 
-      /** When this card may act again, or null if it is free to act now. */
+      /**
+       * When this card may act again, or null if it is free to act now. Read across every row for the
+       * identity, and the latest wins: a cooldown recorded against the owner has to stop a sharee too,
+       * or the account carries on being churned by whoever did not trip it.
+       */
       private Instant churnCooldownUntil(String identity) {
         if (identity == null) {
             return null;
         }
-        return tokenRepository.findByUserIdAndIdentity(currentUserId(), identity)
+        Instant now = Instant.now();
+        return tokenRepository.findByIdentity(identity).stream()
                 .map(OverDriveTokenEntity::getChurnCooldownUntil)
-                .filter(until -> until.isAfter(Instant.now()))
+                .filter(Objects::nonNull)
+                .filter(until -> until.isAfter(now))
+                .max(Instant::compareTo)
                 .orElse(null);
       }
 
@@ -3502,8 +3556,13 @@ public class OverDriveService {
         int failures = 0;
         int borrowed = 0;
 
-        // One snapshot of every card's remaining checkouts, shared by both steps that spend them.
+        // One snapshot of every card's capacity, and one pacer, shared by every step that spends
+        // either. Recomputing per phase would let the same slot be spent twice, and counting per phase
+        // would let each one start with an unpaced action.
         Map<String, Integer> loanSlotsLeft = loanCapacityByCard(syncs);
+        Map<String, Integer> holdSlotsLeft = holdCapacityByCard(syncs);
+        Map<String, Integer> holdsPerCard = holdCountByCard(syncs);
+        LoanActionPacer pacer = new LoanActionPacer();
 
         if (settings.autoBorrowHolds()) {
             for (Map.Entry<String, List<OverDriveHold>> entry : readyHoldsByCard(syncs).entrySet()) {
@@ -3540,7 +3599,7 @@ public class OverDriveService {
                     // the loan, which is why doBorrowAndImport knows how to resume one.
                     loanSlotsLeft.computeIfPresent(cardId, (id, left) -> left - 1);
                     try {
-                        pauseBetweenLoanActions(borrowed);
+                        pauseBetweenLoanActions(pacer);
                         borrowAndImport(entry.getKey(), hold.getId(), null, null,
                                 hold.getTitle(), hold.getFirstCreatorName(), null, null, null, null, null);
                         borrowed++;
@@ -3555,7 +3614,8 @@ public class OverDriveService {
 
         int moved = 0;
         if (settings.holdShoppingEnabled()) {
-            HoldShoppingOutcome shopping = runHoldShopping(userId, settings, syncs, loanSlotsLeft);
+            HoldShoppingOutcome shopping = runHoldShopping(userId, settings, syncs, loanSlotsLeft,
+                    holdSlotsLeft, holdsPerCard, pacer);
             borrowed += shopping.borrowed();
             moved += shopping.moved();
             failures += shopping.failures();
@@ -3564,7 +3624,7 @@ public class OverDriveService {
         int bagBorrowed = 0;
         int bagHeld = 0;
         if (hasBookbag) {
-            BookbagOutcome bookbag = runBookbag(userId, syncs, loanSlotsLeft);
+            BookbagOutcome bookbag = runBookbag(userId, loanSlotsLeft, holdSlotsLeft, holdsPerCard, pacer);
             bagBorrowed = bookbag.borrowed();
             bagHeld = bookbag.held();
             failures += bookbag.failures();
@@ -3598,9 +3658,9 @@ public class OverDriveService {
                     linked++;
                     continue;
                 }
-                if (borrowBlockedReason(loan.getIdentity()) != null) {
-                    continue; // card out of action — it resumes on its own, and this is not a failure
-                }
+                // No check on the card's borrow budget here on purpose: every loan in this list is one
+                // the account already holds, so importing it takes no checkout. A card resting or at a
+                // ceiling should stop taking new books out, not stop collecting the ones it has.
                 try {
                     pauseBetweenTitles(borrowed + imported);
                     // The stored format decides how the title is fulfilled. Passing null made every
@@ -3624,7 +3684,8 @@ public class OverDriveService {
 
         int returned = 0;
         if (settings.autoReturnEnabled()) {
-            AutoReturnOutcome autoReturn = runAutoReturn(userId, settings, holdsCountByTitle(syncs), heldLoanIds);
+            AutoReturnOutcome autoReturn = runAutoReturn(userId, settings, holdsCountByTitle(syncs),
+                    heldLoanIds, pacer);
             returned = autoReturn.returned();
             failures += autoReturn.failures();
         }
@@ -3689,6 +3750,27 @@ public class OverDriveService {
         pauseBetween(handledSoFar, LOAN_ACTION_GAP_MIN_MILLIS, LOAN_ACTION_GAP_MAX_MILLIS);
       }
 
+      /**
+       * Counts the copies moved so far in one pass, across every phase of it.
+       *
+       * <p>Each phase used to count from zero, and the pause is skipped at zero so that the first
+       * action of a pass is not delayed. Three phases meant three "firsts": auto-borrow's last
+       * checkout, hold-shopping's first and the bookbag's first could land back to back — the exact
+       * burst the spacing exists to prevent. One counter for the pass closes that.
+       */
+      static final class LoanActionPacer { // package-private for testing
+        private int handled;
+
+        int next() {
+            return handled++;
+        }
+      }
+
+      /** Wait before this pass's next checkout or return, spacing it from whatever the last one was. */
+      private void pauseBetweenLoanActions(LoanActionPacer pacer) {
+        pauseBetweenLoanActions(pacer.next());
+      }
+
       private void pauseBetween(int handledSoFar, long minMillis, long maxMillis) {
         if (handledSoFar == 0) {
             return;
@@ -3723,8 +3805,8 @@ public class OverDriveService {
        * trade worth making — those go back as soon as the minimum age is reached.
        */
       AutoReturnOutcome runAutoReturn(Long userId, OverDriveAutoSyncSettings settings,
-                                      Map<String, Integer> holdsByTitle,
-                                      Set<String> heldLoanIds) { // package-private for testing
+                                      Map<String, Integer> holdsByTitle, Set<String> heldLoanIds,
+                                      LoanActionPacer pacer) { // package-private for testing
         Instant now = Instant.now();
         int returned = 0;
         int failures = 0;
@@ -3747,7 +3829,7 @@ public class OverDriveService {
             boolean waitlisted = settings.autoReturnPromptWhenWaitlisted() && holds > 0;
 
             try {
-                pauseBetweenLoanActions(returned);
+                pauseBetweenLoanActions(pacer);
                 returnBook(loan.getIdentity(), loan.getOverdriveLoanId());
                 returned++;
                 log.info("OverDrive auto-return: returned loan {} (\"{}\") for user {}{}",
@@ -3987,7 +4069,10 @@ public class OverDriveService {
        */
       HoldShoppingOutcome runHoldShopping(Long userId, OverDriveAutoSyncSettings settings,
                                           Map<String, OverDriveSyncResponse> syncs,
-                                          Map<String, Integer> loanSlotsLeft) { // package-private for testing
+                                          Map<String, Integer> loanSlotsLeft,
+                                          Map<String, Integer> holdSlotsLeft,
+                                          Map<String, Integer> holdsPerCard,
+                                          LoanActionPacer pacer) { // package-private for testing
         List<OverDriveHold> waiting = waitingHolds(syncs);
         if (waiting.isEmpty()) {
             return new HoldShoppingOutcome(0, 0, 0);
@@ -4009,8 +4094,6 @@ public class OverDriveService {
                 waiting.stream().map(OverDriveHold::getId).distinct().toList(),
                 List.copyOf(cardByLibrary.values()));
 
-        Map<String, Integer> holdSlotsLeft = holdCapacityByCard(syncs);
-        Map<String, Integer> holdsPerCard = holdCountByCard(syncs);
         int borrowed = 0;
         int moved = 0;
         int failures = 0;
@@ -4033,7 +4116,7 @@ public class OverDriveService {
             }
             if (borrowCard != null) {
                 try {
-                    pauseBetweenLoanActions(borrowed + moved);
+                    pauseBetweenLoanActions(pacer);
                     loanSlotsLeft.computeIfPresent(borrowCard, (id, left) -> left - 1);
                     borrowAndImport(borrowCard, hold.getId(), null, null,
                             hold.getTitle(), hold.getFirstCreatorName(), null, null, null, null, null);
@@ -4422,7 +4505,6 @@ public class OverDriveService {
       private Book doBorrowAndImport(String identity, String titleId, Long libraryId, Long pathId,
                                      String title, String author, String coverUrl, String isbn, String preferredFormat,
                                      String titleFormat, Long replaceBookId) {
-        assertCanBorrow(identity);
         // Track whether this became an import of an existing loan (vs a fresh borrow) so both the
         // success and the failure history entries can report the right action. Hoisted out of the try
         // so the catch can see it.
@@ -4451,6 +4533,10 @@ public class OverDriveService {
         if (alreadyBorrowed) {
             log.info("OverDrive: resuming existing loan {} for title {} (skipping re-borrow)", loan.loanId(), titleId);
         } else {
+            // Checked here rather than on the way in, because only this branch takes a copy out.
+            // Fetching a loan the account already holds spends no checkout, and refusing it would
+            // strand books already paid for until they expired — the opposite of protecting the card.
+            assertCanBorrow(identity);
             // Prefer an explicit media-type hint; fall back to deriving it from the requested format id.
             String hint = (titleFormat != null && !titleFormat.isBlank()) ? titleFormat : preferredFormat;
             Map<String, Object> borrowed = withChipRecovery(identity,

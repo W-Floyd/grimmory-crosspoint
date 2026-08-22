@@ -8,6 +8,8 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
+
 /**
  * Repository for per-user OverDrive activity history.
  */
@@ -36,4 +38,29 @@ public interface OverDriveAuditRepository extends JpaRepository<OverDriveAuditEn
             + "AND a.success = true AND a.createdAt >= :since "
             + "AND a.action IN ('BORROW', 'BORROW_AND_IMPORT')")
     long countBorrowsOnCardSince(@Param("identity") String identity, @Param("since") java.time.Instant since);
+
+    /**
+     * All five window counts for a card in one query.
+     *
+     * <p>Checking a ceiling used to be one query per window, which was cheap while almost no card had
+     * one configured. Defaults changed that: every card now has all five, and the check runs inside
+     * per-title, per-library loops, so a large bookbag turned a poll into hundreds of round trips.
+     * Conditional aggregation over the widest window answers all of them at once.
+     *
+     * @return one row: counts for the last minute, hour, day, week and thirty days
+     */
+    @Query("SELECT "
+            + "SUM(CASE WHEN a.createdAt >= :minute THEN 1 ELSE 0 END), "
+            + "SUM(CASE WHEN a.createdAt >= :hour THEN 1 ELSE 0 END), "
+            + "SUM(CASE WHEN a.createdAt >= :day THEN 1 ELSE 0 END), "
+            + "SUM(CASE WHEN a.createdAt >= :week THEN 1 ELSE 0 END), "
+            + "COUNT(a) "
+            + "FROM OverDriveAuditEntity a WHERE a.identity = :identity AND a.success = true "
+            + "AND a.createdAt >= :month AND a.action IN ('BORROW', 'BORROW_AND_IMPORT')")
+    List<Object[]> countBorrowsPerWindow(@Param("identity") String identity,
+                                         @Param("minute") java.time.Instant minute,
+                                         @Param("hour") java.time.Instant hour,
+                                         @Param("day") java.time.Instant day,
+                                         @Param("week") java.time.Instant week,
+                                         @Param("month") java.time.Instant month);
 }

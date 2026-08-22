@@ -617,6 +617,10 @@ export class OverdriveCatalogComponent {
        });
      });
      this.loadCards();
+     // Up front, not on first opening the tab: search rows ask whether a title is already queued, and
+     // an empty bag makes every one of them offer to add it again — with "Queue next" then quietly
+     // reordering an entry the user cannot see.
+     this.loadBookbag();
      this.overdriveService.capabilities().subscribe({
        next: (c) => {
          this.acsmConfigured.set(!!c?.acsmHandlerConfigured);
@@ -1886,6 +1890,8 @@ export class OverdriveCatalogComponent {
        this.loadHistory(0);
      }
      if (next === 'bookbag') {
+       // Already loaded at startup; refetched here because the scheduled task changes it underneath a
+       // page left open.
        this.loadBookbag();
      }
    }
