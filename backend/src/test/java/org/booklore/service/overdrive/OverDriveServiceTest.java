@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -1373,7 +1374,7 @@ class OverDriveServiceTest {
         // The user got it another way, or a hold we placed came in and was imported.
         when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
 
-        var outcome = service.runBookbag(7L, new java.util.HashMap<>(), new java.util.HashMap<>(),
+        var outcome = service.runBookbag(7L, Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
                 new java.util.HashMap<>(), pacer());
 
         assertThat(outcome).isEqualTo(new OverDriveService.BookbagOutcome(0, 0, 0));
@@ -1384,7 +1385,7 @@ class OverDriveServiceTest {
     void anEmptyBagCostsNothing() {
         when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of());
 
-        assertThat(service.runBookbag(7L, new java.util.HashMap<>(), new java.util.HashMap<>(),
+        assertThat(service.runBookbag(7L, Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
                 new java.util.HashMap<>(), pacer()))
                 .isEqualTo(new OverDriveService.BookbagOutcome(0, 0, 0));
         verifyNoInteractions(overDriveParser, tokenRepository);
@@ -1720,6 +1721,99 @@ class OverDriveServiceTest {
 
         // Auto-return leaves it alone, so promising a date would be a lie.
         assertThat(service.autoReturnSchedule()).isEmpty();
+    }
+
+    @Test
+    void adoptingHoldsQueuesEachHeldTitleOnce_oldestFirst() {
+        authAsAdmin(7L);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        stubCard(7L, "card-a", "chip-1");
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of());
+
+        OverDriveSyncResponse body = syncCovering(List.of("card-a"));
+        var newer = waitingHold("111", "card-a", "30");
+        newer.setPlacedDate("2026-08-20T10:00:00Z");
+        var older = waitingHold("222", "card-a", "40");
+        older.setPlacedDate("2026-07-01T10:00:00Z");
+        // The same title held at two libraries is one book, not two entries.
+        var duplicate = waitingHold("222", "card-b", "40");
+        duplicate.setPlacedDate("2026-07-15T10:00:00Z");
+        body.setHolds(List.of(newer, older, duplicate));
+
+        int added = syncHarness(body).service().adoptHoldsIntoBookbag();
+
+        assertThat(added).isEqualTo(2);
+        ArgumentCaptor<List<org.booklore.model.entity.OverDriveBookbagEntity>> saved =
+                ArgumentCaptor.forClass(List.class);
+        verify(bookbagRepository).saveAll(saved.capture());
+        // Oldest hold first: it is the one waited longest for.
+        assertThat(saved.getValue()).extracting(org.booklore.model.entity.OverDriveBookbagEntity::getTitleId)
+                .containsExactly("222", "111");
+        // Adopted, not re-placed — the existing queue position is kept.
+        assertThat(saved.getValue().getFirst().getHoldCardId()).isEqualTo("card-a");
+    }
+
+    @Test
+    void adoptingHoldsSkipsTitlesAlreadyQueued() {
+        authAsAdmin(7L);
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        stubCard(7L, "card-a", "chip-1");
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L))
+                .thenReturn(List.of(bagged(1L, "111", 1)));
+
+        OverDriveSyncResponse body = syncCovering(List.of("card-a"));
+        body.setHolds(List.of(waitingHold("111", "card-a", "30")));
+
+        assertThat(syncHarness(body).service().adoptHoldsIntoBookbag()).isZero();
+        verify(bookbagRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void aBookbagEntryWhoseHoldHasGoneQueuesAgain() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        entry.setHoldCardId("card-a");
+        entry.setHoldPlacedAt(Instant.now().minusSeconds(86_400));
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build(),
+                OverDriveTokenEntity.builder().userId(7L).identity("card-b").libraryKey("bpl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+
+        // The user holds nothing: the hold was cancelled by hand, or lapsed unclaimed.
+        service.runBookbag(7L, Set.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), pacer());
+
+        // Forgetting it lets the entry queue again, rather than waiting forever on a hold that has
+        // stopped existing.
+        assertThat(entry.getHoldCardId()).isNull();
+        assertThat(entry.getHoldPlacedAt()).isNull();
+    }
+
+    @Test
+    void aBookbagEntryWaitsWhileItsHoldIsStillLive() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        entry.setHoldCardId("card-a");
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build(),
+                OverDriveTokenEntity.builder().userId(7L).identity("card-b").libraryKey("bpl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+
+        service.runBookbag(7L, Set.of("2056901"), new java.util.HashMap<>(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), pacer());
+
+        assertThat(entry.getHoldCardId()).isEqualTo("card-a");
+        assertThat(entry.getLastNote()).contains("Waiting on the hold");
     }
 
     // ── Checking a waiting hold against the user's other libraries ───────

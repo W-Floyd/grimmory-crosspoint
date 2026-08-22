@@ -698,6 +698,14 @@
             doesn't hold up the ones behind it. <strong>Borrow now</strong> skips all of that for a
             single title.
           </p>
+          <div class="bookbag-toolbar">
+            <p-button label="Adopt my holds" icon="pi pi-download" severity="secondary" [outlined]="true"
+              size="small"
+              pTooltip="Add every hold you already have to the bookbag, oldest first. Existing holds are adopted, not duplicated, and titles already queued are skipped."
+              tooltipPosition="top"
+              [loading]="adoptingHolds()"
+              (onClick)="onAdoptHolds()" />
+          </div>
           @if (bookbagLoading()) {
             <div class="bookbag-empty"><i class="pi pi-spin pi-spinner"></i> Loading…</div>
           } @else if (bookbag().length === 0) {

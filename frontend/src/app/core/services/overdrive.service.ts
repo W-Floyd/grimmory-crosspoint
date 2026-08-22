@@ -686,6 +686,11 @@ export class OverDriveService {
     return this.http.delete<void>(`${this.baseUrl}/bookbag/${id}`);
   }
 
+  /** Put every hold you already have into the bookbag; returns how many were added. */
+  adoptHoldsIntoBookbag(): Observable<number> {
+    return this.http.post<number>(`${this.baseUrl}/bookbag/adopt-holds`, null);
+  }
+
   /** Reorder the bag, front first. */
   reorderBookbag(idsInOrder: number[]): Observable<OverDriveBookbagEntry[]> {
     return this.http.put<OverDriveBookbagEntry[]>(`${this.baseUrl}/bookbag/order`, idsInOrder);

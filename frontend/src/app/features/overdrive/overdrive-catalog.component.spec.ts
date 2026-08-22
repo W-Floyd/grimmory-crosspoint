@@ -44,6 +44,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     bookbag: vi.fn(() => of([] as OverDriveBookbagEntry[])),
     addToBookbag: vi.fn(() => of({id: 1, titleId: 't', position: 1} as OverDriveBookbagEntry)),
     removeFromBookbag: vi.fn(() => of(void 0)),
+    adoptHoldsIntoBookbag: vi.fn(() => of(2)),
     borrowBookbagEntryNow: vi.fn(() => of({})),
     reorderBookbag: vi.fn(() => of([] as OverDriveBookbagEntry[])),
   };
@@ -187,6 +188,17 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     // Search rows ask whether a title is already queued; an empty bag makes every one of them offer
     // to add it again, and "Queue next" then reorders an entry the user cannot see.
     expect(overdriveService.bookbag).toHaveBeenCalled();
+  });
+
+  it('refreshes the bag after adopting existing holds', () => {
+    setup();
+    overdriveService.bookbag.mockClear();
+
+    component.onAdoptHolds();
+
+    expect(overdriveService.adoptHoldsIntoBookbag).toHaveBeenCalled();
+    expect(overdriveService.bookbag).toHaveBeenCalled();
+    expect(component.adoptingHolds()).toBe(false);
   });
 
   it('knows when a title is already queued', () => {

@@ -1570,7 +1570,7 @@ public class OverDriveService {
        * loan-capacity snapshot is shared with the rest of the pass so slots spent here are visible to
        * it. When every card is out of budget the bag simply waits for the next poll.
        */
-      BookbagOutcome runBookbag(Long userId, Map<String, Integer> loanSlotsLeft,
+      BookbagOutcome runBookbag(Long userId, Set<String> heldTitleIds, Map<String, Integer> loanSlotsLeft,
                                 Map<String, Integer> holdSlotsLeft, Map<String, Integer> holdsPerCard,
                                 LoanActionPacer pacer) { // package-private for testing
         List<OverDriveBookbagEntity> bag = bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId);
@@ -1633,9 +1633,18 @@ public class OverDriveService {
 
             // Nobody can lend it now. Queue for it, unless we already have.
             if (entry.getHoldCardId() != null) {
-                entry.setLastNote("Waiting on the hold placed at " + entry.getHoldCardId() + ".");
-                bookbagRepository.save(entry);
-                continue;
+                if (heldTitleIds.contains(entry.getTitleId())) {
+                    entry.setLastNote("Waiting on the hold placed at " + entry.getHoldCardId() + ".");
+                    bookbagRepository.save(entry);
+                    continue;
+                }
+                // The hold is gone — cancelled by hand, or lapsed unclaimed. Forgetting it lets the
+                // entry queue again next pass instead of waiting forever on something that no longer
+                // exists, which is what a bare "is a card recorded?" check used to do.
+                log.info("OverDrive bookbag: the hold on \"{}\" for user {} is no longer on card {}; "
+                        + "the entry will queue again", entry.getTitle(), userId, entry.getHoldCardId());
+                entry.setHoldCardId(null);
+                entry.setHoldPlacedAt(null);
             }
             SoonerQueue queue = bestQueueFor(options, cardByLibrary, holdSlotsLeft, holdsPerCard);
             if (queue == null) {
@@ -1897,6 +1906,73 @@ public class OverDriveService {
         log.info("OverDrive bookbag: user {} borrowed \"{}\" on demand from card {}",
                 userId, entry.getTitle(), card);
         return book;
+      }
+
+      /**
+       * Put every hold the user currently has into the bookbag, adopting each one rather than placing
+       * a second.
+       *
+       * <p>The backfill for an account that was using holds before the bag existed. It cannot be a
+       * migration: holds are never stored here — they live at OverDrive and arrive with each sync — so
+       * there is nothing in the database for SQL to read.
+       *
+       * <p>Deliberately something you ask for rather than something a pass does on its own. Absorbing
+       * every hold into a queue that will borrow them unattended is a large consequence, and a pass
+       * that did it automatically would also undo any entry you deliberately removed, re-adopting it
+       * on the next tick.
+       *
+       * <p>Oldest hold first: you have waited longest for it.
+       *
+       * @return how many entries were added
+       */
+      @Transactional
+      public int adoptHoldsIntoBookbag() {
+        Long userId = currentUserId();
+        List<String> identities = listCards().stream()
+                .map(OverDriveCard::cardId).filter(Objects::nonNull).toList();
+        if (identities.isEmpty()) {
+            return 0;
+        }
+        Map<String, OverDriveSyncResponse> syncs = syncAll(identities);
+        Set<String> alreadyQueued = bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId).stream()
+                .map(OverDriveBookbagEntity::getTitleId)
+                .collect(Collectors.toSet());
+
+        // One entry per title, even where the same title is held at two libraries: the bag wants the
+        // book, not each queue it is sitting in.
+        Map<String, OverDriveHold> byTitle = new LinkedHashMap<>();
+        for (OverDriveSyncResponse sync : syncs.values()) {
+            if (sync == null || sync.getHolds() == null) {
+                continue;
+            }
+            for (OverDriveHold hold : sync.getHolds()) {
+                if (hold.getId() != null && !alreadyQueued.contains(hold.getId())) {
+                    byTitle.putIfAbsent(hold.getId(), hold);
+                }
+            }
+        }
+        if (byTitle.isEmpty()) {
+            return 0;
+        }
+
+        int position = backPosition(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId));
+        List<OverDriveBookbagEntity> added = new ArrayList<>();
+        for (OverDriveHold hold : byTitle.values().stream()
+                .sorted(Comparator.comparing(h -> parseTimestamp(h.getPlacedDate(), "placedDate"),
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList()) {
+            added.add(OverDriveBookbagEntity.builder()
+                    .userId(userId).titleId(hold.getId())
+                    .title(truncate(hold.getTitle(), 1024)).author(truncate(hold.getFirstCreatorName(), 255))
+                    .position(position++)
+                    .holdCardId(hold.getCardId())
+                    .holdPlacedAt(parseTimestamp(hold.getPlacedDate(), "placedDate"))
+                    .lastNote("Adopted from a hold already placed at " + hold.getCardId() + ".")
+                    .build());
+        }
+        bookbagRepository.saveAll(added);
+        log.info("OverDrive bookbag: adopted {} existing hold(s) for user {}", added.size(), userId);
+        return added.size();
       }
 
       /**
@@ -3582,10 +3658,21 @@ public class OverDriveService {
         Map<String, Integer> holdsPerCard = holdCountByCard(syncs);
         LoanActionPacer pacer = new LoanActionPacer();
 
-        if (settings.autoBorrowHolds()) {
+        // Titles the user has queued. A ready hold on one of them is claimed whether or not the
+        // blanket auto-borrow switch is on: queueing a title is itself the instruction to borrow it,
+        // and the bag placing holds it then never collects was the hole in splitting this decision
+        // across two switches.
+        Set<String> queuedTitleIds = bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId).stream()
+                .map(OverDriveBookbagEntity::getTitleId)
+                .collect(Collectors.toSet());
+
+        if (settings.autoBorrowHolds() || !queuedTitleIds.isEmpty()) {
             for (Map.Entry<String, List<OverDriveHold>> entry : readyHoldsByCard(syncs).entrySet()) {
                 String cardId = entry.getKey();
                 for (OverDriveHold hold : entry.getValue()) {
+                    if (!settings.autoBorrowHolds() && !queuedTitleIds.contains(hold.getId())) {
+                        continue; // someone else's hold, and no blanket instruction to claim it
+                    }
                     // Don't spend a checkout on a title the library already holds. A hold placed months
                     // ago can come in long after the book arrived by another route, and borrowing it
                     // anyway consumes a loan slot to download a file we already have.
@@ -3642,7 +3729,8 @@ public class OverDriveService {
         int bagBorrowed = 0;
         int bagHeld = 0;
         if (hasBookbag) {
-            BookbagOutcome bookbag = runBookbag(userId, loanSlotsLeft, holdSlotsLeft, holdsPerCard, pacer);
+            BookbagOutcome bookbag = runBookbag(userId, heldTitleIds(syncs), loanSlotsLeft, holdSlotsLeft,
+                    holdsPerCard, pacer);
             bagBorrowed = bookbag.borrowed();
             bagHeld = bookbag.held();
             failures += bookbag.failures();
@@ -4194,6 +4282,18 @@ public class OverDriveService {
                     + "{} ({}); it is still in place and needs cancelling by hand",
                     because, hold.getTitle(), hold.getCardId(), e.getMessage());
         }
+      }
+
+      /** Every title the user currently has a hold on, ready or waiting, across this pass's cards. */
+      private Set<String> heldTitleIds(Map<String, OverDriveSyncResponse> syncs) {
+        return syncs.values().stream()
+                .filter(Objects::nonNull)
+                .map(OverDriveSyncResponse::getHolds)
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .map(OverDriveHold::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
       }
 
       /** Holds the user is still queued for — the ready ones are auto-borrow's business, not this. */

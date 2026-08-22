@@ -640,6 +640,23 @@ public class OverDriveController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * POST /api/overdrive/bookbag/adopt-holds — put every hold the user already has into the bookbag.
+     *
+     * <p>The backfill for an account that was using holds before the bag existed. Not a migration:
+     * holds are never stored here, so only a live sync can see them. Adopts each hold rather than
+     * placing a second, and skips titles already queued.
+     *
+     * @return how many entries were added
+     */
+    @Operation(summary = "Adopt existing holds into the bookbag")
+    @ApiResponse(responseCode = "200", description = "Number of holds adopted")
+    @PostMapping("/bookbag/adopt-holds")
+    public ResponseEntity<Integer> adoptHoldsIntoBookbag() {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.adoptHoldsIntoBookbag());
+    }
+
     /** PUT /api/overdrive/bookbag/order — reorder the bag, front first. */
     @Operation(summary = "Reorder the bookbag")
     @ApiResponse(responseCode = "200", description = "New order returned")

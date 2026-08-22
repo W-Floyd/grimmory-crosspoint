@@ -1911,6 +1911,35 @@ export class OverdriveCatalogComponent {
      });
    }
 
+   adoptingHolds = signal(false);
+
+   /**
+    * Pull every hold already placed into the bookbag. A one-off for an account that was using holds
+    * before the bag existed — deliberately a button rather than something a pass does, since a pass
+    * would also re-adopt anything deliberately removed.
+    */
+   onAdoptHolds(): void {
+     this.adoptingHolds.set(true);
+     this.error.set(null);
+     this.overdriveService.adoptHoldsIntoBookbag().subscribe({
+       next: (added) => {
+         this.messageService.add({
+           severity: added > 0 ? 'success' : 'info',
+           summary: added > 0 ? 'Holds adopted' : 'Nothing to adopt',
+           detail: added > 0
+             ? `${added} hold${added === 1 ? '' : 's'} added to the bookbag, oldest first.`
+             : 'Every hold you have is already in the bookbag.'
+         });
+         this.adoptingHolds.set(false);
+         this.loadBookbag();
+       },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Could not adopt your holds'));
+         this.adoptingHolds.set(false);
+       }
+     });
+   }
+
    /** Queue a search result, at the front when the user asked for it to be next. */
    onAddToBookbag(item: OverDriveCatalogItem, front = false): void {
      this.overdriveService.addToBookbag(item.titleId, item.title, item.author ?? null, front).subscribe({
