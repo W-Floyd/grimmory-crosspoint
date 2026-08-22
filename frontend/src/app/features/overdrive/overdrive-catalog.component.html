@@ -108,6 +108,7 @@
         <p-tab value="search">Search &amp; Borrow</p-tab>
         <p-tab value="loans">{{ loansTabLabel() }}</p-tab>
         <p-tab value="holds">{{ holdsTabLabel() }}</p-tab>
+        <p-tab value="bookbag">{{ bookbagTabLabel() }}</p-tab>
         <p-tab value="history">History</p-tab>
       </p-tablist>
       <p-tabpanels>
@@ -436,6 +437,23 @@
                   }
                 }
               }
+              <!-- Always offered, whatever the row's borrow/hold state: queueing says "get this for
+                   me eventually", which is a different intention from either button above. -->
+              @if (isInBookbag(item.titleId)) {
+                <span class="no-action in-bookbag" pTooltip="Already queued — the scheduled task will borrow it when a card can">
+                  <i class="pi pi-briefcase"></i> In bookbag
+                </span>
+              } @else {
+                <p-button
+                  label="Bookbag"
+                  icon="pi pi-briefcase"
+                  severity="secondary"
+                  [text]="true"
+                  pTooltip="Queue this title. It gets borrowed when one of your cards has room and budget, or held for if nobody has a copy."
+                  tooltipPosition="top"
+                  [disabled]="!item.titleId"
+                  (onClick)="onAddToBookbag(item)" />
+              }
               @if (actionOutcome()[item.titleId]; as st) {
                 <span class="action-status" [class.error]="st === 'error'">
                   <i class="pi" [class.pi-check-circle]="st === 'success'" [class.pi-times-circle]="st === 'error'"></i>
@@ -763,6 +781,73 @@
         </tr>
       </ng-template>
     </p-table>
+        </p-tabpanel>
+
+        <p-tabpanel value="bookbag">
+          <p class="tab-intro">
+            Titles queued for the scheduled task. Each pass takes them in this order and borrows what it
+            can — a card needs a copy on the shelf, a free checkout slot and borrow budget left. Anything
+            nobody can lend gets a hold placed for it and stays here until that hold comes in. A title
+            that can't be taken doesn't hold up the ones behind it.
+          </p>
+          @if (bookbagLoading()) {
+            <div class="bookbag-empty"><i class="pi pi-spin pi-spinner"></i> Loading…</div>
+          } @else if (bookbag().length === 0) {
+            <div class="bookbag-empty">
+              Nothing queued. Add titles from <strong>Search &amp; Borrow</strong> and they'll be borrowed
+              as your cards allow, spaced out rather than all at once.
+            </div>
+          } @else {
+            <p-table [value]="bookbag()" [tableStyle]="{ 'min-width': '40rem' }" styleClass="p-datatable-sm">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th style="width: 5rem">Order</th>
+                  <th>Title</th>
+                  <th>Author</th>
+                  <th>Status</th>
+                  <th style="width: 8rem">Actions</th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-entry let-i="rowIndex">
+                <tr>
+                  <td class="bookbag-order">
+                    <span class="bookbag-position">{{ i + 1 }}</span>
+                    <button type="button" class="bookbag-move" pTooltip="Move up" tooltipPosition="top"
+                      [disabled]="i === 0 || bookbagBusyId() !== null" (click)="moveInBookbag(entry, -1)">
+                      <i class="pi pi-chevron-up"></i>
+                    </button>
+                    <button type="button" class="bookbag-move" pTooltip="Move down" tooltipPosition="top"
+                      [disabled]="i === bookbag().length - 1 || bookbagBusyId() !== null" (click)="moveInBookbag(entry, 1)">
+                      <i class="pi pi-chevron-down"></i>
+                    </button>
+                  </td>
+                  <td>
+                    <app-overdrive-title-cell
+                      [title]="entry.title || entry.titleId"
+                      [bookId]="null"
+                      [libbyUrl]="libbyUrl(entry.titleId, null)" />
+                  </td>
+                  <td>{{ entry.author || '—' }}</td>
+                  <td class="bookbag-status">
+                    @if (entry.holdCardId) {
+                      <i class="pi pi-clock"></i>
+                    }
+                    {{ bookbagStatus(entry) }}
+                    @if (entry.lastTriedAt) {
+                      <small class="bookbag-tried">Last checked {{ formatDateTimeShort(entry.lastTriedAt) }}</small>
+                    }
+                  </td>
+                  <td>
+                    <p-button icon="pi pi-times" severity="danger" [text]="true" label="Remove"
+                      pTooltip="Stop queueing this. Any hold already placed for it is left alone."
+                      tooltipPosition="top"
+                      [loading]="bookbagBusyId() === entry.id"
+                      (onClick)="onRemoveFromBookbag(entry)" />
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          }
         </p-tabpanel>
 
         <p-tabpanel value="history">

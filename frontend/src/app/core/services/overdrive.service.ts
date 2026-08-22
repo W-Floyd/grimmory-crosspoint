@@ -662,4 +662,76 @@ export class OverDriveService {
   cancelHold(cardId: string, titleId: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${cardId}/hold/${titleId}`);
   }
+
+  // Bookbag — titles queued for the scheduled task to borrow as cards allow
+
+  bookbag(): Observable<OverDriveBookbagEntry[]> {
+    return this.http.get<OverDriveBookbagEntry[]>(`${this.baseUrl}/bookbag`);
+  }
+
+  /** Queue a title. Adding one already queued returns the existing entry rather than moving it. */
+  addToBookbag(titleId: string, title?: string | null, author?: string | null): Observable<OverDriveBookbagEntry> {
+    return this.http.post<OverDriveBookbagEntry>(`${this.baseUrl}/bookbag`, { titleId, title, author });
+  }
+
+  removeFromBookbag(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/bookbag/${id}`);
+  }
+
+  /** Reorder the bag, front first. */
+  reorderBookbag(idsInOrder: number[]): Observable<OverDriveBookbagEntry[]> {
+    return this.http.put<OverDriveBookbagEntry[]>(`${this.baseUrl}/bookbag/order`, idsInOrder);
+  }
+
+  // Card borrow limits (administrators only)
+
+  cardLimits(): Observable<OverDriveCardBudget[]> {
+    return this.http.get<OverDriveCardBudget[]>(`${this.baseUrl}/card-limits`);
+  }
+
+  setCardLimits(identity: string, limits: OverDriveBorrowLimits): Observable<OverDriveCardBudget> {
+    return this.http.put<OverDriveCardBudget>(`${this.baseUrl}/card-limits/${identity}`, limits);
+  }
+}
+
+/** One title queued for the scheduled task to borrow. */
+export interface OverDriveBookbagEntry {
+  id: number;
+  titleId: string;
+  title?: string | null;
+  author?: string | null;
+  position: number;
+  /** Where a hold was placed while waiting for a copy, or null if none has been. */
+  holdCardId?: string | null;
+  holdPlacedAt?: string | null;
+  /** Why the last pass could not borrow it, or null after a clean run. */
+  lastNote?: string | null;
+  lastTriedAt?: string | null;
+  createdAt?: string | null;
+}
+
+/** A card's borrow ceilings. Null in any window means no ceiling for it. */
+export interface OverDriveBorrowLimits {
+  perMinute?: number | null;
+  perHour?: number | null;
+  perDay?: number | null;
+  perWeek?: number | null;
+  perMonth?: number | null;
+}
+
+/** Borrows a card has actually taken in each window, right now. */
+export interface OverDriveBorrowRate {
+  lastMinute: number;
+  lastHour: number;
+  lastDay: number;
+  lastWeek: number;
+  last30Days: number;
+}
+
+/** A card's ceilings beside what it has actually done — the pair an admin sets limits from. */
+export interface OverDriveCardBudget {
+  identity: string;
+  cardName?: string | null;
+  limits: OverDriveBorrowLimits;
+  rate: OverDriveBorrowRate;
 }

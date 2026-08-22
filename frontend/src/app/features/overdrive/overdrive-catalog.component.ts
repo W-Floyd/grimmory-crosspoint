@@ -3,7 +3,7 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
-import { OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
+import { OverDriveService, OverDriveAuditEntry, OverDriveBookbagEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
 
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { MessageModule } from '@openng/optimus-ui/message';
@@ -491,6 +491,12 @@ export class OverdriveCatalogComponent {
       return order * cmp;
     });
   }
+  /** The queue of titles the scheduled task will borrow as cards allow. */
+  bookbag = signal<OverDriveBookbagEntry[]>([]);
+  bookbagLoading = signal(false);
+  /** Entry id currently being removed, so only that row's button spins. */
+  bookbagBusyId = signal<number | null>(null);
+
   // Per-title chosen download format (titleId → formatId); defaults to the title's top preference.
   selectedFormats = signal<Record<string, string>>({});
   // Per-title chosen card to borrow/hold with (titleId → cardId); defaults to the eligible card with
@@ -756,6 +762,11 @@ export class OverdriveCatalogComponent {
      const count = this.totalCount(s => s.loanCount, this.loans().length);
      const limit = this.totalLimit(s => s.loanLimit);
      return limit !== null ? `Loans (${count} / ${limit})` : `Loans (${this.loans().length})`;
+   }
+
+   bookbagTabLabel(): string {
+     const count = this.bookbag().length;
+     return count > 0 ? `Bookbag (${count})` : 'Bookbag';
    }
 
    holdsTabLabel(): string {
@@ -2186,7 +2197,7 @@ export class OverdriveCatalogComponent {
      }
    }
 
-   /** Switch tabs; lazy-load the history the first time the History tab is opened. */
+   /** Switch tabs; lazy-load the tabs whose contents are fetched separately. */
    onTabChange(tab: string | number | undefined): void {
      const next = tab ?? 'search';
      this.activeTab.set(next);
@@ -2194,6 +2205,93 @@ export class OverdriveCatalogComponent {
        // Only the first page; the table asks for the rest as the user pages.
        this.loadHistory(0);
      }
+     if (next === 'bookbag') {
+       this.loadBookbag();
+     }
+   }
+
+   /** Fetch the bag. Cheap and always small, so it is refetched on open rather than cached. */
+   loadBookbag(): void {
+     this.bookbagLoading.set(true);
+     this.overdriveService.bookbag().subscribe({
+       next: (entries) => {
+         this.bookbag.set(entries ?? []);
+         this.bookbagLoading.set(false);
+       },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Could not load your bookbag'));
+         this.bookbagLoading.set(false);
+       }
+     });
+   }
+
+   /** Queue a search result. The button stays available afterwards — adding twice is harmless. */
+   onAddToBookbag(item: OverDriveCatalogItem): void {
+     this.overdriveService.addToBookbag(item.titleId, item.title, item.author ?? null).subscribe({
+       next: () => {
+         this.messageService.add({ severity: 'success', summary: 'Added to bookbag',
+           detail: `"${item.title}" will be borrowed when a card can take it.` });
+         this.setOutcome(item.titleId, 'success', 'In bookbag');
+         // Keep the tab count honest without making the user open the tab.
+         this.loadBookbag();
+       },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Could not add that title to your bookbag'));
+         this.setOutcome(item.titleId, 'error');
+       }
+     });
+   }
+
+   /** Whether a title is already queued, so the row can say so instead of offering to add it again. */
+   isInBookbag(titleId: string): boolean {
+     return this.bookbag().some(e => e.titleId === titleId);
+   }
+
+   onRemoveFromBookbag(entry: OverDriveBookbagEntry): void {
+     this.bookbagBusyId.set(entry.id);
+     this.overdriveService.removeFromBookbag(entry.id).subscribe({
+       next: () => {
+         this.bookbag.update(list => list.filter(e => e.id !== entry.id));
+         this.bookbagBusyId.set(null);
+       },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Could not remove that title'));
+         this.bookbagBusyId.set(null);
+       }
+     });
+   }
+
+   /**
+    * Move an entry one place up or down and persist the whole order. The server takes a full list, so
+    * a swap is expressed as the new order rather than as a delta.
+    */
+   moveInBookbag(entry: OverDriveBookbagEntry, delta: -1 | 1): void {
+     const ids = this.bookbag().map(e => e.id);
+     const from = ids.indexOf(entry.id);
+     const to = from + delta;
+     if (from < 0 || to < 0 || to >= ids.length) {
+       return;
+     }
+     [ids[from], ids[to]] = [ids[to], ids[from]];
+     this.bookbagBusyId.set(entry.id);
+     this.overdriveService.reorderBookbag(ids).subscribe({
+       next: (entries) => {
+         this.bookbag.set(entries ?? []);
+         this.bookbagBusyId.set(null);
+       },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Could not reorder your bookbag'));
+         this.bookbagBusyId.set(null);
+       }
+     });
+   }
+
+   /** What the bag will do with this entry next, in a few words for the status column. */
+   bookbagStatus(entry: OverDriveBookbagEntry): string {
+     if (entry.holdCardId) {
+       return `Waiting on a hold at ${this.shortCardLabel(entry.holdCardId)}`;
+     }
+     return entry.lastNote ?? 'Waiting for a card that can borrow it';
    }
 
    /**

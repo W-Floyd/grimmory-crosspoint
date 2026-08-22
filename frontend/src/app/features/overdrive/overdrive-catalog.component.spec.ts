@@ -4,7 +4,7 @@ import {of, throwError} from 'rxjs';
 
 import {ConfirmationService, MessageService} from '@openng/optimus-ui/api';
 import {OverdriveCatalogComponent, toolProgressPct} from './overdrive-catalog.component';
-import {OverDriveService, OverDriveAuditEntry, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
+import {OverDriveService, OverDriveAuditEntry, OverDriveBookbagEntry, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
 import {LibraryService} from '../../features/book/service/library.service';
 import {TranslocoService} from '@jsverse/transloco';
 import {RxStompService} from '../../shared/websocket/rx-stomp.service';
@@ -41,6 +41,10 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     titleAvailabilityBatch: vi.fn(),
     history: vi.fn(() => of({entries: [] as OverDriveAuditEntry[], page: 0, size: 25, total: 0})),
     returnBook: vi.fn(() => of(void 0)),
+    bookbag: vi.fn(() => of([] as OverDriveBookbagEntry[])),
+    addToBookbag: vi.fn(() => of({id: 1, titleId: 't', position: 1} as OverDriveBookbagEntry)),
+    removeFromBookbag: vi.fn(() => of(void 0)),
+    reorderBookbag: vi.fn(() => of([] as OverDriveBookbagEntry[])),
   };
   const libraryService = {libraries: () => []};
 
@@ -182,6 +186,60 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     setup();
     expect(component.autoReturnLabel({id: '1'} as never)).toBeNull();
     expect(component.autoReturnTooltip({id: '1'} as never)).toBe('');
+  });
+
+  it('queues a search result and refreshes the bag so the tab count stays honest', () => {
+    setup();
+    const it1 = item({titleId: '2056901', title: 'Dune', author: 'Frank Herbert'});
+
+    component.onAddToBookbag(it1);
+
+    expect(overdriveService.addToBookbag).toHaveBeenCalledWith('2056901', 'Dune', 'Frank Herbert');
+    expect(overdriveService.bookbag).toHaveBeenCalled();
+  });
+
+  it('knows when a title is already queued', () => {
+    setup();
+    component.bookbag.set([{id: 1, titleId: '2056901', position: 1} as OverDriveBookbagEntry]);
+
+    expect(component.isInBookbag('2056901')).toBe(true);
+    expect(component.isInBookbag('999')).toBe(false);
+  });
+
+  it('reorders by sending the whole new order, not a delta', () => {
+    setup();
+    const a = {id: 1, titleId: 'a', position: 1} as OverDriveBookbagEntry;
+    const b = {id: 2, titleId: 'b', position: 2} as OverDriveBookbagEntry;
+    const d = {id: 3, titleId: 'c', position: 3} as OverDriveBookbagEntry;
+    component.bookbag.set([a, b, d]);
+
+    component.moveInBookbag(d, -1);
+
+    expect(overdriveService.reorderBookbag).toHaveBeenCalledWith([1, 3, 2]);
+  });
+
+  it('will not move the first entry up or the last entry down', () => {
+    setup();
+    const a = {id: 1, titleId: 'a', position: 1} as OverDriveBookbagEntry;
+    const b = {id: 2, titleId: 'b', position: 2} as OverDriveBookbagEntry;
+    component.bookbag.set([a, b]);
+
+    component.moveInBookbag(a, -1);
+    component.moveInBookbag(b, 1);
+
+    // Off either end is a no-op rather than a request the server has to reject.
+    expect(overdriveService.reorderBookbag).not.toHaveBeenCalled();
+  });
+
+  it('says what the bag will do with an entry next', () => {
+    setup();
+    expect(component.bookbagStatus({id: 1, titleId: 'a', position: 1, holdCardId: 'card-a'} as OverDriveBookbagEntry))
+      .toContain('Waiting on a hold');
+    expect(component.bookbagStatus({id: 1, titleId: 'a', position: 1, lastNote: 'A copy is available, but that card is at its checkout limit.'} as OverDriveBookbagEntry))
+      .toBe('A copy is available, but that card is at its checkout limit.');
+    // Nothing recorded yet: say what it is waiting for rather than leaving the cell blank.
+    expect(component.bookbagStatus({id: 1, titleId: 'a', position: 1} as OverDriveBookbagEntry))
+      .toBe('Waiting for a card that can borrow it');
   });
 
   it('links a title into its own library catalog when the card is known', () => {

@@ -580,6 +580,67 @@
     }
   }
 
+  // ── Bookbag tab ────────────────────────────────────────────────────
+  // Explains what the tab does, since the queue's behaviour is not self-evident from a list of rows.
+  .tab-intro {
+    margin: 0 0 1rem;
+    color: var(--text-color-secondary);
+    font-size: 0.85rem;
+    max-width: 60rem;
+  }
+
+  .bookbag-empty {
+    padding: 1.5rem 0;
+    color: var(--text-color-secondary);
+  }
+
+  // Position number and its two nudge buttons, kept on one line so the column stays narrow.
+  .bookbag-order {
+    white-space: nowrap;
+
+    .bookbag-position {
+      display: inline-block;
+      min-width: 1.25rem;
+      font-weight: 600;
+      color: var(--text-color-secondary);
+    }
+
+    .bookbag-move {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.1rem 0.15rem;
+      color: var(--text-color-secondary);
+
+      &:disabled {
+        opacity: 0.3;
+        cursor: default;
+      }
+
+      i {
+        font-size: 0.7rem;
+      }
+    }
+  }
+
+  .bookbag-status {
+    color: var(--text-color-secondary);
+    font-size: 0.85rem;
+
+    .bookbag-tried {
+      display: block;
+      font-size: 0.75rem;
+      opacity: 0.75;
+    }
+  }
+
+  // "In bookbag" marker, matching the other no-action row states.
+  .in-bookbag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
   // Badge flagging a search result the user already has out on loan.
   .loan-warning {
     display: inline-flex;
