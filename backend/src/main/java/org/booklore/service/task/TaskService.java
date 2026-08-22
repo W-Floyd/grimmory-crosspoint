@@ -26,7 +26,12 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import org.booklore.model.dto.response.CronConfig;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.time.ZonedDateTime;
+import java.time.ZoneId;
+import org.springframework.scheduling.support.CronExpression;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.UUID;
@@ -134,6 +139,44 @@ public class TaskService {
         }
         long seconds = scheduled.getDelay(TimeUnit.SECONDS);
         return seconds < 0 ? Optional.empty() : Optional.of(Instant.now().plusSeconds(seconds));
+    }
+
+    /**
+     * The next few firings: the one actually scheduled, then the plain cron slots after it.
+     *
+     * <p>Only the first carries the jitter that will really apply, because later firings are not
+     * drawn until the one before them completes — and a pass that overruns moves them anyway. The
+     * rest are the bare slots, which is the honest thing to project from: right to the minute for the
+     * next run, approximate after that.
+     *
+     * @param count how many firings to return, including the scheduled one
+     */
+    public List<Instant> upcomingRuns(TaskType taskType, int count) {
+        Optional<Instant> next = nextRunAt(taskType);
+        if (next.isEmpty() || count <= 0) {
+            return List.of();
+        }
+        List<Instant> runs = new ArrayList<>();
+        runs.add(next.get());
+        CronConfig config = taskCronService.getCronConfigOrDefault(taskType);
+        if (config.getCronExpression() == null || config.getCronExpression().isBlank()) {
+            return runs;
+        }
+        try {
+            CronExpression cron = CronExpression.parse(config.getCronExpression());
+            ZonedDateTime cursor = next.get().atZone(ZoneId.systemDefault());
+            for (int i = 1; i < count; i++) {
+                ZonedDateTime following = cron.next(cursor);
+                if (following == null) {
+                    break;
+                }
+                runs.add(following.toInstant());
+                cursor = following;
+            }
+        } catch (IllegalArgumentException e) {
+            log.debug("Cannot project further runs for {}: {}", taskType, e.getMessage());
+        }
+        return runs;
     }
 
     /** Whether a pass of this task is running right now, so a caller need not offer to start another. */

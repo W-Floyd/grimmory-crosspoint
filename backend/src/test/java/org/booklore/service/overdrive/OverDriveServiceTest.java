@@ -1919,6 +1919,72 @@ class OverDriveServiceTest {
         verify(bookRepository, never()).findIdsByOverdriveId("2056901");
     }
 
+    // ── Projecting when the queue gets worked ────────────────────────────
+
+    private void oneCardWithHourlyCeiling(int perHour, long usedThisHour) {
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        notResting("card-a");
+        limits("card-a", null, perHour, null, null, null);
+        borrowCounts("card-a", usedThisHour);
+    }
+
+    @Test
+    void thePlanSpreadsAQueueAcrossPassesWhenACeilingStopsOne() {
+        authAs(7L);
+        oneCardWithHourlyCeiling(2, 0);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(
+                bagged(1L, "a", 1), bagged(2L, "b", 2), bagged(3L, "c", 3), bagged(4L, "d", 4)));
+
+        var plan = service.bookbagPlan(List.of(
+                Instant.parse("2026-08-22T10:00:00Z"), Instant.parse("2026-08-22T12:00:00Z")));
+
+        // Two an hour means two a pass, however long the queue is — the first version laid all four
+        // into the next run and was wrong for anything a pass cannot drain.
+        assertThat(plan).extracting(OverDriveService.BookbagPlanEntry::passOffset)
+                .containsExactly(0, 0, 1, 1);
+    }
+
+    @Test
+    void thePlanSpacesEntriesWithinAPassRatherThanStackingThem() {
+        authAs(7L);
+        oneCardWithHourlyCeiling(10, 0);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L))
+                .thenReturn(List.of(bagged(1L, "a", 1), bagged(2L, "b", 2)));
+
+        var plan = service.bookbagPlan(List.of(Instant.parse("2026-08-22T10:00:00Z")));
+
+        Instant first = Instant.parse(plan.get(0).plannedAt());
+        Instant second = Instant.parse(plan.get(1).plannedAt());
+        assertThat(first).isEqualTo(Instant.parse("2026-08-22T10:00:00Z"));
+        // Spaced by the pacing the pass actually applies, so the plan matches what will happen.
+        assertThat(java.time.Duration.between(first, second).toMinutes()).isGreaterThanOrEqualTo(3);
+    }
+
+    @Test
+    void nothingIsPlannedForAnEntryWaitingOnAHold() {
+        authAs(7L);
+        oneCardWithHourlyCeiling(10, 0);
+        var waiting = bagged(1L, "a", 1);
+        waiting.setHoldCardId("card-a");
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L))
+                .thenReturn(List.of(waiting, bagged(2L, "b", 2)));
+
+        var plan = service.bookbagPlan(List.of(Instant.parse("2026-08-22T10:00:00Z")));
+
+        // The pass will look at it and move on; there is nothing to schedule until the hold comes in.
+        assertThat(plan).extracting(OverDriveService.BookbagPlanEntry::entryId).containsExactly(2L);
+    }
+
+    @Test
+    void nothingIsPlannedWhenThePollerIsNotScheduled() {
+        authAs(7L);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(bagged(1L, "a", 1)));
+
+        assertThat(service.bookbagPlan(List.of())).isEmpty();
+    }
+
     // ── Checking a waiting hold against the user's other libraries ───────
 
     private static org.booklore.model.dto.overdrive.OverDriveHold waitingHold(

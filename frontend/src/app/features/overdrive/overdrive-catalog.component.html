@@ -789,7 +789,9 @@
                     {{ bookbagStatus(entry) }}
                     @if (bookbagPlannedAt(entry); as planned) {
                       <small class="bookbag-planned">
-                        <i class="pi pi-forward"></i> Planned for about {{ formatDateTimeShort(planned.toISOString()) }}
+                        <i class="pi pi-forward"></i>
+                        {{ bookbagPlanIsNextPass(entry) ? 'Planned for' : 'Not before' }}
+                        {{ formatDateTimeShort(planned) }}
                       </small>
                     }
                     @if (entry.lastTriedAt) {

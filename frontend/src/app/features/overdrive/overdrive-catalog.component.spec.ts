@@ -47,6 +47,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     removeFromBookbag: vi.fn(() => of(void 0)),
     adoptHoldsIntoBookbag: vi.fn(() => of(2)),
     autoSyncSchedule: vi.fn(() => of({nextRunAt: null, running: false})),
+    bookbagPlan: vi.fn(() => of([])),
     borrowBookbagEntryNow: vi.fn(() => of({})),
     reorderBookbag: vi.fn(() => of([] as OverDriveBookbagEntry[])),
   };
@@ -235,36 +236,25 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.canBorrowBookbagNow(entry)).toBe(true);
   });
 
-  it('lays the plan out from the next run, spacing each entry apart', () => {
+  it('renders the projected time the server worked out', () => {
     setup();
-    component.autoSyncSchedule.set({nextRunAt: '2026-08-22T10:00:00Z', running: false});
-    component.bookbag.set([
-      {id: 1, titleId: 'a', position: 1} as OverDriveBookbagEntry,
-      {id: 2, titleId: 'b', position: 2} as OverDriveBookbagEntry,
-    ]);
+    component.bookbagPlan.set(new Map([[1, {entryId: 1, plannedAt: '2026-08-22T10:00:00Z', passOffset: 0}]]));
 
-    const first = component.bookbagPlannedAt({id: 1} as OverDriveBookbagEntry);
-    const second = component.bookbagPlannedAt({id: 2} as OverDriveBookbagEntry);
-
-    expect(first?.toISOString()).toBe('2026-08-22T10:00:00.000Z');
-    // Spaced by the pacing the pass actually applies, not stacked at the same instant.
-    expect(second!.getTime() - first!.getTime()).toBeGreaterThan(3 * 60 * 1000);
+    expect(component.bookbagPlannedAt({id: 1} as OverDriveBookbagEntry)).toBe('2026-08-22T10:00:00Z');
+    expect(component.bookbagPlanIsNextPass({id: 1} as OverDriveBookbagEntry)).toBe(true);
   });
 
-  it('plans nothing for an entry still waiting in a queue', () => {
+  it('qualifies a time in a later pass, whose jitter has not been drawn', () => {
     setup();
-    component.autoSyncSchedule.set({nextRunAt: '2026-08-22T10:00:00Z', running: false});
-    component.bookbag.set([{id: 1, titleId: 'a', position: 1, holdCardId: 'c1'} as OverDriveBookbagEntry]);
-    component.holds.set([{id: 'a', title: 'A', cardId: 'c1', ready: false} as never]);
+    component.bookbagPlan.set(new Map([[1, {entryId: 1, plannedAt: '2026-08-22T12:00:00Z', passOffset: 2}]]));
 
-    // The pass will look at it and move on; there is nothing to schedule until the hold comes in.
-    expect(component.bookbagPlannedAt({id: 1} as OverDriveBookbagEntry)).toBeNull();
+    // Only the next firing is exact; the ones after are plain cron slots.
+    expect(component.bookbagPlanIsNextPass({id: 1} as OverDriveBookbagEntry)).toBe(false);
   });
 
-  it('plans nothing at all when the poller is not scheduled', () => {
+  it('shows no time for an entry the plan does not mention', () => {
     setup();
-    component.autoSyncSchedule.set({nextRunAt: null, running: false});
-    component.bookbag.set([{id: 1, titleId: 'a', position: 1} as OverDriveBookbagEntry]);
+    component.bookbagPlan.set(new Map());
 
     expect(component.bookbagPlannedAt({id: 1} as OverDriveBookbagEntry)).toBeNull();
   });

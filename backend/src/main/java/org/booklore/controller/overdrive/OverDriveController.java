@@ -609,6 +609,23 @@ public class OverDriveController {
      */
     record AutoSyncSchedule(String nextRunAt, boolean running) {}
 
+    /**
+     * GET /api/overdrive/bookbag/plan — roughly when the coming passes will reach each queued title.
+     *
+     * <p>Computed server-side because the honest answer depends on the per-card borrow ceilings, which
+     * are deployment policy an ordinary user cannot read. Approximate by construction, and coarser the
+     * further out it goes: only the next firing has had its jitter drawn.
+     */
+    @Operation(summary = "Projected schedule for the bookbag")
+    @ApiResponse(responseCode = "200", description = "Projected plan, entry by entry")
+    @GetMapping("/bookbag/plan")
+    public ResponseEntity<List<OverDriveService.BookbagPlanEntry>> bookbagPlan() {
+        requireEnabled();
+        // Enough firings to cover a long queue without projecting into next week.
+        return ResponseEntity.ok(overDriveService.bookbagPlan(
+                taskService.upcomingRuns(TaskType.OVERDRIVE_AUTO_SYNC, 8)));
+    }
+
     /** GET /api/overdrive/bookbag — the current user's queue of wanted titles, in working order. */
     @Operation(summary = "List the current user's bookbag")
     @ApiResponse(responseCode = "200", description = "Bookbag returned")

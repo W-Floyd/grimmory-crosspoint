@@ -693,6 +693,11 @@ export class OverDriveService {
     return this.http.get<OverDriveAutoSyncSchedule>(`${this.baseUrl}/auto-sync/schedule`);
   }
 
+  /** Roughly when the coming passes will reach each queued title. */
+  bookbagPlan(): Observable<OverDriveBookbagPlanEntry[]> {
+    return this.http.get<OverDriveBookbagPlanEntry[]>(`${this.baseUrl}/bookbag/plan`);
+  }
+
   /** Put every hold you already have into the bookbag; returns how many were added. */
   adoptHoldsIntoBookbag(): Observable<number> {
     return this.http.post<number>(`${this.baseUrl}/bookbag/adopt-holds`, null);
@@ -712,6 +717,15 @@ export class OverDriveService {
   setCardLimits(identity: string, limits: OverDriveBorrowLimits): Observable<OverDriveCardBudget> {
     return this.http.put<OverDriveCardBudget>(`${this.baseUrl}/card-limits/${identity}`, limits);
   }
+}
+
+/** Where one queued title falls in the coming passes. */
+export interface OverDriveBookbagPlanEntry {
+  entryId: number;
+  /** Roughly when the pass reaches it. */
+  plannedAt: string;
+  /** Which firing: 0 the next one, 1 the one after, and so on. */
+  passOffset: number;
 }
 
 /** When the OverDrive poller next runs. */

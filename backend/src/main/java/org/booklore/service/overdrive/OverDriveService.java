@@ -1958,6 +1958,82 @@ public class OverDriveService {
       }
 
       /**
+       * When each queued entry is expected to be reached.
+       *
+       * @param entryId    the bookbag entry
+       * @param plannedAt  roughly when the pass will get to it
+       * @param passOffset which firing it falls in: 0 the next one, 1 the one after, and so on
+       */
+      public record BookbagPlanEntry(Long entryId, String plannedAt, int passOffset) {}
+
+      /**
+       * Lay the queue out across the coming passes.
+       *
+       * <p>Computed, never stored, so reordering the bag reshuffles it for free and it cannot go
+       * stale. Server-side because the honest answer needs the per-card ceilings, and those are
+       * deployment policy that an ordinary user cannot read.
+       *
+       * <p>The limits are what make this more than "everything at once": a pass keeps taking titles
+       * only while some card can still borrow, so with a modest hourly ceiling a long queue is drained
+       * a few per firing rather than in one sitting. Entries waiting on a hold are skipped entirely —
+       * nothing is planned for them until the hold comes in.
+       *
+       * <p>An estimate, and it says so by being coarse: the middle of each randomised gap, and the
+       * plain cron slots for firings after the next, which are not drawn yet.
+       */
+      public List<BookbagPlanEntry> bookbagPlan(List<Instant> upcomingRuns) {
+        Long userId = currentUserId();
+        List<OverDriveBookbagEntity> bag = bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId);
+        if (bag.isEmpty() || upcomingRuns.isEmpty()) {
+            return List.of();
+        }
+        int perPass = Math.max(1, borrowsLeftThisPass(userId));
+        // Midpoints of the pacing a pass really applies, between one checkout and the next.
+        long gapMillis = (LOAN_ACTION_GAP_MIN_MILLIS + LOAN_ACTION_GAP_MAX_MILLIS) / 2
+                + (FULFIL_GAP_MIN_MILLIS + FULFIL_GAP_MAX_MILLIS) / 2;
+
+        List<BookbagPlanEntry> plan = new ArrayList<>();
+        int placed = 0;
+        for (OverDriveBookbagEntity entry : bag) {
+            if (entry.getHoldCardId() != null) {
+                continue; // queued behind a hold; the pass will look, not act
+            }
+            int pass = placed / perPass;
+            if (pass >= upcomingRuns.size()) {
+                break; // beyond what we are willing to guess at
+            }
+            Instant at = upcomingRuns.get(pass).plusMillis((long) (placed % perPass) * gapMillis);
+            plan.add(new BookbagPlanEntry(entry.getId(), at.toString(), pass));
+            placed++;
+        }
+        return plan;
+      }
+
+      /**
+       * How many more titles the user's cards could take between them before a ceiling stops them.
+       *
+       * <p>Measured over the hour, which is the window that actually bites during one pass: a pass
+       * spaces checkouts minutes apart, so it cannot reach a daily or monthly ceiling on its own, and
+       * the per-minute one is already satisfied by the spacing. Cards resting or out of budget
+       * contribute nothing.
+       */
+      private int borrowsLeftThisPass(Long userId) {
+        int total = 0;
+        for (OverDriveTokenEntity row : accessibleTokenRows(userId)) {
+            String identity = row.getIdentity();
+            if (identity == null || borrowBlockedReason(identity) != null) {
+                continue;
+            }
+            Integer hourly = borrowLimits(identity).perHour();
+            if (hourly == null) {
+                return Integer.MAX_VALUE / 2; // no hourly ceiling anywhere: the pacing is the only brake
+            }
+            total += Math.max(0, hourly - borrowRate(identity).lastHour());
+        }
+        return total;
+      }
+
+      /**
        * Put every hold the user currently has into the bookbag, adopting each one rather than placing
        * a second.
        *

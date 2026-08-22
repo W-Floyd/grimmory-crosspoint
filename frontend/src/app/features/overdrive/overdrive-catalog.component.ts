@@ -3,7 +3,7 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
-import { OverDriveService, OverDriveAuditEntry, OverDriveAutoSyncSchedule, OverDriveBookbagEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
+import { OverDriveService, OverDriveAuditEntry, OverDriveAutoSyncSchedule, OverDriveBookbagEntry, OverDriveBookbagPlanEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
 
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { MessageModule } from '@openng/optimus-ui/message';
@@ -1907,6 +1907,7 @@ export class OverdriveCatalogComponent {
        next: (entries) => {
          this.bookbag.set(entries ?? []);
          this.bookbagLoading.set(false);
+         this.loadBookbagPlan();
        },
        error: (err: unknown) => {
          this.error.set(this.errorMessage(err, 'Could not load your bookbag'));
@@ -1921,46 +1922,43 @@ export class OverdriveCatalogComponent {
    autoSyncSchedule = signal<OverDriveAutoSyncSchedule | null>(null);
 
    /**
-    * Roughly when the pass will reach each queued entry, laid out from the next run.
+    * The projected plan, keyed by entry.
     *
-    * <p>Computed rather than stored, so reordering the bag reshuffles the plan for free and nothing
-    * can go stale. Deliberately an estimate: it assumes every actionable entry is still actionable
-    * when the pass arrives, and uses the middle of each randomised gap, so it says roughly when
-    * rather than pretending to a clock time. Entries waiting on a hold get none — nothing is planned
-    * for them until the hold comes in.
-    *
-    * @return entry id to the projected moment it is reached
+    * <p>Computed on the server, not here: an honest projection has to know the per-card borrow
+    * ceilings, which decide how many titles a single pass gets through, and those are deployment
+    * policy an ordinary user cannot read. The first version of this laid every entry into the next
+    * run and so was wrong for any queue longer than a pass can drain.
     */
-   readonly bookbagPlan = computed(() => {
-     const startsAt = this.autoSyncSchedule()?.nextRunAt;
-     const plan = new Map<number, Date>();
-     if (!startsAt) {
-       return plan;
-     }
-     // Midpoints of the pacing the pass actually applies: 45-150s between checkouts, plus 75-240s
-     // between a borrow and its download.
-     const CHECKOUT_GAP_MS = ((45 + 150) / 2) * 1000;
-     const FULFIL_GAP_MS = ((75 + 240) / 2) * 1000;
-     let offset = 0;
-     for (const entry of this.bookbag()) {
-       if (entry.holdCardId && !this.bookbagHold(entry)?.ready) {
-         continue; // queued behind a hold; the pass will only look, not act
-       }
-       plan.set(entry.id, new Date(new Date(startsAt).getTime() + offset));
-       offset += CHECKOUT_GAP_MS + FULFIL_GAP_MS;
-     }
-     return plan;
-   });
+   bookbagPlan = signal<Map<number, OverDriveBookbagPlanEntry>>(new Map());
+
+   /** Fetch the projection. Cheap, and refetched whenever the queue or the schedule changes. */
+   loadBookbagPlan(): void {
+     this.overdriveService.bookbagPlan().subscribe({
+       next: (entries) => this.bookbagPlan.set(new Map((entries ?? []).map(e => [e.entryId, e]))),
+       error: () => this.bookbagPlan.set(new Map())
+     });
+   }
 
    /** The projected moment for one entry, or null when nothing is planned for it. */
-   bookbagPlannedAt(entry: OverDriveBookbagEntry): Date | null {
-     return this.bookbagPlan().get(entry.id) ?? null;
+   bookbagPlannedAt(entry: OverDriveBookbagEntry): string | null {
+     return this.bookbagPlan().get(entry.id)?.plannedAt ?? null;
+   }
+
+   /**
+    * How the projected time should be qualified. Only the next firing has had its jitter drawn; the
+    * ones after it are plain cron slots, so saying "about" there is the truthful thing.
+    */
+   bookbagPlanIsNextPass(entry: OverDriveBookbagEntry): boolean {
+     return this.bookbagPlan().get(entry.id)?.passOffset === 0;
    }
 
    /** Fetch the next-run time; cheap, and the bookbag's whole plan hangs off it. */
    loadAutoSyncSchedule(): void {
      this.overdriveService.autoSyncSchedule().subscribe({
-       next: (schedule) => this.autoSyncSchedule.set(schedule),
+       next: (schedule) => {
+         this.autoSyncSchedule.set(schedule);
+         this.loadBookbagPlan();
+       },
        error: () => this.autoSyncSchedule.set(null)
      });
    }
