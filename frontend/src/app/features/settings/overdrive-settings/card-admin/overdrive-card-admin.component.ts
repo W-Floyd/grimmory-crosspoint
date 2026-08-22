@@ -15,7 +15,9 @@ import { ConfirmationService, MessageService } from '@openng/optimus-ui/api';
 import { Observable } from 'rxjs';
 
 import {
+  OverDriveBorrowLimits,
   OverDriveCard,
+  OverDriveCardBudget,
   OverDriveLibraryResolution,
   OverDriveManagedCard,
   OverDriveService,
@@ -111,9 +113,69 @@ export class OverdriveCardAdminComponent {
   savingShares = signal(false);
 
   /** Load (or reload) every user's cards. Called on expand rather than on construction. */
+  // ── Borrow limits ────────────────────────────────────────────────────
+  //
+  // Deliberately here rather than on the per-user OverDrive page: a ceiling is policy on a shared
+  // library account, and it applies to every user holding that card.
+
+  /** Each card's ceilings beside what it has actually borrowed, keyed by identity. */
+  budgets = signal<OverDriveCardBudget[]>([]);
+  /** Identity currently being saved, so only that row's button spins. */
+  savingLimitsFor = signal<string | null>(null);
+  /** In-progress edits, keyed by identity — applied only when the row is saved. */
+  private limitEdits = signal<Record<string, OverDriveBorrowLimits>>({});
+
+  /** The values a row's inputs should show: the user's unsaved edit, else what is stored. */
+  limitsFor(budget: OverDriveCardBudget): OverDriveBorrowLimits {
+    return this.limitEdits()[budget.identity] ?? budget.limits ?? {};
+  }
+
+  /** Record an edit without saving. Blank means no ceiling, so empty string becomes null, not zero. */
+  onLimitChange(budget: OverDriveCardBudget, window: keyof OverDriveBorrowLimits, value: unknown): void {
+    const parsed = value === '' || value === null || value === undefined ? null : Number(value);
+    this.limitEdits.update(edits => ({
+      ...edits,
+      [budget.identity]: { ...this.limitsFor(budget), [window]: Number.isFinite(parsed) ? parsed : null }
+    }));
+  }
+
+  saveLimits(budget: OverDriveCardBudget): void {
+    this.savingLimitsFor.set(budget.identity);
+    this.overdriveService.setCardLimits(budget.identity, this.limitsFor(budget)).subscribe({
+      next: (saved) => {
+        // Adopt what the server stored rather than what was typed: it validates, and a rejected value
+        // must not linger on screen looking saved.
+        this.budgets.update(list => list.map(b => b.identity === saved.identity ? saved : b));
+        this.limitEdits.update(edits => {
+          const next = { ...edits };
+          delete next[budget.identity];
+          return next;
+        });
+        this.savingLimitsFor.set(null);
+        this.messageService.add({ severity: 'success', summary: 'Limits saved',
+          detail: `Borrow limits updated for ${budget.cardName || budget.identity}.` });
+      },
+      error: (err: unknown) => {
+        this.savingLimitsFor.set(null);
+        this.error.set(this.messageOf(err, 'Could not save the borrow limits'));
+      }
+    });
+  }
+
+  /** True once a row has been edited but not yet saved. */
+  hasUnsavedLimits(budget: OverDriveCardBudget): boolean {
+    return this.limitEdits()[budget.identity] !== undefined;
+  }
+
   load(): void {
     this.loading.set(true);
     this.error.set(null);
+    this.overdriveService.cardLimits().subscribe({
+      // Best-effort: the card list is the point of this section, and a limits failure should not
+      // hide it.
+      next: (budgets) => this.budgets.set(budgets ?? []),
+      error: () => this.budgets.set([])
+    });
     this.overdriveService.allCards().subscribe({
       next: (cards) => {
         this.cards.set(cards ?? []);

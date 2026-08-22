@@ -3,9 +3,14 @@ import {of, throwError} from 'rxjs';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {ConfirmationService} from '@openng/optimus-ui/api';
 
-import {OverDriveManagedCard, OverDriveService, OverDriveShareUser} from '../../../../core/services/overdrive.service';
+import {OverDriveBorrowLimits, OverDriveCardBudget, OverDriveManagedCard, OverDriveService, OverDriveShareUser} from '../../../../core/services/overdrive.service';
 import {UserService} from '../../user-management/user.service';
 import {OverdriveCardAdminComponent} from './overdrive-card-admin.component';
+
+/** Zeroed usage counts, for stubs that need a rate but do not care about it. */
+function rate() {
+  return {lastMinute: 0, lastHour: 0, lastDay: 0, lastWeek: 0, last30Days: 0};
+}
 
 const overdriveService = {
   allCards: vi.fn(() => of([] as OverDriveManagedCard[])),
@@ -15,6 +20,9 @@ const overdriveService = {
   setCardLabel: vi.fn(() => of(void 0)),
   refreshCard: vi.fn(() => of(void 0)),
   removeCard: vi.fn(() => of(void 0)),
+  cardLimits: vi.fn(() => of([] as OverDriveCardBudget[])),
+  setCardLimits: vi.fn((identity: string, limits: OverDriveBorrowLimits) =>
+    of({identity, cardName: identity, limits, rate: rate()} as OverDriveCardBudget)),
   linkCard: vi.fn(() => of([] as unknown[])),
   redeemSetupCode: vi.fn(() => of([] as unknown[])),
   linkToken: vi.fn(() => of([] as unknown[])),
@@ -62,6 +70,53 @@ describe('OverdriveCardAdminComponent', () => {
 
     permissions = {admin: true};
     expect(setup().permitted()).toBe(true);
+  });
+
+  it('does not offer to save a row nobody has edited', () => {
+    const c = setup();
+    const budget = {identity: 'card-a', cardName: 'MCPL', limits: {perHour: 5}, rate: rate()} as OverDriveCardBudget;
+    c.budgets.set([budget]);
+
+    expect(c.hasUnsavedLimits(budget)).toBe(false);
+    expect(c.limitsFor(budget).perHour).toBe(5);
+  });
+
+  it('treats a cleared box as no ceiling rather than a ceiling of zero', () => {
+    const c = setup();
+    const budget = {identity: 'card-a', limits: {perHour: 5}, rate: rate()} as OverDriveCardBudget;
+    c.budgets.set([budget]);
+
+    c.onLimitChange(budget, 'perHour', '');
+
+    // Zero would ground the card; blank means the window is simply not capped.
+    expect(c.limitsFor(budget).perHour).toBeNull();
+    expect(c.hasUnsavedLimits(budget)).toBe(true);
+  });
+
+  it('adopts what the server stored rather than what was typed', () => {
+    const c = setup();
+    const budget = {identity: 'card-a', limits: {}, rate: rate()} as OverDriveCardBudget;
+    c.budgets.set([budget]);
+    c.onLimitChange(budget, 'perMonth', '120');
+
+    c.saveLimits(budget);
+
+    expect(overdriveService.setCardLimits).toHaveBeenCalledWith('card-a', {perMonth: 120});
+    // The edit is dropped once saved, so the row shows stored state and the Save button goes quiet.
+    expect(c.hasUnsavedLimits(budget)).toBe(false);
+    expect(c.budgets()[0].limits.perMonth).toBe(120);
+  });
+
+  it('keeps the card list usable when the limits call fails', () => {
+    overdriveService.cardLimits.mockReturnValueOnce(
+      throwError(() => new Error('nope')) as unknown as ReturnType<typeof overdriveService.cardLimits>);
+    const c = setup();
+
+    c.load();
+
+    // The card list is what this section is for; a limits failure must not take it down with it.
+    expect(c.budgets()).toEqual([]);
+    expect(overdriveService.allCards).toHaveBeenCalled();
   });
 
   it('groups cards by owner and counts what is shown', () => {
