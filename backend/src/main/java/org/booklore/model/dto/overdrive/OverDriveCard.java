@@ -20,12 +20,14 @@ package org.booklore.model.dto.overdrive;
  * <p>{@code churnCooldownUntil} is set while OverDrive has the card flagged for borrowing and
  * returning too much: borrows and returns are paused until then, syncing is not. Null when free.
  *
- * <p>{@code borrowLimitReached} names an administrator's ceiling the card has hit ("100 of 100
- * allowed this 30 days"), or null. Only meaningful when the card is not resting — OverDrive's own
- * refusal outranks a ceiling we set, and is reported through {@code churnCooldownUntil} instead.
+ * <p>{@code borrowLimitReached} and {@code returnLimitReached} name an administrator's ceiling the
+ * card has hit ("100 of 100 borrowed this 30 days"), or null. The two are counted separately against
+ * the same numbers, since a card can be out of borrows while still free to hand books back. Both are
+ * null while the card is resting — OverDrive's own refusal outranks a ceiling we set, and is reported
+ * through {@code churnCooldownUntil} instead.
  */
 public record OverDriveCard(String cardId, String name, String libraryKey, boolean credentialsStored,
                             Long defaultLibraryId, Long defaultPathId,
                             boolean owned, String ownerName, int sharedWithCount,
                             boolean canAutoRenew, Long tokenExpiresAt, String churnCooldownUntil,
-                            String borrowLimitReached) {}
+                            String borrowLimitReached, String returnLimitReached) {}

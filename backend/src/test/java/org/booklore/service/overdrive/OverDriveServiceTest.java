@@ -1209,7 +1209,7 @@ class OverDriveServiceTest {
         var card = service.listCards().getFirst();
 
         // Both meters can show room on a card that has stopped borrowing, so the list has to say why.
-        assertThat(card.borrowLimitReached()).isEqualTo("100 of 100 allowed this 30 days");
+        assertThat(card.borrowLimitReached()).isEqualTo("100 of 100 borrows this 30 days");
         assertThat(card.churnCooldownUntil()).isNull();
     }
 
@@ -1246,6 +1246,46 @@ class OverDriveServiceTest {
 
         assertThat(card.churnCooldownUntil()).isNull();
         assertThat(card.borrowLimitReached()).isNull();
+    }
+
+    /** Stub counts for one kind of action only, so borrows and returns can differ in a test. */
+    private void actionCounts(String identity, List<String> actions, long perWindow) {
+        when(auditRepository.countActionsPerWindow(org.mockito.ArgumentMatchers.eq(identity),
+                org.mockito.ArgumentMatchers.eq(actions), any(), any(), any(), any(), any()))
+                .thenReturn(List.<Object[]>of(new Object[]{perWindow, perWindow, perWindow, perWindow, perWindow}));
+    }
+
+    @Test
+    void returningIsBoundedByTheSameCeilingsAsBorrowing() {
+        notResting("card-a");
+        limits("card-a", null, null, null, null, 100);
+        actionCounts("card-a", List.of("RETURN", "AUTO_RETURN"), 100);
+
+        // Handing books back in a burst is the same signal to OverDrive as taking them out in one.
+        assertThat(service.returnBlockedReason("card-a"))
+                .isEqualTo("this card has already used 100 of 100 returns this 30 days");
+    }
+
+    @Test
+    void borrowsAndReturnsAreCountedSeparatelyAgainstThoseCeilings() {
+        notResting("card-a");
+        limits("card-a", null, null, null, null, 100);
+        actionCounts("card-a", List.of("BORROW", "BORROW_AND_IMPORT"), 100);
+        actionCounts("card-a", List.of("RETURN", "AUTO_RETURN"), 3);
+
+        // Pooling them would silently halve the borrowing the configured number was chosen to allow,
+        // since it was read off borrow counts in the first place.
+        assertThat(service.borrowBlockedReason("card-a")).contains("100 of 100 borrows");
+        assertThat(service.returnBlockedReason("card-a")).isNull();
+    }
+
+    @Test
+    void aRestingCardRefusesToReturnBeforeAnyCeilingIsMeasured() {
+        Instant until = Instant.now().plus(java.time.Duration.ofDays(3));
+        when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(restingCard("card-a", until)));
+
+        assertThat(service.returnBlockedReason("card-a")).contains("too many titles borrowed and returned");
+        verifyNoInteractions(auditRepository, cardLimitRepository);
     }
 
     // ── The bookbag ──────────────────────────────────────────────────────
@@ -1508,7 +1548,7 @@ class OverDriveServiceTest {
         limits("card-a", null, 5, null, null);
         borrowCounts("card-a", 5);
 
-        assertThat(service.borrowBlockedReason("card-a")).isEqualTo("this card has already borrowed 5 of 5 allowed this hour");
+        assertThat(service.borrowBlockedReason("card-a")).isEqualTo("this card has already used 5 of 5 borrows this hour");
     }
 
     @Test
@@ -1549,7 +1589,7 @@ class OverDriveServiceTest {
         // The window this deployment's refusals actually correlate with: a card can be well inside
         // every shorter limit and still have crossed a monthly cap.
         assertThat(service.borrowBlockedReason("card-a"))
-                .isEqualTo("this card has already borrowed 145 of 145 allowed this 30 days");
+                .isEqualTo("this card has already used 145 of 145 borrows this 30 days");
     }
 
     @Test
@@ -1624,8 +1664,8 @@ class OverDriveServiceTest {
 
     /** Stub this card's borrow counts; the same number is reported for every window. */
     private void borrowCounts(String identity, long perWindow) {
-        when(auditRepository.countBorrowsPerWindow(org.mockito.ArgumentMatchers.eq(identity),
-                any(), any(), any(), any(), any()))
+        when(auditRepository.countActionsPerWindow(org.mockito.ArgumentMatchers.eq(identity),
+                any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.<Object[]>of(new Object[]{perWindow, perWindow, perWindow, perWindow, perWindow}));
     }
 
@@ -1660,7 +1700,7 @@ class OverDriveServiceTest {
                 .thenReturn(List.of(restingCard("card-b", Instant.now().plus(java.time.Duration.ofDays(5)))));
         notResting("card-c");
         when(cardLimitRepository.findById(any())).thenReturn(Optional.empty());
-        when(auditRepository.countBorrowsPerWindow(any(), any(), any(), any(), any(), any()))
+        when(auditRepository.countActionsPerWindow(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.<Object[]>of(new Object[]{0L, 0L, 0L, 0L, 0L}));
 
         // bpl has far more copies, but its card is resting after a churning limit — every path that
@@ -1939,7 +1979,7 @@ class OverDriveServiceTest {
     void borrowingPrefersTheLibraryWithMoreCopiesFree() {
         when(tokenRepository.findByIdentity(any())).thenReturn(List.of());
         when(cardLimitRepository.findById(any())).thenReturn(Optional.empty());
-        when(auditRepository.countBorrowsPerWindow(any(), any(), any(), any(), any(), any()))
+        when(auditRepository.countActionsPerWindow(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.<Object[]>of(new Object[]{0L, 0L, 0L, 0L, 0L}));
 
         // Both can lend it. Taking the lone copy at bpl empties that shelf and starts a queue there,
@@ -1957,7 +1997,7 @@ class OverDriveServiceTest {
     void borrowingCountsEveryFreeCopy_regularAndLuckyDay() {
         when(tokenRepository.findByIdentity(any())).thenReturn(List.of());
         when(cardLimitRepository.findById(any())).thenReturn(Optional.empty());
-        when(auditRepository.countBorrowsPerWindow(any(), any(), any(), any(), any(), any()))
+        when(auditRepository.countActionsPerWindow(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.<Object[]>of(new Object[]{0L, 0L, 0L, 0L, 0L}));
 
         var oneRegular = new org.booklore.model.dto.overdrive.OverDriveLibraryAvailability(
@@ -1974,7 +2014,7 @@ class OverDriveServiceTest {
     void borrowingSkipsACardThatIsFullOrOutOfBudget() {
         when(tokenRepository.findByIdentity(any())).thenReturn(List.of());
         when(cardLimitRepository.findById(any())).thenReturn(Optional.empty());
-        when(auditRepository.countBorrowsPerWindow(any(), any(), any(), any(), any(), any()))
+        when(auditRepository.countActionsPerWindow(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.<Object[]>of(new Object[]{0L, 0L, 0L, 0L, 0L}));
         var plenty = new org.booklore.model.dto.overdrive.OverDriveLibraryAvailability(
                 "bpl", true, false, 9, 20, null, null, 0);

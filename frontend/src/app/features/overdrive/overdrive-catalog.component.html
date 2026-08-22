@@ -95,12 +95,21 @@
                     tooltipPosition="top">
                     <i class="pi pi-pause"></i> Resting until {{ formatDateTimeShort(card.churnCooldownUntil) }}
                   </span>
-                } @else if (card.borrowLimitReached) {
-                  <span class="capacity-resting"
-                    pTooltip="This card has reached a borrow limit an administrator set for it. Holds, searching and syncing are unaffected, and it starts borrowing again as the window rolls forward."
-                    tooltipPosition="top">
-                    <i class="pi pi-gauge"></i> {{ card.borrowLimitReached }}
-                  </span>
+                } @else {
+                  @if (card.borrowLimitReached) {
+                    <span class="capacity-resting"
+                      pTooltip="This card has reached a borrow limit an administrator set for it. Holds, searching and syncing are unaffected, and it starts borrowing again as the window rolls forward."
+                      tooltipPosition="top">
+                      <i class="pi pi-gauge"></i> {{ card.borrowLimitReached }}
+                    </span>
+                  }
+                  @if (card.returnLimitReached) {
+                    <span class="capacity-resting"
+                      pTooltip="This card has reached its limit for giving books back. Returns are the other half of what OverDrive counts as churning, so they are paced like borrows — automatic returns resume as the window rolls forward."
+                      tooltipPosition="top">
+                      <i class="pi pi-gauge"></i> {{ card.returnLimitReached }}
+                    </span>
+                  }
                 }
               </div>
             }

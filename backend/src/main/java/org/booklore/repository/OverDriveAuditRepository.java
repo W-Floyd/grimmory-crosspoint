@@ -25,8 +25,8 @@ public interface OverDriveAuditRepository extends JpaRepository<OverDriveAuditEn
     /**
      * How many checkouts a card has taken since a moment, across every user who holds it.
      *
-     * <p>Counts only the actions that actually consume a checkout: a plain borrow, and a
-     * borrow-then-import. {@code IMPORT} is deliberately excluded — it means an existing loan was
+     * <p>Callers pass the actions that count. For a borrow rate that is a plain borrow and a
+     * borrow-then-import; {@code IMPORT} is deliberately excluded — it means an existing loan was
      * resumed and fulfilled, which spends no new checkout and so does not count against a borrow rate.
      * Failures are excluded too: a refused borrow is not a borrow, and counting our own retries would
      * make a rate-limited card look busier the longer it stayed limited.
@@ -40,7 +40,7 @@ public interface OverDriveAuditRepository extends JpaRepository<OverDriveAuditEn
     long countBorrowsOnCardSince(@Param("identity") String identity, @Param("since") java.time.Instant since);
 
     /**
-     * All five window counts for a card in one query.
+     * All five window counts for a card, for one kind of action, in one query.
      *
      * <p>Checking a ceiling used to be one query per window, which was cheap while almost no card had
      * one configured. Defaults changed that: every card now has all five, and the check runs inside
@@ -56,8 +56,9 @@ public interface OverDriveAuditRepository extends JpaRepository<OverDriveAuditEn
             + "SUM(CASE WHEN a.createdAt >= :week THEN 1 ELSE 0 END), "
             + "COUNT(a) "
             + "FROM OverDriveAuditEntity a WHERE a.identity = :identity AND a.success = true "
-            + "AND a.createdAt >= :month AND a.action IN ('BORROW', 'BORROW_AND_IMPORT')")
-    List<Object[]> countBorrowsPerWindow(@Param("identity") String identity,
+            + "AND a.createdAt >= :month AND a.action IN :actions")
+    List<Object[]> countActionsPerWindow(@Param("identity") String identity,
+                                         @Param("actions") java.util.Collection<String> actions,
                                          @Param("minute") java.time.Instant minute,
                                          @Param("hour") java.time.Instant hour,
                                          @Param("day") java.time.Instant day,

@@ -1410,14 +1410,41 @@ public class OverDriveService {
                     + resting;
         }
         String ceiling = borrowCeilingReached(identity);
-        return ceiling == null ? null : "this card has already borrowed " + ceiling;
+        return ceiling == null ? null : "this card has already used " + ceiling;
       }
 
       /** Refuse a borrow a person asked for, saying which of the two reasons applies. */
       private void assertCanBorrow(String identity) {
         String blocked = borrowBlockedReason(identity);
         if (blocked != null) {
-            throw ApiError.CONFLICT.createException("Can't borrow on this card: " + blocked + ".");
+            throw ApiError.CONFLICT.createException("Can't borrow right now: " + blocked + ".");
+        }
+      }
+
+      /**
+       * Why this card cannot give a copy back right now, or null when it can.
+       *
+       * <p>Returns are rate-limited like borrows because they are the other half of what
+       * PatronExceededChurningLimit counts — handing books back in a burst is the same signal to
+       * OverDrive as taking them out in one, and pacing one side while leaving the other unbounded is
+       * not pacing. The ceilings are the same numbers, counted separately.
+       */
+      String returnBlockedReason(String identity) { // package-private for testing
+        Instant resting = churnCooldownUntil(identity);
+        if (resting != null) {
+            return "OverDrive reported too many titles borrowed and returned on this card; it resumes at "
+                    + resting;
+        }
+        String ceiling = returnCeilingReached(identity, borrowLimits(identity));
+        return ceiling == null ? null : "this card has already used " + ceiling;
+      }
+
+      /** Refuse a return a person asked for, saying which reason applies. */
+      private void assertCanReturn(String identity) {
+        String blocked = returnBlockedReason(identity);
+        if (blocked != null) {
+            throw ApiError.CONFLICT.createException("Can't return right now: " + blocked
+                    + ". It resumes on its own — nothing needs doing.");
         }
       }
 
@@ -2096,12 +2123,32 @@ public class OverDriveService {
         }
       }
 
+      /** Actions that take a copy out — what a borrow ceiling counts. */
+      private static final List<String> BORROW_ACTIONS = List.of("BORROW", "BORROW_AND_IMPORT");
+
+      /**
+       * Actions that give one back. Counted against the same ceilings as borrows, separately rather
+       * than pooled: the numbers an administrator sets are read off borrow counts at the moment a
+       * refusal happened, so pooling would silently halve the borrowing those numbers were chosen to
+       * allow. A card doing N borrows and N returns per window is what they describe.
+       */
+      private static final List<String> RETURN_ACTIONS = List.of("RETURN", "AUTO_RETURN");
+
       /** Count this card's checkouts over every window, for reporting or for checking a ceiling. */
       public BorrowRate borrowRate(String identity) {
+        return rateFor(identity, BORROW_ACTIONS);
+      }
+
+      /** Count this card's returns over every window. */
+      public BorrowRate returnRate(String identity) {
+        return rateFor(identity, RETURN_ACTIONS);
+      }
+
+      private BorrowRate rateFor(String identity, List<String> actions) {
         Instant now = Instant.now();
         // One query for all five, not one each: this runs inside per-title, per-library loops, and
         // every card has ceilings now that unconfigured ones fall back to defaults.
-        List<Object[]> rows = auditRepository.countBorrowsPerWindow(identity,
+        List<Object[]> rows = auditRepository.countActionsPerWindow(identity, actions,
                 now.minus(BorrowWindow.MINUTE.length), now.minus(BorrowWindow.HOUR.length),
                 now.minus(BorrowWindow.DAY.length), now.minus(BorrowWindow.WEEK.length),
                 now.minus(BorrowWindow.MONTH.length));
@@ -2176,18 +2223,31 @@ public class OverDriveService {
 
       /** As above, for a caller that has already looked the ceilings up — see {@link #listCards()}. */
       private String borrowCeilingReached(String identity, BorrowLimits limits) {
+        return ceilingReached(limits, () -> borrowRate(identity), "borrows");
+      }
+
+      /**
+       * Which ceiling this card's returns have reached, or null. Same numbers as borrows, counted
+       * separately — see {@link #RETURN_ACTIONS}.
+       */
+      private String returnCeilingReached(String identity, BorrowLimits limits) {
+        return ceilingReached(limits, () -> returnRate(identity), "returns");
+      }
+
+      private String ceilingReached(BorrowLimits limits, java.util.function.Supplier<BorrowRate> rate,
+                                    String noun) {
         if (!limits.anySet()) {
             return null;
         }
-        BorrowRate rate = borrowRate(identity);
+        BorrowRate counted = rate.get();
         for (BorrowWindow window : BorrowWindow.values()) {
             Integer ceiling = limits.forWindow(window);
             if (ceiling == null) {
                 continue;
             }
-            long taken = borrowsInWindow(rate, window);
+            long taken = borrowsInWindow(counted, window);
             if (taken >= ceiling) {
-                return taken + " of " + ceiling + " allowed this " + window.label;
+                return taken + " of " + ceiling + " " + noun + " this " + window.label;
             }
         }
         return null;
@@ -2405,7 +2465,7 @@ public class OverDriveService {
                         // Freshly read from a live sync during linking — always the current user's own card.
                         // Credential/expiry details aren't known here; reloadCards() (listCards) is authoritative.
                         cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey, false, null, null,
-                                true, null, 0, false, null, null, null));
+                                true, null, 0, false, null, null, null, null));
                     }
                 }
             }
@@ -3945,9 +4005,11 @@ public class OverDriveService {
             if (!heldLoanIds.contains(loan.getOverdriveLoanId())) {
                 continue;
             }
-            if (churnCooldownUntil(loan.getIdentity()) != null) {
-                // Returning early is the other half of the cycle OverDrive objected to. The loan keeps
-                // its drawn due time and goes back once the card is free again.
+            String blocked = returnBlockedReason(loan.getIdentity());
+            if (blocked != null) {
+                // Returning early is the other half of the cycle OverDrive objected to, so a card that
+                // is resting or has spent its return budget stops here too. The loan keeps its drawn
+                // due time and goes back once the card is free again.
                 continue;
             }
             int holds = holdsByTitle.getOrDefault(loan.getOverdriveLoanId(), 0);
@@ -5371,7 +5433,7 @@ public class OverDriveService {
        * DELETE /card/{cardId}/loan/{loanId} — return a book.
        */
       public void returnBook(String identity, String loanId) {
-        assertNotChurnLimited(identity, "returning titles");
+        assertCanReturn(identity);
         String url = sentryBaseUrl + "/card/" + identity + "/loan/" + loanId;
 
         try {
@@ -5685,6 +5747,9 @@ public class OverDriveService {
                             // set ourselves, and reporting both would say the same thing twice.
                             resting ? null
                                     : borrowCeilingReached(t.getIdentity(),
+                                            limits.getOrDefault(t.getIdentity(), BorrowLimits.DEFAULTS)),
+                            resting ? null
+                                    : returnCeilingReached(t.getIdentity(),
                                             limits.getOrDefault(t.getIdentity(), BorrowLimits.DEFAULTS)));
                 })
                 .toList();
