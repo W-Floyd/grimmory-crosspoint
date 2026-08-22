@@ -2057,7 +2057,16 @@ export class OverdriveCatalogComponent {
          ? `Waiting on a hold at ${this.shortCardLabel(entry.holdCardId)} · ~${wait}d`
          : `Waiting on a hold at ${this.shortCardLabel(entry.holdCardId)}`;
      }
-     return entry.lastNote ?? 'Waiting for a card that can borrow it';
+     if (entry.lastNote) {
+       return entry.lastNote;
+     }
+     if (!entry.lastTriedAt) {
+       // Never looked at. Saying "waiting for a card that can borrow it" here reads as "none can",
+       // which is wrong for a title queued a minute ago that may be sitting on a shelf right now —
+       // the scheduled task simply has not come round to it.
+       return 'Queued — nothing has looked at it yet';
+     }
+     return 'Waiting for a card that can borrow it';
    }
 
    /**

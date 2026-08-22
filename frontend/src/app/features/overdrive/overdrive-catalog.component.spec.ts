@@ -270,8 +270,12 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       .toContain('Waiting on a hold');
     expect(component.bookbagStatus({id: 1, titleId: 'a', position: 1, lastNote: 'A copy is available, but that card is at its checkout limit.'} as OverDriveBookbagEntry))
       .toBe('A copy is available, but that card is at its checkout limit.');
-    // Nothing recorded yet: say what it is waiting for rather than leaving the cell blank.
+    // Never looked at. "Waiting for a card that can borrow it" reads as "none can", which is wrong
+    // for a title queued a minute ago that may well be on a shelf right now.
     expect(component.bookbagStatus({id: 1, titleId: 'a', position: 1} as OverDriveBookbagEntry))
+      .toBe('Queued — nothing has looked at it yet');
+    // Looked at, but the pass recorded no reason — then the generic wait is accurate.
+    expect(component.bookbagStatus({id: 1, titleId: 'a', position: 1, lastTriedAt: '2026-08-22T01:00:00Z'} as OverDriveBookbagEntry))
       .toBe('Waiting for a card that can borrow it');
   });
 
