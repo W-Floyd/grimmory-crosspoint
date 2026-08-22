@@ -1467,7 +1467,8 @@ class OverDriveServiceTest {
     void aBagIsWorkedEvenWithEveryAutomationSwitchOff() {
         authAs(7L);
         when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.empty());
-        when(bookbagRepository.countByUserId(7L)).thenReturn(1L);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L))
+                .thenReturn(List.of(bagged(1L, "2056901", 1)));
         when(tokenRepository.findByUserId(7L)).thenReturn(List.of());
         when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
 
@@ -1886,6 +1887,36 @@ class OverDriveServiceTest {
 
         assertThat(entry.getHoldCardId()).isEqualTo("card-a");
         assertThat(entry.getLastNote()).contains("Waiting on the hold");
+    }
+
+    @Test
+    void aDeliberateSecondCopyIsImported_notLinkedAndHandedBack() {
+        authAsAdmin(7L);
+        var queued = bagged(1L, "2056901", 1);
+        queued.setAllowReborrow(true);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(queued));
+        when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.of(
+                org.booklore.model.entity.OverDriveAutoSyncEntity.builder()
+                        .userId(7L).autoImportLoans(true).build()));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        stubCard(7L, "card-a", "chip-1");
+        when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
+
+        OverDriveLoanEntity pending = loanRow("2056901", "card-a", "BORROWED");
+        pending.setFulfilled(false);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(pending));
+        when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "2056901")).thenReturn(Optional.of(pending));
+
+        var outcome = syncHarness(syncCovering(List.of("card-a"), "2056901")).service().runAutoSync();
+
+        // Linking marks a loan fulfilled without downloading, and fulfilled is what makes it eligible
+        // for automatic return — so a copy asked for on purpose would go straight back, unread. The
+        // library is not even consulted for a title the bag says was queued deliberately.
+        assertThat(outcome.loansLinked()).isZero();
+        assertThat(pending.getFulfilled()).isFalse();
+        verify(bookRepository, never()).findIdsByOverdriveId("2056901");
     }
 
     // ── Checking a waiting hold against the user's other libraries ───────

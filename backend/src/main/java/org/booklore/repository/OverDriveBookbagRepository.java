@@ -20,8 +20,6 @@ public interface OverDriveBookbagRepository extends JpaRepository<OverDriveBookb
 
     Optional<OverDriveBookbagEntity> findByUserIdAndTitleId(Long userId, String titleId);
 
-    long countByUserId(Long userId);
-
     /** Users with at least one queued title — they need polling even with every switch off. */
     @org.springframework.data.jpa.repository.Query("SELECT DISTINCT b.userId FROM OverDriveBookbagEntity b")
     List<Long> findDistinctUserIds();

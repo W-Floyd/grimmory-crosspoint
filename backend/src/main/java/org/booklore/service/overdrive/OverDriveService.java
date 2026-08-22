@@ -3715,9 +3715,11 @@ public class OverDriveService {
       private AutoSyncOutcome doAutoSync() {
         OverDriveAutoSyncSettings settings = getAutoSyncSettings();
         Long userId = currentUserId();
+        // One read of the bag for everything the surrounding phases need to know about it.
+        List<OverDriveBookbagEntity> bag = bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId);
         // A bookbag entry is a standing "borrow this for me", so it is an opt-in in its own right and
         // does not need one of the switches on as well.
-        boolean hasBookbag = bookbagRepository.countByUserId(userId) > 0;
+        boolean hasBookbag = !bag.isEmpty();
         if (!settings.autoImportLoans() && !settings.autoBorrowHolds() && !settings.autoReturnEnabled()
                 && !settings.holdShoppingEnabled() && !hasBookbag) {
             return AutoSyncOutcome.none();
@@ -3744,7 +3746,13 @@ public class OverDriveService {
         // blanket auto-borrow switch is on: queueing a title is itself the instruction to borrow it,
         // and the bag placing holds it then never collects was the hole in splitting this decision
         // across two switches.
-        Set<String> queuedTitleIds = bookbagRepository.findByUserIdOrderByPositionAscIdAsc(userId).stream()
+        Set<String> queuedTitleIds = bag.stream()
+                .map(OverDriveBookbagEntity::getTitleId)
+                .collect(Collectors.toSet());
+        // Titles queued in the knowledge that the library already has them. The import sweep needs
+        // these to tell a second copy somebody asked for from a duplicate that arrived by accident.
+        Set<String> deliberateSecondCopies = bag.stream()
+                .filter(OverDriveBookbagEntity::isAllowReborrow)
                 .map(OverDriveBookbagEntity::getTitleId)
                 .collect(Collectors.toSet());
 
@@ -3842,7 +3850,7 @@ public class OverDriveService {
                 if (!heldLoanIds.contains(loan.getOverdriveLoanId()) || !pendingAutoImport(loan)) {
                     continue;
                 }
-                if (linkIfAlreadyInLibrary(loan, userId)) {
+                if (linkIfAlreadyInLibrary(loan, userId, deliberateSecondCopies)) {
                     linked++;
                     continue;
                 }
@@ -3850,7 +3858,9 @@ public class OverDriveService {
                 // the account already holds, so importing it takes no checkout. A card resting or at a
                 // ceiling should stop taking new books out, not stop collecting the ones it has.
                 try {
-                    pauseBetweenTitles(borrowed + imported);
+                    // The light gap, and counted only within this phase: fetching a loan already held
+                    // takes no checkout, so it is not what the minutes-long spacing is for.
+                    pauseBetweenTitles(imported);
                     // The stored format decides how the title is fulfilled. Passing null made every
                     // magazine and audiobook fall through to the ebook path and fail as "no importable
                     // format", even where the handler was configured and worked by hand.
@@ -3899,7 +3909,14 @@ public class OverDriveService {
        *
        * @return whether the loan was linked (and so needs no import)
        */
-      private boolean linkIfAlreadyInLibrary(OverDriveLoanEntity loan, Long userId) {
+      private boolean linkIfAlreadyInLibrary(OverDriveLoanEntity loan, Long userId,
+                                             Set<String> deliberateSecondCopies) {
+        if (deliberateSecondCopies.contains(loan.getOverdriveLoanId())) {
+            // Somebody queued this knowing the library had it. Linking would mark it fulfilled without
+            // downloading anything, and being fulfilled is what makes a loan eligible for automatic
+            // return — so the copy they asked for would be handed straight back, unread.
+            return false;
+        }
         Long existing = resolveLinkedBookId(loan.getOverdriveLoanId(), null, null);
         if (existing == null) {
             return false;
