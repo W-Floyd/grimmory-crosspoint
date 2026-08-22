@@ -16,6 +16,8 @@ import org.booklore.service.acsm.AcsmHandlerConfig;
 import org.booklore.service.audiobook.AudiobookHandler;
 import org.booklore.service.metadata.parser.OverDriveItemExtractor;
 import org.booklore.service.overdrive.OverDriveService;
+import org.booklore.service.task.TaskService;
+import org.booklore.model.enums.TaskType;
 import org.booklore.util.FileUtils;
 import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -24,6 +26,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -45,6 +48,7 @@ import java.util.stream.Stream;
 public class OverDriveController {
 
     private final OverDriveService overDriveService;
+    private final TaskService taskService;
     private final AcsmHandler acsmHandler;
     private final AcsmHandlerConfig acsmHandlerConfig;
     private final AudiobookHandler audiobookHandler;
@@ -581,6 +585,29 @@ public class OverDriveController {
     }
 
     record TitlesAvailabilityRequest(List<String> titleIds, List<String> cards) {}
+
+    /**
+     * GET /api/overdrive/auto-sync/schedule — when the poller next runs, and whether it is running now.
+     *
+     * <p>The bookbag is worked by that pass, so "when will my queued book be borrowed" is really "when
+     * does the task next fire". Read from the live schedule, so it carries the jitter already drawn
+     * for that firing rather than the bare cron slot.
+     */
+    @Operation(summary = "When the OverDrive poller next runs")
+    @ApiResponse(responseCode = "200", description = "Next run time, or null when the task is not scheduled")
+    @GetMapping("/auto-sync/schedule")
+    public ResponseEntity<AutoSyncSchedule> autoSyncSchedule() {
+        requireEnabled();
+        return ResponseEntity.ok(new AutoSyncSchedule(
+                taskService.nextRunAt(TaskType.OVERDRIVE_AUTO_SYNC).map(Instant::toString).orElse(null),
+                taskService.isRunning(TaskType.OVERDRIVE_AUTO_SYNC)));
+    }
+
+    /**
+     * @param nextRunAt when the poller next fires, or null when the task is disabled or unscheduled
+     * @param running   whether a pass is in progress, in which case starting another is refused
+     */
+    record AutoSyncSchedule(String nextRunAt, boolean running) {}
 
     /** GET /api/overdrive/bookbag — the current user's queue of wanted titles, in working order. */
     @Operation(summary = "List the current user's bookbag")

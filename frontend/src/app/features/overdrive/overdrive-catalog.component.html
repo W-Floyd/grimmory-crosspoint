@@ -720,6 +720,24 @@
               tooltipPosition="top"
               [loading]="adoptingHolds()"
               (onClick)="onAdoptHolds()" />
+            <p-button label="Run now" icon="pi pi-play" severity="secondary" [outlined]="true" size="small"
+              pTooltip="Work the bookbag now instead of waiting for the schedule. Titles are still spaced apart, and a pass already running is not disturbed."
+              tooltipPosition="top"
+              [disabled]="autoSyncSchedule()?.running"
+              [loading]="startingRun()"
+              (onClick)="onRunAutoSyncNow()" />
+            <!-- The plan below hangs off this, so it is worth saying plainly rather than leaving the
+                 queue looking idle. -->
+            <span class="bookbag-next-run">
+              @if (autoSyncSchedule()?.running) {
+                <i class="pi pi-spin pi-spinner"></i> A pass is running now
+              } @else if (autoSyncSchedule()?.nextRunAt; as next) {
+                <i class="pi pi-clock"></i> Next run {{ formatDateTimeShort(next) }}
+              } @else {
+                <i class="pi pi-exclamation-triangle"></i> The poller is not scheduled — nothing will be
+                worked automatically
+              }
+            </span>
           </div>
           @if (bookbagLoading()) {
             <div class="bookbag-empty"><i class="pi pi-spin pi-spinner"></i> Loading…</div>
@@ -769,6 +787,11 @@
                       <i class="pi pi-clock"></i>
                     }
                     {{ bookbagStatus(entry) }}
+                    @if (bookbagPlannedAt(entry); as planned) {
+                      <small class="bookbag-planned">
+                        <i class="pi pi-forward"></i> Planned for about {{ formatDateTimeShort(planned.toISOString()) }}
+                      </small>
+                    }
                     @if (entry.lastTriedAt) {
                       <small class="bookbag-tried">Last checked {{ formatDateTimeShort(entry.lastTriedAt) }}</small>
                     }

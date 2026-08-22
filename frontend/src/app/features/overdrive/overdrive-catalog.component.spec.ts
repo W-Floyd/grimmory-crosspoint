@@ -3,6 +3,7 @@ import {beforeEach, afterEach, describe, expect, it, vi} from 'vitest';
 import {of, throwError} from 'rxjs';
 
 import {ConfirmationService, MessageService} from '@openng/optimus-ui/api';
+import {TaskService} from '../settings/task-management/task.service';
 import {OverdriveCatalogComponent, toolProgressPct} from './overdrive-catalog.component';
 import {OverDriveService, OverDriveAuditEntry, OverDriveBookbagEntry, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
 import {LibraryService} from '../../features/book/service/library.service';
@@ -45,10 +46,12 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     addToBookbag: vi.fn(() => of({id: 1, titleId: 't', position: 1} as OverDriveBookbagEntry)),
     removeFromBookbag: vi.fn(() => of(void 0)),
     adoptHoldsIntoBookbag: vi.fn(() => of(2)),
+    autoSyncSchedule: vi.fn(() => of({nextRunAt: null, running: false})),
     borrowBookbagEntryNow: vi.fn(() => of({})),
     reorderBookbag: vi.fn(() => of([] as OverDriveBookbagEntry[])),
   };
   const libraryService = {libraries: () => []};
+  const taskService = {startTask: vi.fn(() => of({status: 'ACCEPTED'}))};
 
   let component: OverdriveCatalogComponent;
   let confirmationService: {confirm: ReturnType<typeof vi.fn>};
@@ -66,6 +69,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
         {provide: LibraryService, useValue: libraryService},
         {provide: MessageService, useValue: {add: vi.fn()}},
         {provide: ConfirmationService, useValue: confirmationService},
+      {provide: TaskService, useValue: taskService},
         {provide: TranslocoService, useValue: {langChanges$: of('en'), getActiveLang: () => 'en'}},
         {provide: RxStompService, useValue: {watch: () => of()}},
       ],
@@ -229,6 +233,48 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
 
     // The obstacle may only be a card's capacity, which is worth attempting.
     expect(component.canBorrowBookbagNow(entry)).toBe(true);
+  });
+
+  it('lays the plan out from the next run, spacing each entry apart', () => {
+    setup();
+    component.autoSyncSchedule.set({nextRunAt: '2026-08-22T10:00:00Z', running: false});
+    component.bookbag.set([
+      {id: 1, titleId: 'a', position: 1} as OverDriveBookbagEntry,
+      {id: 2, titleId: 'b', position: 2} as OverDriveBookbagEntry,
+    ]);
+
+    const first = component.bookbagPlannedAt({id: 1} as OverDriveBookbagEntry);
+    const second = component.bookbagPlannedAt({id: 2} as OverDriveBookbagEntry);
+
+    expect(first?.toISOString()).toBe('2026-08-22T10:00:00.000Z');
+    // Spaced by the pacing the pass actually applies, not stacked at the same instant.
+    expect(second!.getTime() - first!.getTime()).toBeGreaterThan(3 * 60 * 1000);
+  });
+
+  it('plans nothing for an entry still waiting in a queue', () => {
+    setup();
+    component.autoSyncSchedule.set({nextRunAt: '2026-08-22T10:00:00Z', running: false});
+    component.bookbag.set([{id: 1, titleId: 'a', position: 1, holdCardId: 'c1'} as OverDriveBookbagEntry]);
+    component.holds.set([{id: 'a', title: 'A', cardId: 'c1', ready: false} as never]);
+
+    // The pass will look at it and move on; there is nothing to schedule until the hold comes in.
+    expect(component.bookbagPlannedAt({id: 1} as OverDriveBookbagEntry)).toBeNull();
+  });
+
+  it('plans nothing at all when the poller is not scheduled', () => {
+    setup();
+    component.autoSyncSchedule.set({nextRunAt: null, running: false});
+    component.bookbag.set([{id: 1, titleId: 'a', position: 1} as OverDriveBookbagEntry]);
+
+    expect(component.bookbagPlannedAt({id: 1} as OverDriveBookbagEntry)).toBeNull();
+  });
+
+  it('starts the same task the schedule fires, which refuses a second concurrent pass', () => {
+    setup();
+
+    component.onRunAutoSyncNow();
+
+    expect(taskService.startTask).toHaveBeenCalledWith({taskType: 'OVERDRIVE_AUTO_SYNC'});
   });
 
   it('knows when a title is already queued', () => {

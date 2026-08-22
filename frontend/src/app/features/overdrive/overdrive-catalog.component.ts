@@ -3,7 +3,7 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
-import { OverDriveService, OverDriveAuditEntry, OverDriveBookbagEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
+import { OverDriveService, OverDriveAuditEntry, OverDriveAutoSyncSchedule, OverDriveBookbagEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
 
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { MessageModule } from '@openng/optimus-ui/message';
@@ -24,6 +24,7 @@ import { ProgressBar } from '@openng/optimus-ui/progressbar';
 import { SplitButton } from '@openng/optimus-ui/splitbutton';
 import { ConfirmDialog } from '@openng/optimus-ui/confirmdialog';
 import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
+import { TaskService, TaskType } from '../settings/task-management/task.service';
 import { OverdriveCoverComponent } from './overdrive-cover.component';
 
 /**
@@ -83,6 +84,7 @@ export class OverdriveCatalogComponent {
   private readonly messageService = inject(MessageService);
   private readonly transloco = inject(TranslocoService);
   private readonly confirmationService = inject(ConfirmationService);
+  private readonly taskService = inject(TaskService);
   // Split-button menus for already-imported loans, keyed by loan id (see importMenuItems).
   private readonly importMenuCache = new Map<string, MenuItem[]>();
 
@@ -621,6 +623,7 @@ export class OverdriveCatalogComponent {
      // an empty bag makes every one of them offer to add it again — with "Queue next" then quietly
      // reordering an entry the user cannot see.
      this.loadBookbag();
+     this.loadAutoSyncSchedule();
      this.overdriveService.capabilities().subscribe({
        next: (c) => {
          this.acsmConfigured.set(!!c?.acsmHandlerConfigured);
@@ -1890,6 +1893,7 @@ export class OverdriveCatalogComponent {
        this.loadHistory(0);
      }
      if (next === 'bookbag') {
+       this.loadAutoSyncSchedule();
        // Already loaded at startup; refetched here because the scheduled task changes it underneath a
        // page left open.
        this.loadBookbag();
@@ -1912,6 +1916,76 @@ export class OverdriveCatalogComponent {
    }
 
    adoptingHolds = signal(false);
+   startingRun = signal(false);
+   /** When the poller next fires, and whether a pass is in flight. */
+   autoSyncSchedule = signal<OverDriveAutoSyncSchedule | null>(null);
+
+   /**
+    * Roughly when the pass will reach each queued entry, laid out from the next run.
+    *
+    * <p>Computed rather than stored, so reordering the bag reshuffles the plan for free and nothing
+    * can go stale. Deliberately an estimate: it assumes every actionable entry is still actionable
+    * when the pass arrives, and uses the middle of each randomised gap, so it says roughly when
+    * rather than pretending to a clock time. Entries waiting on a hold get none — nothing is planned
+    * for them until the hold comes in.
+    *
+    * @return entry id to the projected moment it is reached
+    */
+   readonly bookbagPlan = computed(() => {
+     const startsAt = this.autoSyncSchedule()?.nextRunAt;
+     const plan = new Map<number, Date>();
+     if (!startsAt) {
+       return plan;
+     }
+     // Midpoints of the pacing the pass actually applies: 45-150s between checkouts, plus 75-240s
+     // between a borrow and its download.
+     const CHECKOUT_GAP_MS = ((45 + 150) / 2) * 1000;
+     const FULFIL_GAP_MS = ((75 + 240) / 2) * 1000;
+     let offset = 0;
+     for (const entry of this.bookbag()) {
+       if (entry.holdCardId && !this.bookbagHold(entry)?.ready) {
+         continue; // queued behind a hold; the pass will only look, not act
+       }
+       plan.set(entry.id, new Date(new Date(startsAt).getTime() + offset));
+       offset += CHECKOUT_GAP_MS + FULFIL_GAP_MS;
+     }
+     return plan;
+   });
+
+   /** The projected moment for one entry, or null when nothing is planned for it. */
+   bookbagPlannedAt(entry: OverDriveBookbagEntry): Date | null {
+     return this.bookbagPlan().get(entry.id) ?? null;
+   }
+
+   /** Fetch the next-run time; cheap, and the bookbag's whole plan hangs off it. */
+   loadAutoSyncSchedule(): void {
+     this.overdriveService.autoSyncSchedule().subscribe({
+       next: (schedule) => this.autoSyncSchedule.set(schedule),
+       error: () => this.autoSyncSchedule.set(null)
+     });
+   }
+
+   /**
+    * Start a pass now rather than waiting for the schedule. Runs the same task the cron fires, which
+    * refuses a second concurrent pass, so this cannot collide with one already under way.
+    */
+   onRunAutoSyncNow(): void {
+     this.startingRun.set(true);
+     this.error.set(null);
+     this.taskService.startTask({ taskType: TaskType.OVERDRIVE_AUTO_SYNC }).subscribe({
+       next: () => {
+         this.messageService.add({ severity: 'success', summary: 'Run started',
+           detail: 'The bookbag is being worked now. Titles are still spaced apart, so give it a few minutes.' });
+         this.startingRun.set(false);
+         this.loadAutoSyncSchedule();
+       },
+       error: (err: unknown) => {
+         this.error.set(this.errorMessage(err, 'Could not start a run'));
+         this.startingRun.set(false);
+       }
+     });
+   }
+
 
    /**
     * Pull every hold already placed into the bookbag. A one-off for an account that was using holds

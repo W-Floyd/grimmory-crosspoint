@@ -26,6 +26,9 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -111,6 +114,27 @@ public class TaskService {
         } catch (Exception e) {
             log.error("Failed to schedule task {}", config.getTaskType(), e);
         }
+    }
+
+    /**
+     * When this task is next due to fire, or empty when it is not scheduled.
+     *
+     * <p>Read off the live {@link ScheduledFuture} rather than recomputed from the cron expression,
+     * so it includes the jitter already drawn for that firing — the point of showing it is to say
+     * when something will actually happen, and a recomputed slot would be a different time.
+     */
+    public Optional<Instant> nextRunAt(TaskType taskType) {
+        ScheduledFuture<?> scheduled = scheduledTasks.get(taskType);
+        if (scheduled == null || scheduled.isCancelled() || scheduled.isDone()) {
+            return Optional.empty();
+        }
+        long seconds = scheduled.getDelay(TimeUnit.SECONDS);
+        return seconds < 0 ? Optional.empty() : Optional.of(Instant.now().plusSeconds(seconds));
+    }
+
+    /** Whether a pass of this task is running right now, so a caller need not offer to start another. */
+    public boolean isRunning(TaskType taskType) {
+        return runningTasks.containsKey(taskType);
     }
 
     private void cancelScheduledTask(TaskType taskType) {
