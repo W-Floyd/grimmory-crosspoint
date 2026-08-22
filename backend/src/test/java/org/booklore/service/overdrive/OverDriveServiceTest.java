@@ -1323,13 +1323,40 @@ class OverDriveServiceTest {
     }
 
     @Test
-    void aCardWithNoConfiguredCeilingIsNeverBlocked_andIsNotCounted() {
+    void anUnconfiguredCardFallsBackToTheDefaultCeilings() {
         authAs(7L);
         when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
         when(cardLimitRepository.findById("card-a")).thenReturn(Optional.empty());
+        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
+                .thenReturn(0L);
 
+        // Unmeasured is not the same as known to be free, and the cost of guessing high is an account
+        // refused for days — so an untouched card is still bounded.
+        assertThat(service.defaultBorrowLimits().perMonth()).isEqualTo(100);
         assertThat(service.borrowBlockedReason("card-a")).isNull();
-        // Every card is in this state until an administrator sets a number, so it must cost no queries.
+    }
+
+    @Test
+    void anUnconfiguredCardIsBlockedOnceItPassesADefault() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        when(cardLimitRepository.findById("card-a")).thenReturn(Optional.empty());
+        when(auditRepository.countBorrowsOnCardSince(org.mockito.ArgumentMatchers.eq("card-a"), any()))
+                .thenReturn(2L);
+
+        // Two in a minute is the default burst guard — the wall a runaway loop should hit early.
+        assertThat(service.borrowBlockedReason("card-a")).contains("this minute");
+    }
+
+    @Test
+    void anExplicitlyBlankLimitMeansNoCeiling_notTheDefault() {
+        authAs(7L);
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.empty());
+        limits("card-a", null, null, null, null, null);
+
+        // Saving a row of blanks is how an administrator opts a card out; it must not silently
+        // reinstate the defaults it was set to override.
+        assertThat(service.borrowBlockedReason("card-a")).isNull();
         verifyNoInteractions(auditRepository);
     }
 

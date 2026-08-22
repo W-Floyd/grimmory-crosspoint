@@ -1849,6 +1849,25 @@ public class OverDriveService {
 
         static final BorrowLimits NONE = new BorrowLimits(null, null, null, null, null);
 
+        /**
+         * What a card gets before anybody configures it.
+         *
+         * <p>Unlimited was the wrong default. OverDrive will not say what it tolerates, so an
+         * unconfigured card is not "known to be free" — it is unmeasured, and the cost of guessing
+         * high is an account refused for days. The monthly figure is the one that matters: the
+         * refusals measured on this deployment came at 144-148 borrows in a rolling thirty days, with
+         * a peak of 153, so 100 sits comfortably below that band rather than probing its edge.
+         *
+         * <p>The shorter windows are burst insurance rather than measured limits. Nothing shorter than
+         * a month correlated with any refusal here, but a bug that borrows in a loop — which has
+         * happened once already — should hit a wall in minutes, not after a hundred checkouts.
+         *
+         * <p>They apply only while a card has no configured row. Once an administrator saves one, it
+         * is taken literally, nulls included: an explicit blank means "no ceiling for that window",
+         * which is how you opt a card out.
+         */
+        static final BorrowLimits DEFAULTS = new BorrowLimits(2, 5, 10, 30, 100);
+
         Integer forWindow(BorrowWindow window) {
             return switch (window) {
                 case MINUTE -> perMinute;
@@ -1885,10 +1904,17 @@ public class OverDriveService {
         if (identity == null) {
             return BorrowLimits.NONE;
         }
+        // No row means nobody has measured this card, which is a reason for caution rather than for
+        // no ceiling at all. A saved row is taken exactly as saved.
         return cardLimitRepository.findById(identity)
                 .map(l -> new BorrowLimits(l.getMaxPerMinute(), l.getMaxPerHour(),
                         l.getMaxPerDay(), l.getMaxPerWeek(), l.getMaxPerMonth()))
-                .orElse(BorrowLimits.NONE);
+                .orElse(BorrowLimits.DEFAULTS);
+      }
+
+      /** The ceilings a card falls back on until an administrator sets its own. */
+      public BorrowLimits defaultBorrowLimits() {
+        return BorrowLimits.DEFAULTS;
       }
 
       /**
