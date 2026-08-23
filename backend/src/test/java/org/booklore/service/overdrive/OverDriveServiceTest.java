@@ -1363,6 +1363,66 @@ class OverDriveServiceTest {
         assertThat(harness.calls()).hasValue(1);
     }
 
+    // ── Loans that ran out ───────────────────────────────────────────────
+
+    @Test
+    void aLoanPastItsExpiryIsNeverImported_whateverTheRowStillSays() {
+        authAsAdmin(7L);
+        when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.of(
+                org.booklore.model.entity.OverDriveAutoSyncEntity.builder()
+                        .userId(7L).autoImportLoans(true).build()));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        stubCard(7L, "card-a", "chip-1");
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of());
+
+        OverDriveLoanEntity ranOut = loanRow("2056901", "card-a", "BORROWED");
+        ranOut.setFulfilled(false);
+        ranOut.setExpireDate(Instant.now().minus(java.time.Duration.ofDays(14)));
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(ranOut));
+
+        var outcome = syncHarness(syncCovering(List.of("card-a"), "2056901")).service().runAutoSync();
+
+        // Reconciliation normally retires these, but it only walks the loans of whoever is syncing —
+        // rows owned by someone who never syncs stay BORROWED for ever. Expiry is the fact that does
+        // not depend on anyone having looked.
+        assertThat(outcome.loansImported()).isZero();
+        assertThat(outcome.failures()).isZero();
+        verifyNoInteractions(overDriveImportService);
+    }
+
+    @Test
+    void aLoanPastItsExpiryIsNeverHandedBack() {
+        OverDriveLoanEntity ranOut = loanRow("2056901", "card-a", "BORROWED");
+        ranOut.setFulfilled(true);
+        ranOut.setCreatedAt(Instant.now().minus(java.time.Duration.ofDays(30)));
+        ranOut.setExpireDate(Instant.now().minus(java.time.Duration.ofDays(2)));
+
+        // Returning something that already ran out is a call that can only fail.
+        assertThat(service.autoReturnDue(ranOut,
+                new OverDriveAutoSyncSettings(false, false, true, 14, 0, true, false), 0, Instant.now()))
+                .isFalse();
+    }
+
+    @Test
+    void unlinkingACardRetiresTheLoansNothingCanSyncAnyMore() {
+        authAsAdmin(7L);
+        var card = OverDriveTokenEntity.builder().id(5L).userId(7L).identity("card-a").build();
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(card));
+        when(cardShareRepository.findByTokenId(5L)).thenReturn(List.of());
+        OverDriveLoanEntity stranded = loanRow("2056901", "card-a", "BORROWED");
+        OverDriveLoanEntity elsewhere = loanRow("111", "card-b", "BORROWED");
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(stranded, elsewhere));
+
+        service.removeToken("card-a");
+
+        // Without a card this user never syncs, so nothing could ever retire these — and they would
+        // all come due at once if a card were linked again.
+        assertThat(stranded.getState()).isEqualTo("EXPIRED");
+        assertThat(elsewhere.getState()).isEqualTo("BORROWED");
+    }
+
     // ── The bookbag ──────────────────────────────────────────────────────
 
     private static org.booklore.model.entity.OverDriveBookbagEntity bagged(long id, String titleId, int position) {

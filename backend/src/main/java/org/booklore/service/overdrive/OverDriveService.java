@@ -2781,6 +2781,32 @@ public class OverDriveService {
         loanRepository.save(entity);
       }
 
+      /**
+       * Mark a user's loans for a card they no longer hold as spent.
+       *
+       * <p>Reconciliation cannot reach them: it walks the loans of whoever is syncing, and without a
+       * card this user never syncs. Left alone they sit as live checkouts indefinitely, and the import
+       * sweep would take the lot the moment a card reappeared.
+       */
+      private void retireLoansForUnlinkedCard(Long ownerId, String identity) {
+        List<OverDriveLoanEntity> orphaned = loanRepository.findByUserId(ownerId).stream()
+                .filter(loan -> identity.equals(loan.getIdentity()))
+                .filter(loan -> !isTerminalLoanState(loan.getState()))
+                .toList();
+        if (orphaned.isEmpty()) {
+            return;
+        }
+        orphaned.forEach(loan -> loan.setState("EXPIRED"));
+        loanRepository.saveAll(orphaned);
+        log.info("OverDrive: card {} unlinked from user {}; retired {} loan row(s) nothing can sync any more",
+                identity, ownerId, orphaned.size());
+      }
+
+      /** Whether this loan ran out on its own, whatever the row's state column still claims. */
+      private static boolean isPastExpiry(OverDriveLoanEntity loan) {
+        return loan.getExpireDate() != null && loan.getExpireDate().isBefore(Instant.now());
+      }
+
       /** States meaning "we no longer hold this loan"; the row is history, not a live checkout. */
       private static boolean isTerminalLoanState(String state) {
         return "RETURNED".equals(state) || "EXPIRED".equals(state);
@@ -4253,6 +4279,8 @@ public class OverDriveService {
        */
       private boolean eligibleForAutoReturn(OverDriveLoanEntity loan) {
         return Boolean.TRUE.equals(loan.getFulfilled())
+                // Handing back something that already ran out is a call that can only fail.
+                && !isPastExpiry(loan)
                 && loan.getIdentity() != null
                 && loan.getOverdriveLoanId() != null
                 // Expired counts as gone too, now that reconciliation records it: handing back a loan
@@ -4670,6 +4698,11 @@ public class OverDriveService {
 
       private boolean pendingAutoImport(OverDriveLoanEntity loan) {
         return !Boolean.TRUE.equals(loan.getFulfilled())
+                // A loan has a hard expiry, so a row past its own is not live whatever its state says.
+                // Reconciliation normally retires those, but it only walks the loans of whoever is
+                // syncing — a row belonging to someone who never syncs is unreachable by it, and would
+                // otherwise stay actionable for ever.
+                && !isPastExpiry(loan)
                 // A row marked returned or expired is not a loan any more. borrowAndImport borrows
                 // when it finds no active loan, so importing one of these would silently take the
                 // title out again — the caller must also check the loan is in the live sync.
@@ -5724,6 +5757,10 @@ public class OverDriveService {
         Long ownerId = card.getUserId();
         // Shares point at the token row, so drop them with it rather than leaving them dangling.
         cardShareRepository.findByTokenId(card.getId()).forEach(cardShareRepository::delete);
+        // Loans for a card nobody holds any more cannot be synced, reconciled, or acted on — but they
+        // stay actionable-looking, and would all come due at once if this user ever linked a card
+        // again. Marked spent rather than deleted: the rows are still a record of what was borrowed.
+        retireLoansForUnlinkedCard(ownerId, identity);
         tokenRepository.deleteByUserIdAndIdentity(ownerId, identity);
         recordAudit(OverDriveAuditAction.CARD_UNLINKED, identity, null, null, null, null,
                 (cardName != null ? "Unlinked " + cardName : "Unlinked card") + onBehalfOfSuffix(ownerId));
