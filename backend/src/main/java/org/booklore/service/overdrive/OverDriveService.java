@@ -141,6 +141,16 @@ public class OverDriveService {
      */
     private final ThreadLocal<Boolean> automationInProgress = ThreadLocal.withInitial(() -> false);
 
+    /**
+     * The sync each card returned at the start of the current pass, for the duration of that pass.
+     *
+     * <p>A ThreadLocal for the same reason {@link #automationInProgress} is one: a pass runs on one
+     * thread and the value must not leak between users sharing the pool. Read only where a stale
+     * snapshot is still conclusive — see {@link #findActiveLoan}.
+     */
+    private final ThreadLocal<Map<String, OverDriveSyncResponse>> passSyncs =
+            ThreadLocal.withInitial(Map::of);
+
     /** Whether the current thread is inside an automation pass. */
     private boolean isAutomated() {
         return Boolean.TRUE.equals(automationInProgress.get());
@@ -3021,37 +3031,53 @@ public class OverDriveService {
         if (titleId == null || titleId.isBlank()) {
             return null;
         }
+        // The pass this call belongs to already synced every card. That snapshot is old, but old is
+        // good enough in one direction: a loan listed in it is a loan the account had, and nothing in
+        // a pass gives a title back before the return phase at the end. Absence proves nothing, so a
+        // title the snapshot does not mention still costs a live call.
+        //
+        // This matters at volume. The import sweep asks about every unimported loan on a card, and
+        // one card here carries sixty of them — sixty chip syncs, in a tight loop, on top of the one
+        // the pass had already done.
+        LoanRef fromPass = loanRefIn(passSyncs.get().get(cardId), titleId);
+        if (fromPass != null) {
+            return fromPass;
+        }
         try {
-            OverDriveSyncResponse synced = sync(cardId);
-            if (synced == null || synced.getLoans() == null) {
-                return null;
-            }
-            for (OverDriveLoan l : synced.getLoans()) {
-                if (!titleId.equals(l.getId())) {
-                    continue;
-                }
-                List<String> fmts = new ArrayList<>();
-                if (l.getFormats() != null) {
-                    for (OverDriveFormat f : l.getFormats()) {
-                        if (f.getId() != null && !fmts.contains(f.getId())) {
-                            fmts.add(f.getId());
-                        }
-                    }
-                }
-                if (l.getFormat() != null && l.getFormat().getId() != null && !fmts.contains(l.getFormat().getId())) {
-                    fmts.add(l.getFormat().getId());
-                }
-                // Returned even with no formats. The loan exists, and that is the fact that matters:
-                // the caller falls back to the format it asked for. Treating "found but unlabelled" as
-                // "not on loan" sent it to borrow a title the account was already holding.
-                return new LoanRef(l.getId(), fmts);
-            }
+            return loanRefIn(sync(cardId), titleId);
         } catch (Exception e) {
             // Deliberately not swallowed. The caller reads null as "there is no loan, so borrow one",
             // and a network blip is not evidence of that — it turned a failed check into a fresh
             // checkout, silently, for a book already on the shelf.
             throw ApiError.OVERDRIVE_UNREACHABLE.createException(
                     "Could not check for an existing loan on title " + titleId + ": " + e.getMessage());
+        }
+      }
+
+      /** The loan for a title within one sync response, or null when it is not listed. */
+      private LoanRef loanRefIn(OverDriveSyncResponse synced, String titleId) {
+        if (synced == null || synced.getLoans() == null) {
+            return null;
+        }
+        for (OverDriveLoan l : synced.getLoans()) {
+            if (!titleId.equals(l.getId())) {
+                continue;
+            }
+            List<String> fmts = new ArrayList<>();
+            if (l.getFormats() != null) {
+                for (OverDriveFormat f : l.getFormats()) {
+                    if (f.getId() != null && !fmts.contains(f.getId())) {
+                        fmts.add(f.getId());
+                    }
+                }
+            }
+            if (l.getFormat() != null && l.getFormat().getId() != null && !fmts.contains(l.getFormat().getId())) {
+                fmts.add(l.getFormat().getId());
+            }
+            // Returned even with no formats. The loan exists, and that is the fact that matters: the
+            // caller falls back to the format it asked for. Treating "found but unlabelled" as "not
+            // on loan" sent it to borrow a title the account was already holding.
+            return new LoanRef(l.getId(), fmts);
         }
         return null;
       }
@@ -3806,8 +3832,9 @@ public class OverDriveService {
             return doAutoSync();
         } finally {
             // Always cleared: the pool thread is reused, and a leaked flag would mark a later
-            // interactive action as automated.
+            // interactive action as automated, or hand it another user's stale sync.
             automationInProgress.remove();
+            passSyncs.remove();
         }
       }
 
@@ -3830,6 +3857,7 @@ public class OverDriveService {
 
         // One call per chip rather than per card, and it persists the loans this pass then works from.
         Map<String, OverDriveSyncResponse> syncs = syncAll(identities);
+        passSyncs.set(syncs);
         int failures = 0;
         int borrowed = 0;
 

@@ -1335,6 +1335,34 @@ class OverDriveServiceTest {
         assertThat(saved.getAllValues()).noneMatch(a -> "BORROW".equals(a.getAction()));
     }
 
+    @Test
+    void resumingALoanTheCurrentPassAlreadySawCostsNoExtraSync() {
+        authAsAdmin(7L);
+        // One card, one loan on it, and one unimported row for that loan.
+        when(autoSyncRepository.findByUserId(7L)).thenReturn(Optional.of(
+                org.booklore.model.entity.OverDriveAutoSyncEntity.builder()
+                        .userId(7L).autoImportLoans(true).build()));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        stubCard(7L, "card-a", "chip-1");
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of());
+
+        OverDriveLoanEntity pending = loanRow("2056901", "card-a", "BORROWED");
+        pending.setFulfilled(false);
+        pending.setFormatId("ebook-epub-adobe");
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(pending));
+        when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "2056901")).thenReturn(Optional.of(pending));
+
+        var harness = syncHarness(syncCovering(List.of("card-a"), "2056901"));
+        harness.service().runAutoSync();
+
+        // One chip sync for the pass, and none for the loan it is resuming. Asking again per title
+        // meant sixty extra syncs on a card carrying sixty unimported loans — a burst of upstream
+        // traffic in a tight loop, on data the pass was already holding.
+        assertThat(harness.calls()).hasValue(1);
+    }
+
     // ── The bookbag ──────────────────────────────────────────────────────
 
     private static org.booklore.model.entity.OverDriveBookbagEntity bagged(long id, String titleId, int position) {
