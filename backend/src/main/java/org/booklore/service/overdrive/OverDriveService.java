@@ -3041,11 +3041,17 @@ public class OverDriveService {
                 if (l.getFormat() != null && l.getFormat().getId() != null && !fmts.contains(l.getFormat().getId())) {
                     fmts.add(l.getFormat().getId());
                 }
-                // Found the loan but can't tell which format to fulfill — let the caller borrow instead.
-                return fmts.isEmpty() ? null : new LoanRef(l.getId(), fmts);
+                // Returned even with no formats. The loan exists, and that is the fact that matters:
+                // the caller falls back to the format it asked for. Treating "found but unlabelled" as
+                // "not on loan" sent it to borrow a title the account was already holding.
+                return new LoanRef(l.getId(), fmts);
             }
         } catch (Exception e) {
-            log.warn("OverDrive: could not check for an existing loan on title {}: {}", titleId, e.getMessage());
+            // Deliberately not swallowed. The caller reads null as "there is no loan, so borrow one",
+            // and a network blip is not evidence of that — it turned a failed check into a fresh
+            // checkout, silently, for a book already on the shelf.
+            throw ApiError.OVERDRIVE_UNREACHABLE.createException(
+                    "Could not check for an existing loan on title " + titleId + ": " + e.getMessage());
         }
         return null;
       }
@@ -4875,6 +4881,11 @@ public class OverDriveService {
         String chosenFormat;
         if (preferredFormat != null && !preferredFormat.isBlank()
                 && formats.contains(preferredFormat) && isImportableFormat(preferredFormat)) {
+            chosenFormat = preferredFormat;
+        } else if (formats.isEmpty() && preferredFormat != null && !preferredFormat.isBlank()
+                && isImportableFormat(preferredFormat)) {
+            // A resumed loan the feed did not label. The caller knows what it stored for this loan,
+            // and using that is what lets an unlabelled loan be fetched instead of re-borrowed.
             chosenFormat = preferredFormat;
         } else {
             chosenFormat = chooseFormat(formats);

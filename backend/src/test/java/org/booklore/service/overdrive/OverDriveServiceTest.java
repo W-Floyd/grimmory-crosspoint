@@ -1294,11 +1294,8 @@ class OverDriveServiceTest {
     void aFailedBorrowIsRecordedAsABorrow_notAsAnImport() {
         authAs(7L);
         stubCard(7L, "card-1", "chip-1");
-        notResting("card-1");
-        when(cardLimitRepository.findById("card-1")).thenReturn(Optional.empty());
-        borrowCounts("card-1", 0);
 
-        // No fulfilment stubbed, so the borrow itself fails.
+        // Nothing upstream is stubbed, so the pass fails before any copy is taken.
         assertThatThrownBy(() -> service.borrowAndImport("card-1", "2056901", null, null,
                 "Dune", null, null, null, null, null, null)).isInstanceOf(Exception.class);
 
@@ -1307,8 +1304,35 @@ class OverDriveServiceTest {
         verify(auditRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
         // Nothing was taken out, so the failure belongs to the borrow. Calling it an import would
         // suggest a copy had been checked out when none was.
+        //
+        // The failure here is the existence check itself, which now aborts rather than reporting "no
+        // loan" — reading a network blip as "nothing on loan" is what sent this path off to borrow a
+        // title the account was already holding.
         assertThat(saved.getAllValues()).noneMatch(a -> "IMPORT".equals(a.getAction()));
         assertThat(saved.getAllValues()).anyMatch(a -> "BORROW".equals(a.getAction()) && !a.isSuccess());
+    }
+
+    @Test
+    void aResumedLoanTheFeedDidNotLabelIsFetched_notBorrowedAgain() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+
+        // A loan the account holds, which the feed lists without any format ids.
+        OverDriveSyncResponse body = syncCovering(List.of("card-a"), "2056901");
+        when(loanRepository.findByUserIdAndOverdriveLoanId(any(), any())).thenReturn(Optional.empty());
+        var svc = syncHarness(body).service();
+
+        // Fails later, at fulfilment, because this harness stubs none — but the point is where it
+        // does not fail: it never reaches a borrow, so no checkout is attempted for a book already
+        // on the shelf, and the cooldown guard is never consulted because no copy is being taken.
+        assertThatThrownBy(() -> svc.borrowAndImport("card-a", "2056901", null, null,
+                "Dune", null, null, null, "ebook-epub-adobe", null, null))
+                .isInstanceOf(Exception.class);
+
+        ArgumentCaptor<org.booklore.model.entity.OverDriveAuditEntity> saved =
+                ArgumentCaptor.forClass(org.booklore.model.entity.OverDriveAuditEntity.class);
+        verify(auditRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+        assertThat(saved.getAllValues()).noneMatch(a -> "BORROW".equals(a.getAction()));
     }
 
     // ── The bookbag ──────────────────────────────────────────────────────
