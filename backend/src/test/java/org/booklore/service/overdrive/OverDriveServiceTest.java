@@ -1153,8 +1153,8 @@ class OverDriveServiceTest {
         authAs(7L);
         when(auditRepository.findByUserIdOrderByCreatedAtDesc(org.mockito.ArgumentMatchers.eq(7L), any()))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(auditRow("2056901", null))));
-        when(bookRepository.findOverdriveIdTitlePairs(java.util.Set.of("2056901")))
-                .thenReturn(List.<Object[]>of(new Object[]{"2056901", "Mockingjay"}));
+        when(bookRepository.findOverdriveIdBookRefs(java.util.Set.of("2056901")))
+                .thenReturn(List.<Object[]>of(new Object[]{"2056901", "Mockingjay", 42L}));
 
         var page = service.listHistory(0, 25);
 
@@ -1163,6 +1163,26 @@ class OverDriveServiceTest {
         assertThat(page.entries()).singleElement()
                 .extracting(org.booklore.model.dto.overdrive.OverDriveAuditEntry::title)
                 .isEqualTo("Mockingjay");
+        assertThat(page.entries().getFirst().bookId()).isEqualTo(42L);
+    }
+
+    @Test
+    void aReturnLinksToTheBookItGaveBack() {
+        authAs(7L);
+        var row = auditRow(null, "The Hunger Games");
+        row.setAction("RETURN");
+        row.setLoanId("2056901");
+        when(auditRepository.findByUserIdOrderByCreatedAtDesc(org.mockito.ArgumentMatchers.eq(7L), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(row)));
+        when(bookRepository.findOverdriveIdBookRefs(java.util.Set.of("2056901")))
+                .thenReturn(List.<Object[]>of(new Object[]{"2056901", "The Hunger Games", 42L}));
+
+        var page = service.listHistory(0, 25);
+
+        // Returns recorded a loan id and nothing else, so the row named a book it would not link to.
+        // A loan is a loan of a title under the same id, which is enough to find both.
+        assertThat(page.entries().getFirst().bookId()).isEqualTo(42L);
+        assertThat(page.entries().getFirst().titleId()).isEqualTo("2056901");
     }
 
     @Test
@@ -1175,9 +1195,24 @@ class OverDriveServiceTest {
         var page = service.listHistory(0, 25);
 
         // What the row said at the time wins — a book since renamed in the library must not rewrite
-        // history — and a page of named rows costs no query at all.
+        // history. The lookup still runs, because this row has no book to link to.
         assertThat(page.entries().getFirst().title()).isEqualTo("As Recorded");
-        verify(bookRepository, never()).findOverdriveIdTitlePairs(any());
+    }
+
+    @Test
+    void historyCostsNoQueryOnceARowRecordsBothTitleAndBook() {
+        authAs(7L);
+        var row = auditRow("2056901", "As Recorded");
+        row.setBookId(42L);
+        when(auditRepository.findByUserIdOrderByCreatedAtDesc(org.mockito.ArgumentMatchers.eq(7L), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(row)));
+
+        var page = service.listHistory(0, 25);
+
+        // Rows written since we stamp both need nothing looked up, so the repair costs a query only
+        // for as long as there are older rows on the page.
+        assertThat(page.entries().getFirst().bookId()).isEqualTo(42L);
+        verify(bookRepository, never()).findOverdriveIdBookRefs(any());
     }
 
     @Test
@@ -1185,7 +1220,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(auditRepository.findByUserIdOrderByCreatedAtDesc(org.mockito.ArgumentMatchers.eq(7L), any()))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(auditRow("2056901", null))));
-        when(bookRepository.findOverdriveIdTitlePairs(java.util.Set.of("2056901"))).thenReturn(List.of());
+        when(bookRepository.findOverdriveIdBookRefs(java.util.Set.of("2056901"))).thenReturn(List.of());
 
         var page = service.listHistory(0, 25);
 

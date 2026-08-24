@@ -89,6 +89,15 @@ public interface BookRepository extends JpaRepository<BookEntity, Long>, JpaSpec
             + "AND (b.deleted IS NULL OR b.deleted = false)")
     java.util.List<Object[]> findOverdriveIdTitlePairs(@Param("overdriveIds") java.util.Collection<String> overdriveIds);
 
+    /**
+     * OverDrive id paired with the book's title and its library id, for a batch of ids. The history view
+     * needs both to repair a row written before we stamped them: the title to name it, the id to link it.
+     */
+    @Query("SELECT b.metadata.overdriveId, b.metadata.title, b.id FROM BookEntity b "
+            + "WHERE b.metadata.overdriveId IN :overdriveIds "
+            + "AND (b.deleted IS NULL OR b.deleted = false)")
+    java.util.List<Object[]> findOverdriveIdBookRefs(@Param("overdriveIds") java.util.Collection<String> overdriveIds);
+
     @EntityGraph(attributePaths = { "metadata", "metadata.authors", "metadata.categories", "metadata.moods", "metadata.tags", "metadata.comicMetadata", "bookFiles" })
     @Query("SELECT b FROM BookEntity b WHERE b.id = :id AND (b.deleted IS NULL OR b.deleted = false)")
     Optional<BookEntity> findByIdFull(@Param("id") Long id);

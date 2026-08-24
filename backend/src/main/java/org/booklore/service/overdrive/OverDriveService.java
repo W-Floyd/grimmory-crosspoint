@@ -435,10 +435,30 @@ public class OverDriveService {
                     cardName = card.getCardName();
                 }
             }
+            // A loan-keyed action knows more than its caller passes. The cached row carries the title,
+            // the imported book and (as the loan id) the OverDrive title id, so fill in whichever the
+            // caller left null — that is what makes a Returned row link into the library and out to
+            // Libby, rather than showing a bare name the way it used to.
             String resolvedTitle = title;
-            if ((resolvedTitle == null || resolvedTitle.isBlank()) && loanId != null) {
-                resolvedTitle = loanRepository.findByUserIdAndOverdriveLoanId(userId, loanId)
-                        .map(OverDriveLoanEntity::getTitle).orElse(null);
+            Long resolvedBookId = bookId;
+            String resolvedTitleId = titleId;
+            boolean incomplete = resolvedTitle == null || resolvedTitle.isBlank()
+                    || resolvedBookId == null || resolvedTitleId == null;
+            if (incomplete && loanId != null) {
+                OverDriveLoanEntity loan =
+                        loanRepository.findByUserIdAndOverdriveLoanId(userId, loanId).orElse(null);
+                if (loan != null) {
+                    if (resolvedTitle == null || resolvedTitle.isBlank()) {
+                        resolvedTitle = loan.getTitle();
+                    }
+                    if (resolvedBookId == null) {
+                        resolvedBookId = loan.getBookId();
+                    }
+                    // In Libby a loan is identified by the title it is a loan of — the same id.
+                    if (resolvedTitleId == null) {
+                        resolvedTitleId = loan.getOverdriveLoanId();
+                    }
+                }
             }
             auditRepository.save(OverDriveAuditEntity.builder()
                     .userId(userId)
@@ -446,9 +466,9 @@ public class OverDriveService {
                     .identity(identity)
                     .libraryKey(libraryKey)
                     .cardName(cardName)
-                    .titleId(titleId)
+                    .titleId(resolvedTitleId)
                     .loanId(loanId)
-                    .bookId(bookId)
+                    .bookId(resolvedBookId)
                     .title(truncate(resolvedTitle, 1024))
                     .detail(truncate(detail, 1024))
                     .success(success)
@@ -484,46 +504,59 @@ public class OverDriveService {
                 : Math.min(HISTORY_MAX_PAGE_SIZE, Math.max(1, size));
         var result = auditRepository.findByUserIdOrderByCreatedAtDesc(
                 currentUserId(), PageRequest.of(pageIndex, pageSize));
-        Map<String, String> titlesById = titlesForRowsMissingOne(result.getContent());
+        Map<String, BookRef> booksById = booksForRowsMissingOne(result.getContent());
         List<OverDriveAuditEntry> entries = result.getContent()
                 .stream()
-                .map(a -> new OverDriveAuditEntry(a.getId(), a.getAction(), a.getIdentity(), a.getLibraryKey(),
-                        a.getCardName(), a.getTitleId(), a.getLoanId(), a.getBookId(),
-                        a.getTitle() != null && !a.getTitle().isBlank()
-                                ? a.getTitle()
-                                : titlesById.get(a.getTitleId()),
-                        a.getDetail(),
-                        a.isSuccess(), a.isAutomated(),
-                        a.getCreatedAt() != null ? a.getCreatedAt().toString() : null))
+                .map(a -> {
+                    // A loan is a loan of a title, under the same id, so a row that recorded only a loan
+                    // id still points at something Libby can open.
+                    String titleId = a.getTitleId() != null ? a.getTitleId() : a.getLoanId();
+                    BookRef known = titleId != null ? booksById.get(titleId) : null;
+                    return new OverDriveAuditEntry(a.getId(), a.getAction(), a.getIdentity(), a.getLibraryKey(),
+                            a.getCardName(), titleId, a.getLoanId(),
+                            a.getBookId() != null ? a.getBookId() : (known != null ? known.bookId() : null),
+                            a.getTitle() != null && !a.getTitle().isBlank()
+                                    ? a.getTitle()
+                                    : (known != null ? known.title() : null),
+                            a.getDetail(),
+                            a.isSuccess(), a.isAutomated(),
+                            a.getCreatedAt() != null ? a.getCreatedAt().toString() : null);
+                })
                 .toList();
         return new OverDriveHistoryPage(entries, pageIndex, pageSize, result.getTotalElements());
     }
 
+    /** What the library knows about an OverDrive id: what it is called, and which book it became. */
+    private record BookRef(String title, Long bookId) {}
+
     /**
-     * Titles for the rows on this page that recorded only an OverDrive id, looked up from the library.
+     * Titles and book ids for the rows on this page that recorded neither, looked up from the library.
      *
-     * <p>Holds and failed borrows used to be written with no title, leaving the history showing a bare
-     * number. Those rows are already on disk and cannot be rewritten, but an id is an id: if the title
-     * was ever imported, the library knows what it is called. One query per page, not per row.
+     * <p>Holds and failed borrows used to be written with no title, and returns with no book, leaving
+     * the history showing a bare name that linked nowhere. Those rows are already on disk and cannot be
+     * rewritten, but an id is an id: if the title was ever imported, the library knows both. One query
+     * per page, not per row.
      *
-     * @return OverDrive id to title, for ids the library can name
+     * @return OverDrive id to what the library knows, for ids it can resolve
      */
-    private Map<String, String> titlesForRowsMissingOne(List<OverDriveAuditEntity> rows) {
-        Set<String> unnamed = rows.stream()
-                .filter(a -> a.getTitle() == null || a.getTitle().isBlank())
-                .map(OverDriveAuditEntity::getTitleId)
+    private Map<String, BookRef> booksForRowsMissingOne(List<OverDriveAuditEntity> rows) {
+        Set<String> unresolved = rows.stream()
+                .filter(a -> a.getBookId() == null || a.getTitle() == null || a.getTitle().isBlank())
+                .map(a -> a.getTitleId() != null ? a.getTitleId() : a.getLoanId())
                 .filter(id -> id != null && !id.isBlank())
                 .collect(Collectors.toSet());
-        if (unnamed.isEmpty()) {
+        if (unresolved.isEmpty()) {
             return Map.of();
         }
-        Map<String, String> titles = new HashMap<>();
-        for (Object[] pair : bookRepository.findOverdriveIdTitlePairs(unnamed)) {
-            if (pair.length == 2 && pair[0] instanceof String id && pair[1] instanceof String title) {
-                titles.putIfAbsent(id, title);
+        Map<String, BookRef> known = new HashMap<>();
+        for (Object[] row : bookRepository.findOverdriveIdBookRefs(unresolved)) {
+            if (row.length == 3 && row[0] instanceof String id) {
+                String title = row[1] instanceof String t ? t : null;
+                Long bookId = row[2] instanceof Number n ? n.longValue() : null;
+                known.putIfAbsent(id, new BookRef(title, bookId));
             }
         }
-        return titles;
+        return known;
     }
 
     // Mirror the Libby web client exactly (verified against a working browser HAR): a normal desktop
