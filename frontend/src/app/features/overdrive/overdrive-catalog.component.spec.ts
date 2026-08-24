@@ -517,6 +517,18 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.actionClass('SHARE_UPDATED')).toBe('neutral');
   });
 
+  it('labels the automated actions rather than showing a raw code', () => {
+    setup();
+    // These fell through to the enum name, so the table showed a bare AUTO_IMPORT beside a
+    // friendly 'Returned'. The AUTO chip carries the automation, so the label is just the verb —
+    // except AUTO_IMPORT, which linked an already-shelved title rather than fetching one.
+    expect(component.actionLabel('AUTO_IMPORT')).toBe('Linked');
+    expect(component.actionLabel('AUTO_RETURN')).toBe('Returned');
+    expect(component.actionLabel('AUTO_BORROW')).toBe('Borrowed');
+    expect(component.actionClass('AUTO_IMPORT')).toBe('borrow');
+    expect(component.actionClass('AUTO_RETURN')).toBe('return');
+  });
+
   it('flags a search result the user already has on loan', () => {
     setup();
     component.loans.set([{id: 'title-1', title: 'Dune', expireDate: '2026-08-08', cardId: 'c1'}]);

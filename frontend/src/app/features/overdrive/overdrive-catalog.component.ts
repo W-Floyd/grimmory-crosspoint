@@ -2176,6 +2176,11 @@ export class OverdriveCatalogComponent {
      BORROW: 'Borrowed',
      BORROW_AND_IMPORT: 'Borrowed & imported',
      IMPORT: 'Imported',
+     // The AUTO chip beside the label already says it was unattended, so these read as plain verbs.
+     // AUTO_IMPORT is the one that isn't a synonym: it found the title already shelved and linked it.
+     AUTO_BORROW: 'Borrowed',
+     AUTO_IMPORT: 'Linked',
+     AUTO_RETURN: 'Returned',
      RETURN: 'Returned',
      HOLD_PLACED: 'Hold placed',
      HOLD_CANCELLED: 'Hold cancelled',
@@ -2198,8 +2203,11 @@ export class OverdriveCatalogComponent {
        case 'BORROW':
        case 'BORROW_AND_IMPORT':
        case 'IMPORT':
+       case 'AUTO_BORROW':
+       case 'AUTO_IMPORT':
        case 'DOWNLOAD':
          return 'borrow';
+       case 'AUTO_RETURN':
        case 'RETURN':
        case 'HOLD_CANCELLED':
        case 'CARD_UNLINKED':
