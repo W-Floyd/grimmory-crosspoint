@@ -64,4 +64,20 @@ public interface OverDriveAuditRepository extends JpaRepository<OverDriveAuditEn
                                          @Param("day") java.time.Instant day,
                                          @Param("week") java.time.Instant week,
                                          @Param("month") java.time.Instant month);
+
+    /**
+     * When this card last took a copy out or gave one back, across every user who holds it.
+     *
+     * <p>Pacing has to be a property of the card, not of a pass. A shared card is one account at the
+     * library however many people hold it, and each of their passes starts its own counter — so
+     * without this, two users could act on the same card back to back and each believe it was their
+     * first action.
+     *
+     * <p>Durable for the same reason: an in-memory counter forgets everything on restart, and a
+     * restart is exactly when a pass is likely to start.
+     */
+    @Query("SELECT MAX(a.createdAt) FROM OverDriveAuditEntity a WHERE a.identity = :identity "
+            + "AND a.success = true AND a.action IN :actions")
+    java.time.Instant lastActionOnCard(@Param("identity") String identity,
+                                       @Param("actions") java.util.Collection<String> actions);
 }

@@ -1660,7 +1660,7 @@ public class OverDriveService {
             String borrowCard = borrowableCardFor(options, cardByLibrary, loanSlotsLeft);
             if (borrowCard != null) {
                 try {
-                    pauseBetweenLoanActions(pacer);
+                    pauseBeforeLoanAction(borrowCard, pacer);
                     loanSlotsLeft.computeIfPresent(borrowCard, (id, left) -> left - 1);
                     borrowAndImport(borrowCard, entry.getTitleId(), null, null,
                             entry.getTitle(), entry.getAuthor(), null, null, null, null, null);
@@ -2236,6 +2236,10 @@ public class OverDriveService {
        * allow. A card doing N borrows and N returns per window is what they describe.
        */
       private static final List<String> RETURN_ACTIONS = List.of("RETURN", "AUTO_RETURN");
+
+      /** Everything that moves a copy either way — what a card's pacing is measured between. */
+      private static final List<String> LOAN_AND_RETURN_ACTIONS =
+              List.of("BORROW", "BORROW_AND_IMPORT", "RETURN", "AUTO_RETURN");
 
       /** Count this card's checkouts over every window, for reporting or for checking a ceiling. */
       public BorrowRate borrowRate(String identity) {
@@ -3947,7 +3951,7 @@ public class OverDriveService {
                     // the loan, which is why doBorrowAndImport knows how to resume one.
                     loanSlotsLeft.computeIfPresent(cardId, (id, left) -> left - 1);
                     try {
-                        pauseBetweenLoanActions(pacer);
+                        pauseBeforeLoanAction(cardId, pacer);
                         borrowAndImport(entry.getKey(), hold.getId(), null, null,
                                 hold.getTitle(), hold.getFirstCreatorName(), null, null, null, null, null);
                         borrowed++;
@@ -4122,9 +4126,57 @@ public class OverDriveService {
         }
       }
 
-      /** Wait before this pass's next checkout or return, spacing it from whatever the last one was. */
-      private void pauseBetweenLoanActions(LoanActionPacer pacer) {
-        pauseBetweenLoanActions(pacer.next());
+      /**
+       * Wait until this card may take another copy or give one back.
+       *
+       * <p>Two floors, and the longer wins. The pass's own counter spreads its work out, which is what
+       * stops a burst across several cards at once. The card's own last action is the one that
+       * matters for the account: a shared card is one patron at the library however many people hold
+       * it, and each of their passes would otherwise start its own counter and act immediately.
+       *
+       * <p>Taken from the recorded history rather than memory, so it survives a restart — which is
+       * exactly when a pass is likely to begin — and covers a person clicking Borrow while a pass runs.
+       */
+      private void pauseBeforeLoanAction(String identity, LoanActionPacer pacer) {
+        long passGap = pacer.next() == 0 ? 0L
+                : ThreadLocalRandom.current().nextLong(LOAN_ACTION_GAP_MIN_MILLIS, LOAN_ACTION_GAP_MAX_MILLIS + 1);
+        long wait = Math.max(passGap, millisUntilCardMayActAgain(identity));
+        if (wait <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(wait);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw ApiError.INTERNAL_SERVER_ERROR.createException("OverDrive automation interrupted between titles");
+        }
+      }
+
+      /** The card-scoped half of the wait, on a fresh pass counter. */
+      void pauseBeforeLoanActionForTest(String identity) { // package-private for testing
+        pauseBeforeLoanAction(identity, new LoanActionPacer());
+      }
+
+      /** How much longer this card must wait, given when it last took or returned a copy. */
+      private long millisUntilCardMayActAgain(String identity) {
+        if (identity == null) {
+            return 0L;
+        }
+        try {
+            Instant last = auditRepository.lastActionOnCard(identity, LOAN_AND_RETURN_ACTIONS);
+            if (last == null) {
+                return 0L;
+            }
+            long required = ThreadLocalRandom.current()
+                    .nextLong(LOAN_ACTION_GAP_MIN_MILLIS, LOAN_ACTION_GAP_MAX_MILLIS + 1);
+            return Math.max(0L, required - java.time.Duration.between(last, Instant.now()).toMillis());
+        } catch (Exception e) {
+            // Pacing is a courtesy, not a correctness guarantee — never fail a pass over it. The pass
+            // counter above still applies.
+            log.debug("OverDrive: could not read the last action on card {} ({}); pacing from the pass only",
+                    identity, e.getMessage());
+            return 0L;
+        }
       }
 
       private void pauseBetween(int handledSoFar, long minMillis, long maxMillis) {
@@ -4187,7 +4239,7 @@ public class OverDriveService {
             boolean waitlisted = settings.autoReturnPromptWhenWaitlisted() && holds > 0;
 
             try {
-                pauseBetweenLoanActions(pacer);
+                pauseBeforeLoanAction(loan.getIdentity(), pacer);
                 returnBook(loan.getIdentity(), loan.getOverdriveLoanId());
                 returned++;
                 log.info("OverDrive auto-return: returned loan {} (\"{}\") for user {}{}",
@@ -4476,7 +4528,7 @@ public class OverDriveService {
             }
             if (borrowCard != null) {
                 try {
-                    pauseBetweenLoanActions(pacer);
+                    pauseBeforeLoanAction(borrowCard, pacer);
                     loanSlotsLeft.computeIfPresent(borrowCard, (id, left) -> left - 1);
                     borrowAndImport(borrowCard, hold.getId(), null, null,
                             hold.getTitle(), hold.getFirstCreatorName(), null, null, null, null, null);

@@ -1363,6 +1363,52 @@ class OverDriveServiceTest {
         assertThat(harness.calls()).hasValue(1);
     }
 
+    // ── Pacing belongs to the card, not to a pass ────────────────────────
+
+    @Test
+    void aCardThatJustActedMakesTheNextPassWait() {
+        // The pass counter says "first action, go" — but the card was used seconds ago, by whoever.
+        when(auditRepository.lastActionOnCard(org.mockito.ArgumentMatchers.eq("card-a"), any()))
+                .thenReturn(Instant.now().minusSeconds(1));
+
+        long waited = timeCall(() -> service.pauseBeforeLoanActionForTest("card-a"));
+
+        // A shared card is one patron at the library however many people hold it, so the floor has to
+        // come from the card rather than from each user's own counter.
+        assertThat(waited).isGreaterThan(1_000L);
+    }
+
+    @Test
+    void aCardIdleForLongEnoughIsNotDelayed() {
+        when(auditRepository.lastActionOnCard(org.mockito.ArgumentMatchers.eq("card-a"), any()))
+                .thenReturn(Instant.now().minus(java.time.Duration.ofHours(2)));
+
+        assertThat(timeCall(() -> service.pauseBeforeLoanActionForTest("card-a"))).isLessThan(1_000L);
+    }
+
+    @Test
+    void aCardWithNoHistoryIsNotDelayed() {
+        when(auditRepository.lastActionOnCard(org.mockito.ArgumentMatchers.eq("card-a"), any()))
+                .thenReturn(null);
+
+        assertThat(timeCall(() -> service.pauseBeforeLoanActionForTest("card-a"))).isLessThan(1_000L);
+    }
+
+    @Test
+    void pacingNeverFailsAPassWhenItCannotBeMeasured() {
+        when(auditRepository.lastActionOnCard(org.mockito.ArgumentMatchers.eq("card-a"), any()))
+                .thenThrow(new RuntimeException("database away"));
+
+        // Courtesy, not correctness — a pass must not die because the spacing could not be worked out.
+        assertThat(timeCall(() -> service.pauseBeforeLoanActionForTest("card-a"))).isLessThan(1_000L);
+    }
+
+    private static long timeCall(Runnable call) {
+        long start = System.currentTimeMillis();
+        call.run();
+        return System.currentTimeMillis() - start;
+    }
+
     // ── Loans that ran out ───────────────────────────────────────────────
 
     @Test
