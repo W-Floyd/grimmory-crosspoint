@@ -1917,6 +1917,24 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void aCardThatCannotBorrowIsNeverChosenToQueueAt() {
+        notResting("card-b");
+        notResting("card-c");
+        when(cardLimitRepository.findById("card-b")).thenReturn(Optional.empty());
+        when(cardLimitRepository.findById("card-c")).thenReturn(Optional.empty());
+        borrowCounts("card-b", 200);
+        borrowCounts("card-c", 0);
+
+        // bpl's queue is much shorter, but its card is over a ceiling. A hold that comes in on a card
+        // which cannot check it out sits ready and unclaimable until it lapses — losing a queue
+        // position that took weeks to earn. Better to wait and queue at kcpl, which can claim it.
+        assertThat(service.bestQueueFor(List.of(
+                        availability("bpl", false, true, 3, 20),
+                        availability("kcpl", false, true, 40, 2)),
+                threeLibraries(), Map.of(), Map.of()).cardId()).isEqualTo("card-c");
+    }
+
+    @Test
     void aCooldownThatHasRunOutStopsBlockingTheCard() {
         authAs(7L);
         when(tokenRepository.findByIdentity("card-a"))

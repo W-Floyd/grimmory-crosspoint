@@ -1790,7 +1790,7 @@ public class OverDriveService {
        * owning more copies. The same preference {@link #soonerElsewhere} applies when moving a hold,
        * minus the "beat the current one" test — there is no current hold to beat.
        */
-      private SoonerQueue bestQueueFor(List<OverDriveLibraryAvailability> options,
+      SoonerQueue bestQueueFor(List<OverDriveLibraryAvailability> options, // package-private for testing
                                        Map<String, String> cardByLibrary, Map<String, Integer> holdSlotsLeft,
                                        Map<String, Integer> holdsPerCard) {
         SoonerQueue best = null;
@@ -1800,7 +1800,11 @@ public class OverDriveService {
                 continue;
             }
             String cardId = cardByLibrary.get(option.libraryKey());
-            if (cardId == null || atHoldCapacity(holdSlotsLeft, cardId) || churnCooldownUntil(cardId) != null) {
+            // Not just resting: any card that cannot borrow. A hold is only worth having on a card
+            // that will be able to claim it — one that comes in on a card at its ceiling sits ready
+            // and unclaimable until it lapses, which costs the queue position it took weeks to earn.
+            // Deferring costs a pass: the entry stays in the bag and is queued once the card is free.
+            if (cardId == null || atHoldCapacity(holdSlotsLeft, cardId) || borrowBlockedReason(cardId) != null) {
                 continue;
             }
             int copies = option.ownedCopies() != null ? option.ownedCopies() : 0;
@@ -4548,7 +4552,9 @@ public class OverDriveService {
             SoonerQueue sooner = soonerElsewhere(hold, options, cardByLibrary, holdSlotsLeft, holdsPerCard);
             // Checked here rather than inside the selector, which stays a pure comparison over the
             // availability data and does not reach for the card rows.
-            if (sooner == null || churnCooldownUntil(sooner.cardId()) != null) {
+            // Same rule, and it matters more here: moving a hold to a card that cannot borrow gives up
+            // a real queue position for one that will expire unclaimed.
+            if (sooner == null || borrowBlockedReason(sooner.cardId()) != null) {
                 continue;
             }
             try {
