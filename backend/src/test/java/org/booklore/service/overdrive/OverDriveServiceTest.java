@@ -1685,6 +1685,87 @@ class OverDriveServiceTest {
         verify(bookRepository, never()).findIdsByOverdriveId(any());
     }
 
+    /**
+     * What the parser reports for one title at one library, in its own shape — the service converts it
+     * to an availability, so stubbing the converted form would skip the mapping under test.
+     */
+    private void stubAvailability(String libraryKey, String titleId, boolean available, boolean holdable,
+                                  Integer waitDays, Integer ownedCopies) {
+        org.booklore.model.dto.response.OverDriveApiResponse.Item item =
+                new org.booklore.model.dto.response.OverDriveApiResponse.Item();
+        item.setAvailable(available);
+        item.setHoldable(holdable);
+        item.setAvailableCopies(available ? 1 : 0);
+        item.setOwnedCopies(ownedCopies);
+        item.setEstimatedWaitDays(waitDays);
+        when(overDriveParser.fetchAvailabilityBulk(any(), any()))
+                .thenReturn(Map.of(libraryKey, Map.of(titleId, item)));
+    }
+
+    @Test
+    void aCopyOnARestingCardsShelfIsNotReportedAsNoCopy() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("mcpl")
+                        .cardName("Mid-Continent Public Library").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        // The availability lookup resolves a card's library through this, not through the map the
+        // caller built, so the row it finds has to carry the library key too.
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("mcpl")
+                        .cardName("Mid-Continent Public Library").token("chip-1").build()));
+        var resting = restingCard("card-a", Instant.now().plus(java.time.Duration.ofDays(3)));
+        // Named, because naming the library in the note is half of what makes it actionable.
+        resting.setCardName("Mid-Continent Public Library");
+        when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(resting));
+        when(bookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
+        stubAvailability("mcpl", "2056901", true, false, null, 3);
+
+        service.runBookbag(7L, Set.of(), Map.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), pacer());
+
+        // The copy is right there; the card holding it is resting. Saying "no copy available" sends
+        // the user looking for a book that was never the problem, and names none of the two facts
+        // that actually explain it.
+        assertThat(entry.getLastNote())
+                .contains("A copy is on the shelf at Mid-Continent Public Library")
+                .contains("too many titles borrowed and returned")
+                .doesNotContain("No copy available");
+    }
+
+    @Test
+    void aQueueWeAreDecliningToJoinIsNotReportedAsNoQueue() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("mcpl")
+                        .cardName("Mid-Continent Public Library").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        // The availability lookup resolves a card's library through this, not through the map the
+        // caller built, so the row it finds has to carry the library key too.
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("mcpl")
+                        .cardName("Mid-Continent Public Library").token("chip-1").build()));
+        var resting = restingCard("card-a", Instant.now().plus(java.time.Duration.ofDays(3)));
+        // Named, because naming the library in the note is half of what makes it actionable.
+        resting.setCardName("Mid-Continent Public Library");
+        when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(resting));
+        when(bookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
+        // Nothing on the shelf, but a queue exists — one we pass over, because a hold that came in on
+        // a resting card could not be claimed.
+        stubAvailability("mcpl", "2056901", false, true, 40, 3);
+
+        service.runBookbag(7L, Set.of(), Map.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), pacer());
+
+        assertThat(entry.getLastNote())
+                .contains("There is a queue at Mid-Continent Public Library")
+                .doesNotContain("no queue to join");
+    }
+
     @Test
     void aBookbagTitleAlreadyOnLoanIsFinishedRatherThanBorrowedAgain() {
         authAsAdmin(7L);

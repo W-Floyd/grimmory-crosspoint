@@ -1950,7 +1950,7 @@ public class OverDriveService {
             }
             SoonerQueue queue = bestQueueFor(options, cardByLibrary, holdSlotsLeft, holdsPerCard);
             if (queue == null) {
-                entry.setLastNote(noBorrowNote(options, cardByLibrary, loanSlotsLeft));
+                entry.setLastNote(noBorrowNote(options, cardByLibrary, loanSlotsLeft, holdSlotsLeft));
                 bookbagRepository.save(entry);
                 continue;
             }
@@ -2081,7 +2081,10 @@ public class OverDriveService {
        * not make them look the same.
        */
       private String noBorrowNote(List<OverDriveLibraryAvailability> options, Map<String, String> cardByLibrary,
-                                  Map<String, Integer> loanSlotsLeft) {
+                                  Map<String, Integer> loanSlotsLeft, Map<String, Integer> holdSlotsLeft) {
+        if (options.isEmpty()) {
+            return "None of your libraries carry this title.";
+        }
         for (OverDriveLibraryAvailability option : options) {
             boolean onShelf = option.available()
                     || (option.luckyDayAvailableCopies() != null && option.luckyDayAvailableCopies() > 0);
@@ -2089,17 +2092,40 @@ public class OverDriveService {
             if (cardId == null) {
                 continue;
             }
+            String where = "A copy is on the shelf at " + cardNameOf(cardId) + ", but ";
             String blocked = borrowBlockedReason(cardId);
             if (blocked != null) {
-                return truncate("A copy is available, but " + blocked + ".", 512);
+                return truncate(where + blocked + ".", 512);
             }
             if (atLoanCapacity(loanSlotsLeft, cardId)) {
-                return "A copy is available, but that card is at its checkout limit.";
+                return truncate(where + "that card is at its checkout limit.", 512);
             }
         }
-        return options.isEmpty()
-                ? "None of your libraries carry this title."
-                : "No copy available and no queue to join right now.";
+
+        // Nothing on a shelf we can reach. Before calling that "no queue to join", check whether there
+        // is one we are simply declining to join: a hold is only worth having on a card that will be
+        // able to claim it, so a blocked card is passed over here too. Saying no queue exists when one
+        // does sends the user off to look for a copy that was never the problem.
+        for (OverDriveLibraryAvailability option : options) {
+            if (!option.holdable() || option.estimatedWaitDays() == null) {
+                continue;
+            }
+            String cardId = cardByLibrary.get(option.libraryKey());
+            if (cardId == null) {
+                continue;
+            }
+            String blocked = borrowBlockedReason(cardId);
+            if (blocked != null) {
+                return truncate("There is a queue at " + cardNameOf(cardId) + " (~"
+                        + option.estimatedWaitDays() + "d), but " + blocked
+                        + " — a hold that came in there could not be claimed.", 512);
+            }
+            if (atHoldCapacity(holdSlotsLeft, cardId)) {
+                return truncate("There is a queue at " + cardNameOf(cardId)
+                        + ", but that card is at its hold limit.", 512);
+            }
+        }
+        return "No copy available and no queue to join right now.";
       }
 
       // ── Bookbag: titles queued for the poller to borrow as cards allow ───
@@ -2225,7 +2251,8 @@ public class OverDriveService {
             card = holdCardStillUsable(entry.getHoldCardId());
         }
         if (card == null) {
-            throw ApiError.CONFLICT.createException(noBorrowNote(options, cardByLibrary, Map.of()));
+            throw ApiError.CONFLICT.createException(
+                    noBorrowNote(options, cardByLibrary, Map.of(), Map.of()));
         }
         // Not automated, so borrowAndImport fulfils immediately rather than pausing first.
         Book book = borrowAndImport(card, entry.getTitleId(), null, null,
