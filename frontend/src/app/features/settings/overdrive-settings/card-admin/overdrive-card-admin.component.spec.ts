@@ -54,7 +54,10 @@ function setup(): OverdriveCardAdminComponent {
     ],
   });
   TestBed.overrideComponent(OverdriveCardAdminComponent, {set: {template: ''}});
-  return TestBed.createComponent(OverdriveCardAdminComponent).componentInstance;
+  const fixture = TestBed.createComponent(OverdriveCardAdminComponent);
+  // Run lifecycle: what the component fetches on init is part of its contract now.
+  fixture.detectChanges();
+  return fixture.componentInstance;
 }
 
 describe('OverdriveCardAdminComponent', () => {
@@ -337,7 +340,7 @@ describe('OverdriveCardAdminComponent', () => {
   });
 
   it('shows a blank box for an unset window, with the inherited number as its placeholder', () => {
-    permissions = {canManageAllCards: true};
+    permissions = {canManageAllOverdriveCards: true};
     const component = setup();
     const budget = {
       identity: 'card-1', cardName: 'LAPL',
@@ -354,7 +357,7 @@ describe('OverdriveCardAdminComponent', () => {
   });
 
   it('reads an opted-out window as none rather than as a negative number', () => {
-    permissions = {canManageAllCards: true};
+    permissions = {canManageAllOverdriveCards: true};
     const component = setup();
     const budget = {
       identity: 'card-1', limits: {perMinute: -1, perHour: -1, perDay: -1, perWeek: -1, perMonth: -1},
@@ -368,7 +371,7 @@ describe('OverdriveCardAdminComponent', () => {
   });
 
   it('clears back to inheriting rather than to unlimited when no limits is switched off', () => {
-    permissions = {canManageAllCards: true};
+    permissions = {canManageAllOverdriveCards: true};
     const component = setup();
     const budget = {
       identity: 'card-1', limits: {perMinute: -1, perHour: -1, perDay: -1, perWeek: -1, perMonth: -1},
@@ -384,7 +387,7 @@ describe('OverdriveCardAdminComponent', () => {
   });
 
   it('re-reads every card after the default changes', () => {
-    permissions = {canManageAllCards: true};
+    permissions = {canManageAllOverdriveCards: true};
     const component = setup();
     overdriveService.cardLimits.mockClear();
 
@@ -401,7 +404,7 @@ describe('OverdriveCardAdminComponent', () => {
   });
 
   it('treats a cleared box as deferring, not as zero', () => {
-    permissions = {canManageAllCards: true};
+    permissions = {canManageAllOverdriveCards: true};
     const component = setup();
     const budget = {identity: 'card-1', limits: {perMonth: 145}, effective: {}, rate: rate()} as OverDriveCardBudget;
 
@@ -409,5 +412,26 @@ describe('OverdriveCardAdminComponent', () => {
 
     // Zero would ground the card permanently and the server rejects it; null hands the window back.
     expect(component.limitsFor(budget).perMonth).toBeNull();
+  });
+
+  it('reads the default without loading every user\'s cards', () => {
+    permissions = {canManageAllOverdriveCards: true};
+    overdriveService.defaultCardLimits.mockClear();
+    overdriveService.allCards.mockClear();
+    const component = setup();
+
+    // The default is one row and governs cards nobody has looked at, including on a server with none
+    // linked — so it must not sit behind the button that enumerates every user's cards.
+    expect(component.defaultLimits().perMonth).toBe(100);
+    expect(overdriveService.defaultCardLimits).toHaveBeenCalled();
+    expect(overdriveService.allCards).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch the default for a user who cannot set it', () => {
+    permissions = {};
+    overdriveService.defaultCardLimits.mockClear();
+    setup();
+
+    expect(overdriveService.defaultCardLimits).not.toHaveBeenCalled();
   });
 });

@@ -304,10 +304,16 @@
   }
 }
 
-// The default sits above the per-card rows and is read as their source, so it is set apart rather
-// than looking like one more card in the list.
-.limits-grid-default {
-  padding-bottom: 0.6rem;
-  margin-bottom: 0.6rem;
+// The default shares the grid with the cards so the columns line up, which leaves it looking like
+// one more card in the list. The rule under it is what separates the source from the rows that read
+// from it — applied per cell, since a grid child cannot span the row on its own.
+.limits-empty {
+  margin-top: 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text-color-secondary);
+}
+
+.limits-default-cell {
+  padding-bottom: 0.55rem;
   border-bottom: 1px solid var(--surface-border, rgb(255 255 255 / 15%));
 }

@@ -118,84 +118,98 @@
     }
   </div>
 
-  @if (loaded() && budgets().length > 0) {
-    <!--
-      Borrow ceilings, beside what each card has actually done. The pair is the point: OverDrive
-      publishes no numbers, so the only way to set a ceiling is to look at the rate that has been
-      tolerated and the rate that got the card refused, and pick something under both.
-    -->
-    <div class="limits-section">
-      <h4 class="limits-title"><i class="pi pi-gauge"></i> Borrow limits</h4>
-      <p class="settings-description">
-        How fast each card may be borrowed against. Leave a box blank and that window follows the
-        deployment default below — change the default and every card that never disagreed with it
-        moves too. The <em>used</em> figures are live counts over the same rolling windows: set a
-        ceiling under the rate that got a card refused, not over it.
-      </p>
+  <!--
+    Borrow ceilings, beside what each card has actually done. The pair is the point: OverDrive
+    publishes no numbers, so the only way to set a ceiling is to look at the rate that has been
+    tolerated and the rate that got the card refused, and pick something under both.
 
-      <!--
-        The default first, because every row under it is read relative to this one: a blank box down
-        there shows the number from up here as its placeholder.
-      -->
-      <div class="limits-grid limits-grid-default">
-        <span class="limits-card">
-          <strong>Default for every card</strong>
-          <small>used where a card sets nothing of its own</small>
-        </span>
-        @for (window of windows; track window) {
-          <input type="number" min="1" class="limits-input" placeholder="none"
-            [ngModel]="limitValue(defaultLimitsFor(), window)"
-            (ngModelChange)="onDefaultLimitChange(window, $event)"
-            [ngModelOptions]="{ standalone: true }"
-            [attr.aria-label]="'Default borrows ' + windowLabel(window)">
-        }
+    Not behind the load button: the default is one row and applies to cards nobody has looked at yet,
+    including on a server where none are linked. Only the per-card rows need the card list.
+  -->
+  <div class="limits-section">
+    <h4 class="limits-title"><i class="pi pi-gauge"></i> Borrow limits</h4>
+    <p class="settings-description">
+      How fast each card may be borrowed against. Leave a box blank and that window follows the
+      deployment default — change the default and every card that never disagreed with it moves
+      too. The <em>used</em> figures are live counts over the same rolling windows: set a ceiling
+      under the rate that got a card refused, not over it.
+    </p>
+
+    <!--
+      One grid for the default and the cards, not two. The columns have to line up for a blank box
+      to read as "the number above it", and separate grid containers size their columns from their
+      own content — so two of them would drift apart exactly where the comparison matters.
+    -->
+    <div class="limits-grid">
+      <span class="limits-head">Card</span>
+      <span class="limits-head">/min</span>
+      <span class="limits-head">/hour</span>
+      <span class="limits-head">/day</span>
+      <span class="limits-head">/week</span>
+      <span class="limits-head">/30 days</span>
+      <span class="limits-head"></span>
+
+      <!-- Under the headers, above the cards: every row below is read relative to this one. -->
+      <span class="limits-card limits-default-cell">
+        <strong>Default for every card</strong>
+        <small>applies wherever a card sets nothing of its own</small>
+      </span>
+      @for (window of windows; track window) {
+        <input type="number" min="1" class="limits-input limits-default-cell" placeholder="none"
+          [ngModel]="limitValue(defaultLimitsFor(), window)"
+          (ngModelChange)="onDefaultLimitChange(window, $event)"
+          [ngModelOptions]="{ standalone: true }"
+          [attr.aria-label]="'Default borrows ' + windowLabel(window)">
+      }
+      <span class="limits-default-cell">
         <p-button label="Save" icon="pi pi-check" size="small" severity="secondary"
           [disabled]="!hasUnsavedDefault()"
           [loading]="savingDefault()"
           pTooltip="Applies at once to every card that has not set its own ceiling for that window"
           (onClick)="saveDefaultLimits()" />
-      </div>
-
-      <div class="limits-grid">
-        <span class="limits-head">Card</span>
-        <span class="limits-head">/min</span>
-        <span class="limits-head">/hour</span>
-        <span class="limits-head">/day</span>
-        <span class="limits-head">/week</span>
-        <span class="limits-head">/30 days</span>
-        <span class="limits-head"></span>
-        @for (budget of budgets(); track budget.identity) {
-          <span class="limits-card">
-            {{ budget.cardName || budget.identity }}
-            <small>used {{ budget.rate.lastMinute }} / {{ budget.rate.lastHour }} / {{ budget.rate.lastDay }} / {{ budget.rate.lastWeek }} / {{ budget.rate.last30Days }}</small>
-            <!--
-              The opt-out is the state worth making deliberate: clearing the boxes means "follow the
-              default", which is the safe reading, so removing every ceiling needs saying outright.
-            -->
-            <label class="limits-nolimit">
-              <input type="checkbox" [checked]="hasNoLimits(budget)"
-                (change)="toggleNoLimits(budget, $any($event.target).checked)"
-                [attr.aria-label]="'No ceilings at all for ' + (budget.cardName || budget.identity)">
-              no limits
-            </label>
-          </span>
-          @for (window of windows; track window) {
-            <input type="number" min="1" class="limits-input"
-              [placeholder]="inheritedHint(budget, window)"
-              [disabled]="hasNoLimits(budget)"
-              [ngModel]="limitValue(limitsFor(budget), window)"
-              (ngModelChange)="onLimitChange(budget, window, $event)"
-              [ngModelOptions]="{ standalone: true }"
-              [attr.aria-label]="'Borrows ' + windowLabel(window) + ' for ' + (budget.cardName || budget.identity)">
-          }
-          <p-button label="Save" icon="pi pi-check" size="small" severity="secondary"
-            [disabled]="!hasUnsavedLimits(budget)"
-            [loading]="savingLimitsFor() === budget.identity"
-            (onClick)="saveLimits(budget)" />
+      </span>
+      @for (budget of budgets(); track budget.identity) {
+        <span class="limits-card">
+          {{ budget.cardName || budget.identity }}
+          <small>used {{ budget.rate.lastMinute }} / {{ budget.rate.lastHour }} / {{ budget.rate.lastDay }} / {{ budget.rate.lastWeek }} / {{ budget.rate.last30Days }}</small>
+          <!--
+            The opt-out is the state worth making deliberate: clearing the boxes means "follow the
+            default", which is the safe reading, so removing every ceiling needs saying outright.
+          -->
+          <label class="limits-nolimit">
+            <input type="checkbox" [checked]="hasNoLimits(budget)"
+              (change)="toggleNoLimits(budget, $any($event.target).checked)"
+              [attr.aria-label]="'No ceilings at all for ' + (budget.cardName || budget.identity)">
+            no limits
+          </label>
+        </span>
+        @for (window of windows; track window) {
+          <input type="number" min="1" class="limits-input"
+            [placeholder]="inheritedHint(budget, window)"
+            [disabled]="hasNoLimits(budget)"
+            [ngModel]="limitValue(limitsFor(budget), window)"
+            (ngModelChange)="onLimitChange(budget, window, $event)"
+            [ngModelOptions]="{ standalone: true }"
+            [attr.aria-label]="'Borrows ' + windowLabel(window) + ' for ' + (budget.cardName || budget.identity)">
         }
-      </div>
+        <p-button label="Save" icon="pi pi-check" size="small" severity="secondary"
+          [disabled]="!hasUnsavedLimits(budget)"
+          [loading]="savingLimitsFor() === budget.identity"
+          (onClick)="saveLimits(budget)" />
+      }
     </div>
-  }
+
+    @if (budgets().length === 0) {
+      <p class="limits-empty">
+        @if (loaded()) {
+          No card is linked yet, so there is nothing to give its own ceiling — the default above
+          will apply to the first one that is.
+        } @else {
+          Load the cards above to give an individual card a ceiling of its own.
+        }
+      </p>
+    }
+  </div>
 
   <p-dialog [(visible)]="linkDialogVisible" [modal]="true" [style]="{ width: '30rem' }"
     header="Link a card for a user" [dismissableMask]="true">

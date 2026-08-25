@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { InputTextModule } from '@openng/optimus-ui/inputtext';
 import { MessageModule } from '@openng/optimus-ui/message';
@@ -63,7 +63,7 @@ interface OwnerGroup {
   styleUrl: './overdrive-card-admin.component.scss',
   providers: [MessageService]
 })
-export class OverdriveCardAdminComponent {
+export class OverdriveCardAdminComponent implements OnInit {
   private readonly overdriveService = inject(OverDriveService);
   private readonly messageService = inject(MessageService);
   private readonly confirmationService = inject(ConfirmationService);
@@ -74,6 +74,14 @@ export class OverdriveCardAdminComponent {
     const permissions = this.userService.currentUser()?.permissions;
     return !!permissions?.admin || !!permissions?.canManageAllOverdriveCards;
   });
+
+  ngOnInit(): void {
+    // One row, and nothing about it depends on the card list — so it does not wait behind the button
+    // that enumerates every user's cards. Skipped entirely for users who cannot set it.
+    if (this.permitted()) {
+      this.loadDefaultLimits();
+    }
+  }
 
   loading = signal(false);
   loaded = signal(false);
@@ -215,6 +223,14 @@ export class OverdriveCardAdminComponent {
     this.limitEdits.update(edits => ({ ...edits, [budget.identity]: limits }));
   }
 
+  private loadDefaultLimits(): void {
+    this.overdriveService.defaultCardLimits().subscribe({
+      // Best-effort: a failure here costs the grid its placeholders, not its point.
+      next: (limits) => this.defaultLimits.set(limits ?? {}),
+      error: () => this.defaultLimits.set({})
+    });
+  }
+
   hasUnsavedDefault(): boolean {
     return this.defaultEdit() !== null;
   }
@@ -277,12 +293,6 @@ export class OverdriveCardAdminComponent {
       // hide it.
       next: (budgets) => this.budgets.set(budgets ?? []),
       error: () => this.budgets.set([])
-    });
-    this.overdriveService.defaultCardLimits().subscribe({
-      // Also best-effort, and for the same reason: without it the grid loses its placeholders, not
-      // its point.
-      next: (limits) => this.defaultLimits.set(limits ?? {}),
-      error: () => this.defaultLimits.set({})
     });
     this.overdriveService.allCards().subscribe({
       next: (cards) => {
