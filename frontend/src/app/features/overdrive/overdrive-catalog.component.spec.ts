@@ -9,6 +9,11 @@ import {OverDriveService, OverDriveAuditEntry, OverDriveBookbagEntry, OverDriveC
 import {LibraryService} from '../../features/book/service/library.service';
 import {TranslocoService} from '@jsverse/transloco';
 import {RxStompService} from '../../shared/websocket/rx-stomp.service';
+import {ActivatedRoute, Router} from '@angular/router';
+
+/** Query parameters the component reads back, mutable per test. */
+let queryParams: Record<string, string> = {};
+const navigateSpy = vi.fn();
 
 function card(cardId: string, libraryKey: string, name = cardId): OverDriveCard {
   return {cardId, libraryKey, name};
@@ -36,6 +41,9 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     cards: vi.fn(() => of([])),
     capabilities: vi.fn(() => of({acsmHandlerConfigured: false, credentialStorageEnabled: false, audiobookHandlerConfigured: false, magazineHandlerConfigured: false, ebookHandlerConfigured: false})),
     sync: vi.fn(),
+    // The component syncs the selected cards on several paths; without this the calls reject as
+    // unhandled and the real failure hides in the noise.
+    syncAll: vi.fn(() => of({})),
     toolLog: vi.fn(() => of(null as OverDriveToolLog | null)),
     search: vi.fn(),
     borrowAndImport: vi.fn(),
@@ -60,6 +68,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    queryParams = {};
     overdriveService.cards.mockReturnValue(of([]));
     overdriveService.capabilities.mockReturnValue(of({acsmHandlerConfigured: false, credentialStorageEnabled: false, audiobookHandlerConfigured: false, magazineHandlerConfigured: false, ebookHandlerConfigured: false}));
 
@@ -74,6 +83,11 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       {provide: TaskService, useValue: taskService},
         {provide: TranslocoService, useValue: {langChanges$: of('en'), getActiveLang: () => 'en'}},
         {provide: RxStompService, useValue: {watch: () => of()}},
+        {provide: Router, useValue: {navigate: navigateSpy}},
+        // Read at call time, so a test can set the parameter before invoking ngOnInit.
+        {provide: ActivatedRoute, useValue: {
+          snapshot: {queryParamMap: {get: (key: string) => queryParams[key] ?? null}}
+        }},
       ],
     });
     component = TestBed.runInInjectionContext(() => new OverdriveCatalogComponent());
@@ -1159,5 +1173,45 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
 
     expect(overdriveService.toolLog).not.toHaveBeenCalled();
     expect(component.storedToolLogFor()).toBeNull();
+  });
+
+  it('opens the tab named in the url and loads its contents', () => {
+    queryParams = {tab: 'history'};
+    overdriveService.history.mockClear();
+
+    component.ngOnInit();
+
+    // Restored through onTabChange, not a bare set: a tab whose contents are fetched separately would
+    // otherwise come back selected and empty.
+    expect(component.activeTab()).toBe('history');
+    expect(overdriveService.history).toHaveBeenCalled();
+  });
+
+  it('ignores a tab name that is not one of ours', () => {
+    queryParams = {tab: 'nonsense'};
+
+    // The value comes from the address bar, so it can be a stale bookmark from before a rename.
+    component.ngOnInit();
+
+    expect(component.activeTab()).toBe('search');
+  });
+
+  it('records the open tab in the url without stacking history entries', () => {
+    component.onTabChange('bookbag');
+
+    // Replace, not push: Back should leave the page, not walk through the tabs visited on it.
+    expect(navigateSpy).toHaveBeenCalledWith([], expect.objectContaining({
+      queryParams: {tab: 'bookbag'},
+      replaceUrl: true
+    }));
+  });
+
+  it('drops the parameter entirely for the default tab', () => {
+    component.onTabChange('search');
+
+    // A bare /overdrive is the same page as /overdrive?tab=search; only one of them should exist.
+    expect(navigateSpy).toHaveBeenCalledWith([], expect.objectContaining({
+      queryParams: {tab: null}
+    }));
   });
 });

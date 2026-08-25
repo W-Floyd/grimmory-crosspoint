@@ -1,5 +1,6 @@
-import { Component, computed, DestroyRef, effect, ElementRef, inject, signal, untracked, viewChild, WritableSignal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, ElementRef, inject, OnInit, signal, untracked, viewChild, WritableSignal } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
@@ -79,7 +80,7 @@ export function toolProgressPct(e: { pct?: number; current?: number; total?: num
   styleUrl: './overdrive-catalog.component.scss',
   providers: [MessageService, ConfirmationService]
 })
-export class OverdriveCatalogComponent {
+export class OverdriveCatalogComponent implements OnInit {
   private readonly overdriveService = inject(OverDriveService);
   private readonly messageService = inject(MessageService);
   private readonly transloco = inject(TranslocoService);
@@ -101,6 +102,9 @@ export class OverdriveCatalogComponent {
   // Time of the last successful loans/holds sync, so the user knows how current the data is.
   lastSynced = signal<Date | null>(null);
   // Active tab on the catalog (search / loans / holds / history).
+  /** The tabs, in the order shown. Also the set the ?tab= parameter is validated against. */
+  private static readonly TABS = ['search', 'loans', 'holds', 'bookbag', 'history'];
+
   activeTab = signal<string | number>('search');
   // OverDrive activity history (newest first), loaded when the History tab is opened.
   history = signal<OverDriveAuditEntry[]>([]);
@@ -511,6 +515,8 @@ export class OverdriveCatalogComponent {
 
   // Live stdout/stderr streamed from the external ACSM/audiobook/magazine handler during an import.
   private readonly rxStompService = inject(RxStompService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   toolLog = signal<string[]>([]);
   toolConsoleVisible = signal(false);
@@ -528,6 +534,11 @@ export class OverdriveCatalogComponent {
   toolProgress = signal<{ phase?: string; message?: string; pct: number | null } | null>(null);
   // Pending auto-dismiss of the console after a successful run.
   private dismissTimer: ReturnType<typeof setTimeout> | null = null;
+
+   ngOnInit(): void {
+     // After construction so the tab's own loaders run against a fully built component.
+     this.restoreTabFromUrl();
+   }
 
    constructor() {
      // Filters shrink these tables underneath their paginators, so each offset is kept in range.
@@ -1924,10 +1935,25 @@ export class OverdriveCatalogComponent {
      }
    }
 
+   /**
+    * Open the tab named by ?tab=, if it names a real one.
+    *
+    * <p>An unknown or absent value falls back to search rather than erroring: the parameter comes from
+    * whatever was in the address bar, which may be a stale bookmark from before a tab was renamed.
+    */
+   private restoreTabFromUrl(): void {
+     const requested = this.route.snapshot.queryParamMap.get('tab');
+     if (requested && OverdriveCatalogComponent.TABS.includes(requested) && requested !== 'search') {
+       // Through onTabChange, not a bare set: the tab's contents still have to be fetched.
+       this.onTabChange(requested);
+     }
+   }
+
    /** Switch tabs; lazy-load the tabs whose contents are fetched separately. */
    onTabChange(tab: string | number | undefined): void {
      const next = tab ?? 'search';
      this.activeTab.set(next);
+     this.rememberTabInUrl(next);
      if (next === 'history') {
        // Only the first page; the table asks for the rest as the user pages.
        this.loadHistory(0);
@@ -1938,6 +1964,22 @@ export class OverdriveCatalogComponent {
        // page left open.
        this.loadBookbag();
      }
+   }
+
+   /**
+    * Put the open tab in the address bar so reloading, bookmarking or sharing the URL comes back to it.
+    *
+    * <p>Replaces rather than pushes: a tab is a view of one page, and stacking a history entry per
+    * click would make Back walk through the tabs a user visited instead of leaving the page. The
+    * default tab drops the parameter entirely rather than writing ?tab=search.
+    */
+   private rememberTabInUrl(tab: string | number): void {
+     this.router.navigate([], {
+       relativeTo: this.route,
+       queryParams: { tab: tab === 'search' ? null : tab },
+       queryParamsHandling: 'merge',
+       replaceUrl: true
+     });
    }
 
    /** Fetch the bag. Cheap and always small, so it is refetched on open rather than cached. */
