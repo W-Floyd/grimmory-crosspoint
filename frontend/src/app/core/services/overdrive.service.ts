@@ -719,6 +719,15 @@ export class OverDriveService {
   setCardLimits(identity: string, limits: OverDriveBorrowLimits): Observable<OverDriveCardBudget> {
     return this.http.put<OverDriveCardBudget>(`${this.baseUrl}/card-limits/${identity}`, limits);
   }
+
+  /** The ceilings every card inherits for the windows it does not set itself. */
+  defaultCardLimits(): Observable<OverDriveBorrowLimits> {
+    return this.http.get<OverDriveBorrowLimits>(`${this.baseUrl}/card-limits/default`);
+  }
+
+  setDefaultCardLimits(limits: OverDriveBorrowLimits): Observable<OverDriveBorrowLimits> {
+    return this.http.put<OverDriveBorrowLimits>(`${this.baseUrl}/card-limits/default`, limits);
+  }
 }
 
 /** Where one queued title falls in the coming passes. */
@@ -756,7 +765,14 @@ export interface OverDriveBookbagEntry {
   allowReborrow?: boolean;
 }
 
-/** A card's borrow ceilings. Null in any window means no ceiling for it. */
+/**
+ * Borrow ceilings for one window each.
+ *
+ * <p>Three states share each field. Null means unset: on a card that defers to the deployment
+ * default, and on the default itself that there is nothing left to inherit, so no ceiling. A negative
+ * is the explicit opt-out — no ceiling here, and moving the default must not reinstate one. Anything
+ * else is the ceiling itself.
+ */
 export interface OverDriveBorrowLimits {
   perMinute?: number | null;
   perHour?: number | null;
@@ -778,6 +794,9 @@ export interface OverDriveBorrowRate {
 export interface OverDriveCardBudget {
   identity: string;
   cardName?: string | null;
+  /** What this card has saved for itself: mostly nulls, since most cards defer to the default. */
   limits: OverDriveBorrowLimits;
+  /** What it is actually held to, once the default has filled in the windows it left unset. */
+  effective: OverDriveBorrowLimits;
   rate: OverDriveBorrowRate;
 }

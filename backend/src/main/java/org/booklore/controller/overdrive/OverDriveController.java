@@ -726,6 +726,33 @@ public class OverDriveController {
     }
 
     /**
+     * GET /api/overdrive/card-limits/default — the ceilings a card inherits where it sets none.
+     *
+     * <p>Administrators only, via the service.
+     */
+    @Operation(summary = "Get the deployment-wide default borrow limits")
+    @ApiResponse(responseCode = "200", description = "Default limits returned")
+    @GetMapping("/card-limits/default")
+    public ResponseEntity<OverDriveService.BorrowLimits> defaultCardLimits() {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.readDefaultBorrowLimits());
+    }
+
+    /**
+     * PUT /api/overdrive/card-limits/default — set the ceilings every card inherits by default.
+     * Takes effect immediately for every card that has not overridden the window in question.
+     */
+    @Operation(summary = "Set the deployment-wide default borrow limits")
+    @ApiResponse(responseCode = "200", description = "Default limits saved")
+    @PutMapping("/card-limits/default")
+    public ResponseEntity<OverDriveService.BorrowLimits> setDefaultCardLimits(
+            @RequestBody OverDriveService.BorrowLimits limits
+    ) {
+        requireEnabled();
+        return ResponseEntity.ok(overDriveService.setDefaultBorrowLimits(limits));
+    }
+
+    /**
      * PUT /api/overdrive/card-limits/{identity} — set one card's borrow ceilings.
      * A null in any window clears that ceiling; zero is refused (see the service).
      */

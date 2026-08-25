@@ -125,18 +125,120 @@ export class OverdriveCardAdminComponent {
   /** In-progress edits, keyed by identity — applied only when the row is saved. */
   private limitEdits = signal<Record<string, OverDriveBorrowLimits>>({});
 
+  /** The deployment default every card falls back on, and its own unsaved edit. */
+  defaultLimits = signal<OverDriveBorrowLimits>({});
+  private defaultEdit = signal<OverDriveBorrowLimits | null>(null);
+  savingDefault = signal(false);
+
+  /** The five windows, in the order the grid shows them. */
+  static readonly WINDOWS: (keyof OverDriveBorrowLimits)[] =
+    ['perMinute', 'perHour', 'perDay', 'perWeek', 'perMonth'];
+
+  readonly windows = OverdriveCardAdminComponent.WINDOWS;
+
+  /** Screen-reader wording for a window, so each box says which one it is. */
+  windowLabel(window: keyof OverDriveBorrowLimits): string {
+    switch (window) {
+      case 'perMinute': return 'per minute';
+      case 'perHour': return 'per hour';
+      case 'perDay': return 'per day';
+      case 'perWeek': return 'per week';
+      default: return 'per thirty days';
+    }
+  }
+
   /** The values a row's inputs should show: the user's unsaved edit, else what is stored. */
   limitsFor(budget: OverDriveCardBudget): OverDriveBorrowLimits {
     return this.limitEdits()[budget.identity] ?? budget.limits ?? {};
   }
 
-  /** Record an edit without saving. Blank means no ceiling, so empty string becomes null, not zero. */
+  /** The same for the default row. */
+  defaultLimitsFor(): OverDriveBorrowLimits {
+    return this.defaultEdit() ?? this.defaultLimits() ?? {};
+  }
+
+  /**
+   * What one window's box should contain.
+   *
+   * <p>Only a real ceiling is a number in the box. Unset shows empty — the placeholder carries the
+   * inherited figure — and an opt-out is not a number a person should have to type or read, so the
+   * box is empty there too and the row's "no limit" state says it instead.
+   */
+  limitValue(limits: OverDriveBorrowLimits, window: keyof OverDriveBorrowLimits): number | null {
+    const value = limits[window];
+    return value === null || value === undefined || value < 0 ? null : value;
+  }
+
+  /** What an empty box means for this window: the inherited number, or that nothing caps it. */
+  inheritedHint(budget: OverDriveCardBudget, window: keyof OverDriveBorrowLimits): string {
+    const stored = this.limitsFor(budget)[window];
+    if (stored !== null && stored !== undefined && stored < 0) {
+      return 'none';
+    }
+    const effective = budget.effective?.[window];
+    return effective === null || effective === undefined ? 'none' : String(effective);
+  }
+
+  /** Record an edit without saving. Blank hands the window back to the default rather than to zero. */
   onLimitChange(budget: OverDriveCardBudget, window: keyof OverDriveBorrowLimits, value: unknown): void {
-    const parsed = value === '' || value === null || value === undefined ? null : Number(value);
     this.limitEdits.update(edits => ({
       ...edits,
-      [budget.identity]: { ...this.limitsFor(budget), [window]: Number.isFinite(parsed) ? parsed : null }
+      [budget.identity]: { ...this.limitsFor(budget), [window]: this.parseLimit(value) }
     }));
+  }
+
+  onDefaultLimitChange(window: keyof OverDriveBorrowLimits, value: unknown): void {
+    this.defaultEdit.set({ ...this.defaultLimitsFor(), [window]: this.parseLimit(value) });
+  }
+
+  private parseLimit(value: unknown): number | null {
+    const parsed = value === '' || value === null || value === undefined ? null : Number(value);
+    return parsed !== null && Number.isFinite(parsed) ? parsed : null;
+  }
+
+  /** True when this card has opted out of every ceiling rather than deferring to the default. */
+  hasNoLimits(budget: OverDriveCardBudget): boolean {
+    const limits = this.limitsFor(budget);
+    return this.windows.every(w => (limits[w] ?? 0) < 0);
+  }
+
+  /**
+   * Toggle a card between "no ceilings at all" and "whatever the default says".
+   *
+   * <p>The opt-out is the dangerous state, so it is a deliberate switch rather than something a
+   * person can reach by clearing boxes — clearing them means deferring, which is the safe reading.
+   */
+  toggleNoLimits(budget: OverDriveCardBudget, off: boolean): void {
+    const value = off ? -1 : null;
+    const limits: OverDriveBorrowLimits = {};
+    this.windows.forEach(w => (limits[w] = value));
+    this.limitEdits.update(edits => ({ ...edits, [budget.identity]: limits }));
+  }
+
+  hasUnsavedDefault(): boolean {
+    return this.defaultEdit() !== null;
+  }
+
+  saveDefaultLimits(): void {
+    this.savingDefault.set(true);
+    this.overdriveService.setDefaultCardLimits(this.defaultLimitsFor()).subscribe({
+      next: (saved) => {
+        this.defaultLimits.set(saved ?? {});
+        this.defaultEdit.set(null);
+        this.savingDefault.set(false);
+        // Every card that defers to the default is now held to different numbers, and the grid shows
+        // those numbers — so it has to be re-read rather than patched in place.
+        this.overdriveService.cardLimits().subscribe({
+          next: (budgets) => this.budgets.set(budgets ?? [])
+        });
+        this.messageService.add({ severity: 'success', summary: 'Default limits saved',
+          detail: 'Every card that has not set its own now uses these.' });
+      },
+      error: (err: unknown) => {
+        this.savingDefault.set(false);
+        this.error.set(this.messageOf(err, 'Could not save the default borrow limits'));
+      }
+    });
   }
 
   saveLimits(budget: OverDriveCardBudget): void {
@@ -175,6 +277,12 @@ export class OverdriveCardAdminComponent {
       // hide it.
       next: (budgets) => this.budgets.set(budgets ?? []),
       error: () => this.budgets.set([])
+    });
+    this.overdriveService.defaultCardLimits().subscribe({
+      // Also best-effort, and for the same reason: without it the grid loses its placeholders, not
+      // its point.
+      next: (limits) => this.defaultLimits.set(limits ?? {}),
+      error: () => this.defaultLimits.set({})
     });
     this.overdriveService.allCards().subscribe({
       next: (cards) => {

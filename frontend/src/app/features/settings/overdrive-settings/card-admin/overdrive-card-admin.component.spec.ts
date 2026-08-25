@@ -22,7 +22,9 @@ const overdriveService = {
   removeCard: vi.fn(() => of(void 0)),
   cardLimits: vi.fn(() => of([] as OverDriveCardBudget[])),
   setCardLimits: vi.fn((identity: string, limits: OverDriveBorrowLimits) =>
-    of({identity, cardName: identity, limits, rate: rate()} as OverDriveCardBudget)),
+    of({identity, cardName: identity, limits, effective: limits, rate: rate()} as OverDriveCardBudget)),
+  defaultCardLimits: vi.fn(() => of({perMinute: 2, perHour: 5, perDay: 10, perWeek: 30, perMonth: 100} as OverDriveBorrowLimits)),
+  setDefaultCardLimits: vi.fn((limits: OverDriveBorrowLimits) => of(limits)),
   linkCard: vi.fn(() => of([] as unknown[])),
   redeemSetupCode: vi.fn(() => of([] as unknown[])),
   linkToken: vi.fn(() => of([] as unknown[])),
@@ -332,5 +334,80 @@ describe('OverdriveCardAdminComponent', () => {
     expect(c.isExpired(card({tokenExpiresAt: 1}))).toBe(true);
     expect(c.isExpired(card({tokenExpiresAt: Math.floor(Date.now() / 1000) + 3600}))).toBe(false);
     expect(c.isExpired(card({tokenExpiresAt: null}))).toBe(false);
+  });
+
+  it('shows a blank box for an unset window, with the inherited number as its placeholder', () => {
+    permissions = {canManageAllCards: true};
+    const component = setup();
+    const budget = {
+      identity: 'card-1', cardName: 'LAPL',
+      limits: {perMonth: 145},
+      effective: {perMinute: 2, perHour: 5, perDay: 10, perWeek: 30, perMonth: 145},
+      rate: rate()
+    } as OverDriveCardBudget;
+
+    // Overriding one window must not look like it cleared the other four: they are still enforced,
+    // just from the default, so the box shows what the card is actually held to.
+    expect(component.limitValue(component.limitsFor(budget), 'perMinute')).toBeNull();
+    expect(component.inheritedHint(budget, 'perMinute')).toBe('2');
+    expect(component.limitValue(component.limitsFor(budget), 'perMonth')).toBe(145);
+  });
+
+  it('reads an opted-out window as none rather than as a negative number', () => {
+    permissions = {canManageAllCards: true};
+    const component = setup();
+    const budget = {
+      identity: 'card-1', limits: {perMinute: -1, perHour: -1, perDay: -1, perWeek: -1, perMonth: -1},
+      effective: {}, rate: rate()
+    } as OverDriveCardBudget;
+
+    // -1 is how the opt-out is stored, not something a person should have to type or read.
+    expect(component.limitValue(component.limitsFor(budget), 'perMinute')).toBeNull();
+    expect(component.inheritedHint(budget, 'perMinute')).toBe('none');
+    expect(component.hasNoLimits(budget)).toBe(true);
+  });
+
+  it('clears back to inheriting rather than to unlimited when no limits is switched off', () => {
+    permissions = {canManageAllCards: true};
+    const component = setup();
+    const budget = {
+      identity: 'card-1', limits: {perMinute: -1, perHour: -1, perDay: -1, perWeek: -1, perMonth: -1},
+      effective: {}, rate: rate()
+    } as OverDriveCardBudget;
+
+    component.toggleNoLimits(budget, false);
+
+    // Turning the switch off must land on the safe state, not leave the card uncapped with an
+    // unticked box claiming otherwise.
+    expect(component.limitsFor(budget).perMinute).toBeNull();
+    expect(component.hasNoLimits(budget)).toBe(false);
+  });
+
+  it('re-reads every card after the default changes', () => {
+    permissions = {canManageAllCards: true};
+    const component = setup();
+    overdriveService.cardLimits.mockClear();
+
+    component.onDefaultLimitChange('perMonth', 120);
+    expect(component.hasUnsavedDefault()).toBe(true);
+    component.saveDefaultLimits();
+
+    // Every inheriting card is now held to different numbers, and the grid shows those numbers —
+    // patching the saved row in place would leave the rest of the table stale.
+    expect(overdriveService.setDefaultCardLimits).toHaveBeenCalledWith(
+      expect.objectContaining({perMonth: 120}));
+    expect(overdriveService.cardLimits).toHaveBeenCalled();
+    expect(component.hasUnsavedDefault()).toBe(false);
+  });
+
+  it('treats a cleared box as deferring, not as zero', () => {
+    permissions = {canManageAllCards: true};
+    const component = setup();
+    const budget = {identity: 'card-1', limits: {perMonth: 145}, effective: {}, rate: rate()} as OverDriveCardBudget;
+
+    component.onLimitChange(budget, 'perMonth', '');
+
+    // Zero would ground the card permanently and the server rejects it; null hands the window back.
+    expect(component.limitsFor(budget).perMonth).toBeNull();
   });
 });

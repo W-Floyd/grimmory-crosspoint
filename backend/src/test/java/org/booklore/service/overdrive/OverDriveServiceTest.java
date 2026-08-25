@@ -56,6 +56,7 @@ class OverDriveServiceTest {
     @Mock private org.booklore.repository.OverDriveCardShareRepository cardShareRepository;
     @Mock private org.booklore.repository.OverDriveAuditRepository auditRepository;
     @Mock private org.booklore.repository.OverDriveCardLimitRepository cardLimitRepository;
+    @Mock private org.booklore.repository.OverDriveBorrowLimitDefaultRepository borrowLimitDefaultRepository;
     @Mock private org.booklore.repository.OverDriveBookbagRepository bookbagRepository;
     @Mock private org.booklore.repository.OverDriveImportDestinationRepository importDestinationRepository;
     @Mock private org.booklore.repository.OverDriveAutoSyncRepository autoSyncRepository;
@@ -75,7 +76,7 @@ class OverDriveServiceTest {
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
+                cardLimitRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
     }
 
@@ -748,7 +749,7 @@ class OverDriveServiceTest {
         return new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
+                cardLimitRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
     }
 
@@ -1238,7 +1239,8 @@ class OverDriveServiceTest {
         when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
         when(cardLimitRepository.findByIdentityIn(java.util.Set.of("card-a"))).thenReturn(List.of(
                 org.booklore.model.entity.OverDriveCardLimitEntity.builder()
-                        .identity("card-a").maxPerMonth(100).build()));
+                        .identity("card-a").maxPerMinute(OFF).maxPerHour(OFF).maxPerDay(OFF)
+                        .maxPerWeek(OFF).maxPerMonth(100).build()));
         borrowCounts("card-a", 100);
 
         var card = service.listCards().getFirst();
@@ -1293,7 +1295,7 @@ class OverDriveServiceTest {
     @Test
     void returningIsBoundedByTheSameCeilingsAsBorrowing() {
         notResting("card-a");
-        limits("card-a", null, null, null, null, 100);
+        limits("card-a", OFF, OFF, OFF, OFF, 100);
         actionCounts("card-a", List.of("RETURN", "AUTO_RETURN"), 100);
 
         // Handing books back in a burst is the same signal to OverDrive as taking them out in one.
@@ -1304,7 +1306,7 @@ class OverDriveServiceTest {
     @Test
     void borrowsAndReturnsAreCountedSeparatelyAgainstThoseCeilings() {
         notResting("card-a");
-        limits("card-a", null, null, null, null, 100);
+        limits("card-a", OFF, OFF, OFF, OFF, 100);
         actionCounts("card-a", List.of("BORROW", "BORROW_AND_IMPORT"), 100);
         actionCounts("card-a", List.of("RETURN", "AUTO_RETURN"), 3);
 
@@ -1737,6 +1739,13 @@ class OverDriveServiceTest {
 
     // ── Learning and enforcing a card's borrow rate ──────────────────────
 
+    /**
+     * The stored value meaning "this card has no ceiling for this window". Distinct from null, which
+     * means the card says nothing and takes the deployment default — so a fixture that wants exactly
+     * one ceiling has to say so for the other four.
+     */
+    private static final Integer OFF = -1;
+
     private void limits(String identity, Integer perMinute, Integer perHour, Integer perDay, Integer perWeek) {
         limits(identity, perMinute, perHour, perDay, perWeek, null);
     }
@@ -1771,21 +1780,96 @@ class OverDriveServiceTest {
         assertThat(service.borrowBlockedReason("card-a")).contains("this minute");
     }
 
+    /** The stored deployment default; absent means the built-in constants still apply. */
+    private void deploymentDefault(Integer perMinute, Integer perHour, Integer perDay,
+                                   Integer perWeek, Integer perMonth) {
+        when(borrowLimitDefaultRepository.findById(
+                org.booklore.model.entity.OverDriveBorrowLimitDefaultEntity.SINGLETON_ID))
+                .thenReturn(Optional.of(
+                        org.booklore.model.entity.OverDriveBorrowLimitDefaultEntity.builder()
+                                .id(org.booklore.model.entity.OverDriveBorrowLimitDefaultEntity.SINGLETON_ID)
+                                .maxPerMinute(perMinute).maxPerHour(perHour).maxPerDay(perDay)
+                                .maxPerWeek(perWeek).maxPerMonth(perMonth).build()));
+    }
+
     @Test
-    void anExplicitlyBlankLimitMeansNoCeiling_notTheDefault() {
+    void movingTheDefaultMovesEveryCardThatNeverDisagreedWithIt() {
+        notResting("card-a");
+        when(cardLimitRepository.findById("card-a")).thenReturn(Optional.empty());
+        deploymentDefault(OFF, OFF, OFF, OFF, 145);
+        borrowCounts("card-a", 145);
+
+        // The point of a default worth storing: raising it reaches the cards nobody has configured,
+        // without an administrator revisiting each one.
+        assertThat(service.borrowBlockedReason("card-a")).contains("145 of 145 borrows this 30 days");
+    }
+
+    @Test
+    void aCardKeepsTheWindowsItSetAndInheritsTheRest() {
+        notResting("card-a");
+        limits("card-a", null, null, null, null, 145);
+        deploymentDefault(2, OFF, OFF, OFF, 100);
+        borrowCounts("card-a", 2);
+
+        // Overriding the monthly figure should not silently drop the burst guard: the windows this
+        // card said nothing about still come from the default, which is what makes the override an
+        // override rather than a replacement.
+        assertThat(service.borrowBlockedReason("card-a")).contains("2 of 2 borrows this minute");
+    }
+
+    @Test
+    void aCardsOwnCeilingWinsOverTheDefault() {
+        notResting("card-a");
+        limits("card-a", OFF, OFF, OFF, OFF, 145);
+        deploymentDefault(OFF, OFF, OFF, OFF, 100);
+        borrowCounts("card-a", 120);
+
+        // Measured on this card, so it outranks the deployment-wide guess in both directions —
+        // including upwards, which is the case an administrator actually reaches for.
+        assertThat(service.borrowBlockedReason("card-a")).isNull();
+    }
+
+    @Test
+    void aMissingDefaultRowFallsBackToTheBuiltInCeilings() {
+        notResting("card-a");
+        when(cardLimitRepository.findById("card-a")).thenReturn(Optional.empty());
+        when(borrowLimitDefaultRepository.findById(any())).thenReturn(Optional.empty());
+        borrowCounts("card-a", 2);
+
+        // An unreadable or unseeded default is not permission to borrow without limit — the same
+        // reasoning that made an unconfigured card bounded in the first place.
+        assertThat(service.borrowBlockedReason("card-a")).contains("this minute");
+    }
+
+    @Test
+    void aBlankLimitDefersToTheDefaultRatherThanRemovingTheCeiling() {
         notResting("card-a");
         limits("card-a", null, null, null, null, null);
+        borrowCounts("card-a", 2);
 
-        // Saving a row of blanks is how an administrator opts a card out; it must not silently
-        // reinstate the defaults it was set to override.
+        // A row of blanks used to mean "no ceilings at all", which put the most dangerous state one
+        // careless save away and read as the opposite of what an empty box suggests. Blank now means
+        // the card says nothing about that window, so the deployment default still applies.
+        assertThat(service.borrowBlockedReason("card-a")).contains("this minute");
+    }
+
+    @Test
+    void optingACardOutOfACeilingSurvivesTheDefault() {
+        notResting("card-a");
+        limits("card-a", OFF, OFF, OFF, OFF, OFF);
+
+        // Opting out has to be a decision that sticks, not one the next edit of the default quietly
+        // reverses — otherwise it would not be worth spelling differently from "unset". With nothing
+        // left to check the card's borrows are never even counted.
         assertThat(service.borrowBlockedReason("card-a")).isNull();
+        verify(auditRepository, never()).countActionsPerWindow(any(), any(), any(), any(), any(), any(), any());
         verifyNoInteractions(auditRepository);
     }
 
     @Test
     void aCardAtItsCeilingIsBlocked_namingTheWindow() {
         notResting("card-a");
-        limits("card-a", null, 5, null, null);
+        limits("card-a", OFF, 5, OFF, OFF);
         borrowCounts("card-a", 5);
 
         assertThat(service.borrowBlockedReason("card-a")).isEqualTo("this card has already used 5 of 5 borrows this hour");
@@ -1794,7 +1878,7 @@ class OverDriveServiceTest {
     @Test
     void theShortestFullWindowIsTheOneReported() {
         notResting("card-a");
-        limits("card-a", 2, 5, null, null);
+        limits("card-a", 2, 5, OFF, OFF);
         borrowCounts("card-a", 9);
 
         // Both are full; the minute is the one that clears soonest, so it is the useful thing to say.
@@ -1814,7 +1898,7 @@ class OverDriveServiceTest {
     @Test
     void aCardUnderItsCeilingCanStillBorrow() {
         notResting("card-a");
-        limits("card-a", null, 5, null, null);
+        limits("card-a", OFF, 5, OFF, OFF);
         borrowCounts("card-a", 4);
 
         assertThat(service.borrowBlockedReason("card-a")).isNull();
@@ -1823,7 +1907,7 @@ class OverDriveServiceTest {
     @Test
     void aMonthlyCeilingIsEnforcedWhenNoShorterWindowIsFull() {
         notResting("card-a");
-        limits("card-a", null, null, null, null, 145);
+        limits("card-a", OFF, OFF, OFF, OFF, 145);
         borrowCounts("card-a", 145);
 
         // The window this deployment's refusals actually correlate with: a card can be well inside
@@ -1835,7 +1919,7 @@ class OverDriveServiceTest {
     @Test
     void aShorterFullWindowStillOutranksTheMonthlyOne() {
         notResting("card-a");
-        limits("card-a", null, 6, null, null, 145);
+        limits("card-a", OFF, 6, OFF, OFF, 145);
         borrowCounts("card-a", 200);
 
         // Both are full; the hour clears first, so it is the one worth telling the caller about.
@@ -1848,8 +1932,38 @@ class OverDriveServiceTest {
 
         assertThatThrownBy(() -> service.setCardBorrowLimits("card-a",
                 new OverDriveService.BorrowLimits(null, 0, null, null, null)))
-                .hasMessageContaining("would stop this card borrowing altogether");
+                .hasMessageContaining("would stop borrowing altogether");
         verify(cardLimitRepository, never()).save(any());
+    }
+
+    @Test
+    void settingTheDefaultNeedsCardAdministration() {
+        authAsOverdriveUser(7L);
+
+        // Same gate as the per-card grid, and more consequential: this one moves every card at once.
+        assertThatThrownBy(() -> service.setDefaultBorrowLimits(
+                new OverDriveService.BorrowLimits(2, 5, 10, 30, 100)))
+                .isInstanceOf(Exception.class);
+        verify(borrowLimitDefaultRepository, never()).save(any());
+    }
+
+    @Test
+    void savingTheDefaultNormalisesAnOptOutAndRefusesZero() {
+        authAsCardManager(7L);
+        when(borrowLimitDefaultRepository.findById(any())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.setDefaultBorrowLimits(
+                new OverDriveService.BorrowLimits(0, null, null, null, null)))
+                .hasMessageContaining("would stop borrowing altogether");
+
+        service.setDefaultBorrowLimits(new OverDriveService.BorrowLimits(-99, null, null, null, 100));
+
+        ArgumentCaptor<org.booklore.model.entity.OverDriveBorrowLimitDefaultEntity> saved =
+                ArgumentCaptor.forClass(org.booklore.model.entity.OverDriveBorrowLimitDefaultEntity.class);
+        verify(borrowLimitDefaultRepository).save(saved.capture());
+        // One spelling of "no ceiling" in the column, whatever negative the caller sent.
+        assertThat(saved.getValue().getMaxPerMinute()).isEqualTo(-1);
+        assertThat(saved.getValue().getMaxPerMonth()).isEqualTo(100);
     }
 
     @Test
@@ -2238,7 +2352,7 @@ class OverDriveServiceTest {
                 OverDriveTokenEntity.builder().userId(7L).identity("card-a").token("chip-1").build()));
         when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
         notResting("card-a");
-        limits("card-a", null, perHour, null, null, null);
+        limits("card-a", OFF, perHour, OFF, OFF, OFF);
         borrowCounts("card-a", usedThisHour);
     }
 
@@ -3219,7 +3333,7 @@ class OverDriveServiceTest {
         OverDriveService svc = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler,
                 magazineHandler, ebookHandler, bookService,
                 client, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
+                cardLimitRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
                 new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService);
         return new SyncHarness(svc, calls);
     }

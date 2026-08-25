@@ -279,5 +279,35 @@
     background: var(--surface-ground, transparent);
     color: var(--text-color);
     font-size: 0.85rem;
+
+    // The placeholder is the inherited number, not a hint to ignore: it is what the card is actually
+    // held to while the box is empty, so it reads as a value rather than as absence.
+    &::placeholder {
+      color: var(--text-color-secondary);
+      opacity: 0.75;
+      font-style: italic;
+    }
+
+    &:disabled {
+      opacity: 0.4;
+    }
   }
+
+  .limits-nolimit {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-top: 0.15rem;
+    font-size: 0.72rem;
+    color: var(--text-color-secondary);
+    cursor: pointer;
+  }
+}
+
+// The default sits above the per-card rows and is read as their source, so it is set apart rather
+// than looking like one more card in the list.
+.limits-grid-default {
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--surface-border, rgb(255 255 255 / 15%));
 }

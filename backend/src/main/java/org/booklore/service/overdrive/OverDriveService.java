@@ -9,6 +9,7 @@ import org.booklore.model.dto.response.OverDriveApiResponse;
 import org.booklore.model.entity.BookLoreUserEntity;
 import org.booklore.model.entity.OverDriveAuditEntity;
 import org.booklore.model.entity.OverDriveBookbagEntity;
+import org.booklore.model.entity.OverDriveBorrowLimitDefaultEntity;
 import org.booklore.model.entity.OverDriveCardLimitEntity;
 import org.booklore.model.entity.OverDriveAutoSyncEntity;
 import org.booklore.model.entity.OverDriveCardShareEntity;
@@ -105,6 +106,7 @@ public class OverDriveService {
     private final OverDriveCardShareRepository cardShareRepository;
     private final OverDriveAuditRepository auditRepository;
     private final org.booklore.repository.OverDriveCardLimitRepository cardLimitRepository;
+    private final org.booklore.repository.OverDriveBorrowLimitDefaultRepository borrowLimitDefaultRepository;
     private final org.booklore.repository.OverDriveBookbagRepository bookbagRepository;
     private final OverDriveImportDestinationRepository importDestinationRepository;
     private final OverDriveAutoSyncRepository autoSyncRepository;
@@ -1494,12 +1496,20 @@ public class OverDriveService {
       /**
        * A card's ceilings and what it has actually done lately, for the administrator setting them.
        *
-       * @param identity the card
-       * @param cardName its label, so the admin screen need not join this back to the card list
-       * @param limits   the configured ceilings; nulls where none is set
-       * @param rate     borrows counted over each window, right now
+       * <p>Both shapes of the ceiling, because the grid has to show two different things: what this
+       * card says (which is what the boxes edit, and is mostly nothing) and what it is actually held
+       * to (which is what explains a card that has stopped borrowing). Deriving one from the other in
+       * the browser would mean teaching it the inheritance rules as well.
+       *
+       * @param identity  the card
+       * @param cardName  its label, so the admin screen need not join this back to the card list
+       * @param limits    what this card has saved: null where it defers to the default, -1 where it
+       *                  has opted out of a ceiling
+       * @param effective the ceilings actually applied, after the default fills in the gaps
+       * @param rate      borrows counted over each window, right now
        */
-      public record CardBorrowBudget(String identity, String cardName, BorrowLimits limits, BorrowRate rate) {}
+      public record CardBorrowBudget(String identity, String cardName, BorrowLimits limits,
+                                     BorrowLimits effective, BorrowRate rate) {}
 
       /**
        * Every card on the server with its ceilings and current borrow rate. Administrators only: the
@@ -1516,15 +1526,24 @@ public class OverDriveService {
             }
         }
         return namesByIdentity.entrySet().stream()
-                .map(e -> new CardBorrowBudget(e.getKey(), e.getValue(),
-                        borrowLimits(e.getKey()), borrowRate(e.getKey())))
+                .map(e -> budgetFor(e.getKey(), storedLimits(e.getKey()), e.getValue()))
                 .toList();
       }
 
+      private CardBorrowBudget budgetFor(String identity, BorrowLimits stored) {
+        return budgetFor(identity, stored, cardNameOf(identity));
+      }
+
+      private CardBorrowBudget budgetFor(String identity, BorrowLimits stored, String cardName) {
+        return new CardBorrowBudget(identity, cardName, stored,
+                resolveAgainstDefault(stored, defaultBorrowLimits()), borrowRate(identity));
+      }
+
       /**
-       * Set a card's ceilings. A null in any position clears that window's ceiling; a value of zero
-       * would stop the card borrowing entirely, so it is rejected as almost certainly a mistake —
-       * unlinking or resting the card is how you stop it on purpose.
+       * Set a card's ceilings. A null in any window hands that window back to the deployment default;
+       * a negative opts the card out of a ceiling there. Zero would stop the card borrowing entirely,
+       * so it is rejected as almost certainly a mistake — unlinking or resting is how you do that on
+       * purpose.
        */
       @Transactional
       public CardBorrowBudget setCardBorrowLimits(String identity, BorrowLimits limits) {
@@ -1532,36 +1551,56 @@ public class OverDriveService {
         if (identity == null || identity.isBlank()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException("A card is required.");
         }
-        for (BorrowWindow window : BorrowWindow.values()) {
-            Integer value = limits.forWindow(window);
-            if (value != null && value <= 0) {
-                throw ApiError.GENERIC_BAD_REQUEST.createException(
-                        "A limit of " + value + " per " + window.label + " would stop this card borrowing "
-                                + "altogether. Leave it blank for no limit, or unlink the card to stop using it.");
-            }
-        }
+        BorrowLimits cleaned = validatedLimits(limits);
         OverDriveCardLimitEntity row = cardLimitRepository.findById(identity)
                 .orElseGet(() -> OverDriveCardLimitEntity.builder().identity(identity).build());
-        row.setMaxPerMinute(limits.perMinute());
-        row.setMaxPerHour(limits.perHour());
-        row.setMaxPerDay(limits.perDay());
-        row.setMaxPerWeek(limits.perWeek());
-        row.setMaxPerMonth(limits.perMonth());
+        row.setMaxPerMinute(cleaned.perMinute());
+        row.setMaxPerHour(cleaned.perHour());
+        row.setMaxPerDay(cleaned.perDay());
+        row.setMaxPerWeek(cleaned.perWeek());
+        row.setMaxPerMonth(cleaned.perMonth());
         row.setUpdatedAt(Instant.now());
         cardLimitRepository.save(row);
         log.info("OverDrive: borrow limits for card {} set to {}/min {}/hr {}/day {}/week {}/30d",
-                identity, limits.perMinute(), limits.perHour(), limits.perDay(), limits.perWeek(),
-                limits.perMonth());
+                identity, cleaned.perMinute(), cleaned.perHour(), cleaned.perDay(), cleaned.perWeek(),
+                cleaned.perMonth());
         recordAudit(OverDriveAuditAction.CARD_RELABELED, identity, null, null, null, null,
-                "Borrow limits set to " + describe(limits) + ".");
-        return new CardBorrowBudget(identity, cardNameOf(identity), limits, borrowRate(identity));
+                "Borrow limits set to " + describe(cleaned) + ".");
+        return budgetFor(identity, cleaned);
+      }
+
+      /**
+       * Reject a saved ceiling that would mean "never", and normalise the opt-out to a single value.
+       *
+       * <p>Zero is the mistake worth catching: it reads like "no limit" but means the card can never
+       * borrow again, and it would do so silently. Any negative is taken as the deliberate opt-out and
+       * stored as -1, so the column has one spelling of it rather than however many a caller invents.
+       */
+      private static BorrowLimits validatedLimits(BorrowLimits limits) {
+        Integer[] cleaned = new Integer[BorrowWindow.values().length];
+        for (BorrowWindow window : BorrowWindow.values()) {
+            Integer value = limits.forWindow(window);
+            if (value != null && value == 0) {
+                throw ApiError.GENERIC_BAD_REQUEST.createException(
+                        "A limit of 0 per " + window.label + " would stop borrowing altogether. Leave it "
+                                + "blank to use the default, or set \"no limit\" to remove the ceiling.");
+            }
+            // Integer.valueOf, not -1: a ternary mixing int and Integer promotes to int, which would
+            // unbox the null this method exists to preserve.
+            cleaned[window.ordinal()] = value != null && value < 0 ? Integer.valueOf(-1) : value;
+        }
+        return new BorrowLimits(cleaned[BorrowWindow.MINUTE.ordinal()], cleaned[BorrowWindow.HOUR.ordinal()],
+                cleaned[BorrowWindow.DAY.ordinal()], cleaned[BorrowWindow.WEEK.ordinal()],
+                cleaned[BorrowWindow.MONTH.ordinal()]);
       }
 
       private static String describe(BorrowLimits limits) {
         StringJoiner joiner = new StringJoiner(", ");
         for (BorrowWindow window : BorrowWindow.values()) {
             Integer value = limits.forWindow(window);
-            joiner.add(value == null ? "no " + window.label + " limit" : value + " per " + window.label);
+            joiner.add(value == null
+                    ? "the default " + window.label + " limit"
+                    : value < 0 ? "no " + window.label + " limit" : value + " per " + window.label);
         }
         return joiner.toString();
       }
@@ -2235,9 +2274,9 @@ public class OverDriveService {
          * a month correlated with any refusal here, but a bug that borrows in a loop — which has
          * happened once already — should hit a wall in minutes, not after a hundred checkouts.
          *
-         * <p>They apply only while a card has no configured row. Once an administrator saves one, it
-         * is taken literally, nulls included: an explicit blank means "no ceiling for that window",
-         * which is how you opt a card out.
+         * <p>These are the seed for the deployment default and the fallback if that row is somehow
+         * missing — not what a running deployment applies. Administrators edit the stored default,
+         * and each card inherits it for every window it does not set itself.
          */
         static final BorrowLimits DEFAULTS = new BorrowLimits(2, 5, 10, 30, 100);
 
@@ -2319,36 +2358,116 @@ public class OverDriveService {
         };
       }
 
-      /** A card's configured ceilings, or none when an administrator has not set any. */
+      /**
+       * The ceilings actually applied to a card: its own where it sets them, the deployment default
+       * everywhere else.
+       */
       public BorrowLimits borrowLimits(String identity) {
         if (identity == null) {
             return BorrowLimits.NONE;
         }
-        // No row means nobody has measured this card, which is a reason for caution rather than for
-        // no ceiling at all. A saved row is taken exactly as saved.
-        return cardLimitRepository.findById(identity)
-                .map(l -> new BorrowLimits(l.getMaxPerMinute(), l.getMaxPerHour(),
-                        l.getMaxPerDay(), l.getMaxPerWeek(), l.getMaxPerMonth()))
-                .orElse(BorrowLimits.DEFAULTS);
+        return resolveAgainstDefault(storedLimits(identity), defaultBorrowLimits());
       }
 
       /**
-       * Ceilings for several cards in one query, defaulting the ones nobody has configured. Saves a
-       * lookup per card where a whole card list is being described at once.
+       * Ceilings for several cards in one query, resolving each against the default. Saves a lookup
+       * per card where a whole card list is being described at once.
        */
       private Map<String, BorrowLimits> borrowLimitsFor(Collection<String> identities) {
+        BorrowLimits fallback = defaultBorrowLimits();
         Map<String, BorrowLimits> byIdentity = new HashMap<>();
         for (OverDriveCardLimitEntity row : cardLimitRepository.findByIdentityIn(identities)) {
-            byIdentity.put(row.getIdentity(), new BorrowLimits(row.getMaxPerMinute(), row.getMaxPerHour(),
-                    row.getMaxPerDay(), row.getMaxPerWeek(), row.getMaxPerMonth()));
+            byIdentity.put(row.getIdentity(), resolveAgainstDefault(rawLimits(row), fallback));
         }
-        identities.forEach(id -> byIdentity.putIfAbsent(id, BorrowLimits.DEFAULTS));
+        identities.forEach(id -> byIdentity.putIfAbsent(id, fallback));
         return byIdentity;
       }
 
-      /** The ceilings a card falls back on until an administrator sets its own. */
+      /** What a card has saved for itself, before the default fills in the gaps. */
+      BorrowLimits storedLimits(String identity) { // package-private for testing
+        if (identity == null) {
+            return BorrowLimits.NONE;
+        }
+        return cardLimitRepository.findById(identity).map(OverDriveService::rawLimits)
+                .orElse(BorrowLimits.NONE);
+      }
+
+      private static BorrowLimits rawLimits(OverDriveCardLimitEntity row) {
+        return new BorrowLimits(row.getMaxPerMinute(), row.getMaxPerHour(),
+                row.getMaxPerDay(), row.getMaxPerWeek(), row.getMaxPerMonth());
+      }
+
+      /**
+       * Fill a card's unset windows from the default, and turn an explicit opt-out into no ceiling.
+       *
+       * <p>Three states share one column. Null is "this card says nothing about this window", so the
+       * default applies — the reading anyone typing a blank box expects, and the one that lets moving
+       * the default move every card that never disagreed with it. A negative is the opt-out: somebody
+       * decided this window should not be capped, which has to survive the default changing or it
+       * would not be a decision. Anything else is the ceiling itself.
+       */
+      private static BorrowLimits resolveAgainstDefault(BorrowLimits card, BorrowLimits fallback) {
+        return new BorrowLimits(
+                resolveWindow(card.perMinute(), fallback.perMinute()),
+                resolveWindow(card.perHour(), fallback.perHour()),
+                resolveWindow(card.perDay(), fallback.perDay()),
+                resolveWindow(card.perWeek(), fallback.perWeek()),
+                resolveWindow(card.perMonth(), fallback.perMonth()));
+      }
+
+      private static Integer resolveWindow(Integer card, Integer fallback) {
+        if (card == null) {
+            return fallback != null && fallback < 0 ? null : fallback;
+        }
+        return card < 0 ? null : card;
+      }
+
+      /**
+       * The ceilings a card falls back on for any window it does not set itself.
+       *
+       * <p>Read rather than compiled in, because the whole point of these numbers is that they get
+       * adjusted as evidence about the account accumulates. Falls back to the constants if the row is
+       * somehow missing: an unmeasured card is a reason for caution, not for no ceiling at all.
+       */
       public BorrowLimits defaultBorrowLimits() {
-        return BorrowLimits.DEFAULTS;
+        return borrowLimitDefaultRepository
+                .findById(OverDriveBorrowLimitDefaultEntity.SINGLETON_ID)
+                .map(OverDriveService::rawDefault)
+                .orElse(BorrowLimits.DEFAULTS);
+      }
+
+      private static BorrowLimits rawDefault(OverDriveBorrowLimitDefaultEntity row) {
+        return new BorrowLimits(row.getMaxPerMinute(), row.getMaxPerHour(),
+                row.getMaxPerDay(), row.getMaxPerWeek(), row.getMaxPerMonth());
+      }
+
+      /** The deployment default, for the administrator editing it. Same gate as the grid it sits in. */
+      public BorrowLimits readDefaultBorrowLimits() {
+        requireCardLimitAdmin();
+        return defaultBorrowLimits();
+      }
+
+      /**
+       * Set the deployment-wide ceilings. Every card that has not overridden a window follows this
+       * immediately — that is the point — so it is administrators only, like the per-card grid.
+       */
+      @Transactional
+      public BorrowLimits setDefaultBorrowLimits(BorrowLimits limits) {
+        requireCardLimitAdmin();
+        BorrowLimits cleaned = validatedLimits(limits);
+        OverDriveBorrowLimitDefaultEntity row = borrowLimitDefaultRepository
+                .findById(OverDriveBorrowLimitDefaultEntity.SINGLETON_ID)
+                .orElseGet(() -> OverDriveBorrowLimitDefaultEntity.builder()
+                        .id(OverDriveBorrowLimitDefaultEntity.SINGLETON_ID).build());
+        row.setMaxPerMinute(cleaned.perMinute());
+        row.setMaxPerHour(cleaned.perHour());
+        row.setMaxPerDay(cleaned.perDay());
+        row.setMaxPerWeek(cleaned.perWeek());
+        row.setMaxPerMonth(cleaned.perMonth());
+        row.setUpdatedAt(Instant.now());
+        borrowLimitDefaultRepository.save(row);
+        log.info("OverDrive: deployment borrow limits set to {}", cleaned);
+        return cleaned;
       }
 
       /**

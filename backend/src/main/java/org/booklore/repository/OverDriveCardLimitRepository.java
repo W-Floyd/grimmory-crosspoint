@@ -7,7 +7,11 @@ import org.springframework.stereotype.Repository;
 import java.util.Collection;
 import java.util.List;
 
-/** Borrow-rate ceilings per card identity. Absent row (or null column) means no known ceiling. */
+/**
+ * Borrow-rate ceilings per card identity. An absent row, or a null column, means this card sets no
+ * ceiling of its own for that window and takes the deployment default; -1 means it has explicitly
+ * opted out of one.
+ */
 @Repository
 public interface OverDriveCardLimitRepository extends JpaRepository<OverDriveCardLimitEntity, String> {
 
