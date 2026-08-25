@@ -1679,7 +1679,7 @@ public class OverDriveService {
        * loan-capacity snapshot is shared with the rest of the pass so slots spent here are visible to
        * it. When every card is out of budget the bag simply waits for the next poll.
        */
-      BookbagOutcome runBookbag(Long userId, Set<String> heldTitleIds, Set<String> loanedTitleIds,
+      BookbagOutcome runBookbag(Long userId, Set<String> heldTitleIds, Map<String, String> loanedCardByTitle,
                                 Map<String, Integer> loanSlotsLeft, Map<String, Integer> holdSlotsLeft,
                                 Map<String, Integer> holdsPerCard,
                                 LoanActionPacer pacer) { // package-private for testing
@@ -1709,13 +1709,40 @@ public class OverDriveService {
             List<OverDriveLibraryAvailability> options = availability.getOrDefault(entry.getTitleId(), List.of());
             entry.setLastTriedAt(now);
 
-            // Already out on loan somewhere. Nothing to do but wait for it: borrowing would take a
-            // second copy of a book the account is holding, and placing a hold on a title you have out
-            // is how OverDrive expresses a renewal, which it refuses outside the last few days of the
-            // loan — a guaranteed failure recorded against the user's history for no purpose.
-            if (loanedTitleIds.contains(entry.getTitleId())) {
-                entry.setLastNote("Already on loan; it will be imported and the entry cleared.");
-                bookbagRepository.save(entry);
+            // Already out on loan somewhere. Never borrow or hold in this state: borrowing would take
+            // a second copy of a book the account is holding, and placing a hold on a title you have
+            // out is how OverDrive expresses a renewal, which it refuses outside the last few days of
+            // the loan — a guaranteed failure recorded against the user's history for no purpose.
+            //
+            // Finish it instead. This is where a pass that died between taking the copy and fetching
+            // the file lands, and the bag is the only thing that will pick it up: an entry is a
+            // standing "borrow this for me" that runs a pass on its own, so the import sweep's switch
+            // may well be off. Resuming spends no checkout — borrowAndImport finds the existing loan
+            // and fetches it — so a resting or capped card is no reason to leave the file unfetched.
+            // Guarded on the key, not the card: whether we know which card holds it decides whether we
+            // can finish the fetch, never whether it is safe to borrow. Falling through to the borrow
+            // path because a lookup came back empty is the one outcome this branch exists to prevent.
+            if (loanedCardByTitle.containsKey(entry.getTitleId())) {
+                String loanedOn = loanedCardByTitle.get(entry.getTitleId());
+                if (loanedOn == null) {
+                    entry.setLastNote("Already on loan; it will be imported and the entry cleared.");
+                    bookbagRepository.save(entry);
+                    continue;
+                }
+                try {
+                    borrowAndImport(loanedOn, entry.getTitleId(), null, null,
+                            entry.getTitle(), entry.getAuthor(), null, null, null, null, null);
+                    log.info("OverDrive bookbag: finished the interrupted borrow of \"{}\" for user {} "
+                            + "on card {}", entry.getTitle(), userId, loanedOn);
+                    bookbagRepository.delete(entry);
+                } catch (Exception e) {
+                    failures++;
+                    entry.setLastNote(truncate("Already on loan, but fetching the file failed: "
+                            + e.getMessage(), 512));
+                    bookbagRepository.save(entry);
+                    log.warn("OverDrive bookbag: could not fetch the loaned \"{}\" for user {} on card "
+                            + "{}: {}", entry.getTitle(), userId, loanedOn, e.getMessage());
+                }
                 continue;
             }
 
@@ -4129,21 +4156,27 @@ public class OverDriveService {
             failures += shopping.failures();
         }
 
-        // Loan ids the user actually holds right now. A loan id is a title id, so this doubles as
-        // "which titles are already out" — which the bookbag has to know before it acts on one.
-        Set<String> heldLoanIds = syncs.values().stream()
-                .filter(Objects::nonNull)
-                .map(OverDriveSyncResponse::getLoans)
-                .filter(Objects::nonNull)
-                .flatMap(List::stream)
-                .map(OverDriveLoan::getId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+        // Loan ids the user actually holds right now, and which card each sits on. A loan id is a
+        // title id, so this doubles as "which titles are already out" — which the bookbag has to know
+        // before it acts on one, and the card is what lets it finish a borrow that was interrupted
+        // between taking the copy and fetching the file.
+        Map<String, String> loanCardByTitle = new LinkedHashMap<>();
+        syncs.forEach((cardId, sync) -> {
+            if (sync == null || sync.getLoans() == null) {
+                return;
+            }
+            for (OverDriveLoan loan : sync.getLoans()) {
+                if (loan.getId() != null) {
+                    loanCardByTitle.putIfAbsent(loan.getId(), cardId);
+                }
+            }
+        });
+        Set<String> heldLoanIds = loanCardByTitle.keySet();
 
         int bagBorrowed = 0;
         int bagHeld = 0;
         if (hasBookbag) {
-            BookbagOutcome bookbag = runBookbag(userId, heldTitleIds(syncs), heldLoanIds, loanSlotsLeft,
+            BookbagOutcome bookbag = runBookbag(userId, heldTitleIds(syncs), loanCardByTitle, loanSlotsLeft,
                     holdSlotsLeft, holdsPerCard, pacer);
             bagBorrowed = bookbag.borrowed();
             bagHeld = bookbag.held();
