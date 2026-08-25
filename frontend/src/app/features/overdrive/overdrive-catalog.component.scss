@@ -965,3 +965,16 @@
     line-height: 1.35;
   }
 }
+
+// Reading back a stored handler run: the metadata line above the output, and the unobtrusive way in
+// from a history row (it is for the rare occasion something failed, not a primary action).
+.tool-console-meta {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-color-secondary);
+}
+
+.history-log-link {
+  margin-left: 0.4rem;
+  vertical-align: baseline;
+}

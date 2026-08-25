@@ -711,6 +711,21 @@ public class OverDriveController {
     }
 
     /**
+     * GET /api/overdrive/tool-log/{titleId} — what the download handler printed on its last run.
+     *
+     * <p>204 when nothing was recorded for that title. Scoped to the caller by the service.
+     */
+    @Operation(summary = "Get the stored handler output for a title's most recent run")
+    @ApiResponse(responseCode = "200", description = "Handler output returned")
+    @ApiResponse(responseCode = "204", description = "Nothing recorded for that title")
+    @GetMapping("/tool-log/{titleId}")
+    public ResponseEntity<OverDriveService.ToolLogView> toolLog(@PathVariable String titleId) {
+        requireEnabled();
+        OverDriveService.ToolLogView view = overDriveService.toolLogFor(titleId);
+        return view == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(view);
+    }
+
+    /**
      * GET /api/overdrive/card-limits — every card's borrow ceilings and its current rate.
      *
      * <p>Administrators only. The ceilings are deployment policy on a shared library account, and the

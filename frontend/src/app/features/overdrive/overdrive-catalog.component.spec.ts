@@ -5,7 +5,7 @@ import {of, throwError} from 'rxjs';
 import {ConfirmationService, MessageService} from '@openng/optimus-ui/api';
 import {TaskService} from '../settings/task-management/task.service';
 import {OverdriveCatalogComponent, toolProgressPct} from './overdrive-catalog.component';
-import {OverDriveService, OverDriveAuditEntry, OverDriveBookbagEntry, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult} from '../../core/services/overdrive.service';
+import {OverDriveService, OverDriveAuditEntry, OverDriveBookbagEntry, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult, OverDriveToolLog} from '../../core/services/overdrive.service';
 import {LibraryService} from '../../features/book/service/library.service';
 import {TranslocoService} from '@jsverse/transloco';
 import {RxStompService} from '../../shared/websocket/rx-stomp.service';
@@ -36,6 +36,7 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     cards: vi.fn(() => of([])),
     capabilities: vi.fn(() => of({acsmHandlerConfigured: false, credentialStorageEnabled: false, audiobookHandlerConfigured: false, magazineHandlerConfigured: false, ebookHandlerConfigured: false})),
     sync: vi.fn(),
+    toolLog: vi.fn(() => of(null as OverDriveToolLog | null)),
     search: vi.fn(),
     borrowAndImport: vi.fn(),
     titleAvailability: vi.fn(),
@@ -1123,5 +1124,40 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
       component.narrowViewport.set(false);
       expect(component.paginatorPageLinks()).toBe(5);
     });
+  });
+
+  it('reads back a stored handler run for a history row', () => {
+    setup();
+    overdriveService.toolLog.mockReturnValueOnce(of(
+      {titleId: '2277633', automated: true, succeeded: false, output: 'boom'}));
+
+    component.openStoredToolLog('2277633');
+
+    // An unattended run is streamed to nobody, so the stored copy is the only account of it.
+    expect(overdriveService.toolLog).toHaveBeenCalledWith('2277633');
+    expect(component.storedToolLog()?.output).toBe('boom');
+    expect(component.storedToolLogMissing()).toBe(false);
+  });
+
+  it('says plainly when nothing was recorded rather than showing an empty console', () => {
+    setup();
+    // 204 reaches the client as an empty body, and it is the ordinary case: most titles never reach
+    // a download handler at all.
+    overdriveService.toolLog.mockReturnValueOnce(of(null));
+
+    component.openStoredToolLog('2277633');
+
+    expect(component.storedToolLogMissing()).toBe(true);
+    expect(component.storedToolLog()).toBeNull();
+  });
+
+  it('does nothing without a title to look up', () => {
+    setup();
+    overdriveService.toolLog.mockClear();
+
+    component.openStoredToolLog(null);
+
+    expect(overdriveService.toolLog).not.toHaveBeenCalled();
+    expect(component.storedToolLogFor()).toBeNull();
   });
 });

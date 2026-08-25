@@ -3,7 +3,7 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
-import { OverDriveService, OverDriveAuditEntry, OverDriveAutoSyncSchedule, OverDriveBookbagEntry, OverDriveBookbagPlanEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
+import { OverDriveService, OverDriveAuditEntry, OverDriveAutoSyncSchedule, OverDriveBookbagEntry, OverDriveBookbagPlanEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLog, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
 
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { MessageModule } from '@openng/optimus-ui/message';
@@ -514,6 +514,10 @@ export class OverdriveCatalogComponent {
   private readonly destroyRef = inject(DestroyRef);
   toolLog = signal<string[]>([]);
   toolConsoleVisible = signal(false);
+  /** A stored handler run being read back, rather than one streaming live. */
+  storedToolLog = signal<OverDriveToolLog | null>(null);
+  storedToolLogFor = signal<string | null>(null);
+  storedToolLogMissing = signal(false);
   // The scrollable <pre> that shows streamed handler output.
   private readonly toolConsoleRef = viewChild<ElementRef<HTMLElement>>('toolConsole');
   // Whether the console auto-scrolls to follow new output. Detaches when the user
@@ -537,6 +541,12 @@ export class OverdriveCatalogComponent {
        .subscribe(msg => {
          try {
            const frame = JSON.parse(msg.body) as OverDriveToolLogFrame;
+           // Only for work this page started. The server no longer streams unattended runs at all,
+           // but a second session of the same user still can — and having the console thrown over
+           // your work by a download you did not ask for is the whole complaint.
+           if (!this.importingTitleId() && !this.downloadingLoanId()) {
+             return;
+           }
            this.toolConsoleVisible.set(true);
            if (frame.event) {
              this.handleToolEvent(frame.event);
@@ -2221,6 +2231,29 @@ export class OverdriveCatalogComponent {
      CARD_REFRESHED: 'Card refreshed',
      SHARE_UPDATED: 'Sharing updated'
    };
+
+   /**
+    * Read back what the handler printed for a history row.
+    *
+    * <p>Live output is only streamed to the person who started the download, so this is the only way
+    * to see why an unattended one failed.
+    */
+   openStoredToolLog(titleId: string | null | undefined): void {
+     if (!titleId) return;
+     this.storedToolLogFor.set(titleId);
+     this.storedToolLog.set(null);
+     this.storedToolLogMissing.set(false);
+     this.overdriveService.toolLog(titleId).subscribe({
+       // 204 arrives as an empty body, which is the ordinary case for a title whose handler never ran.
+       next: (log) => log ? this.storedToolLog.set(log) : this.storedToolLogMissing.set(true),
+       error: () => this.storedToolLogMissing.set(true)
+     });
+   }
+
+   closeStoredToolLog(): void {
+     this.storedToolLogFor.set(null);
+     this.storedToolLog.set(null);
+   }
 
    /** Friendly label for a history action code. */
    actionLabel(action: string): string {

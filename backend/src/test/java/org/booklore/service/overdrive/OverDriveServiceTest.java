@@ -57,6 +57,7 @@ class OverDriveServiceTest {
     @Mock private org.booklore.repository.OverDriveAuditRepository auditRepository;
     @Mock private org.booklore.repository.OverDriveCardLimitRepository cardLimitRepository;
     @Mock private org.booklore.repository.OverDriveBorrowLimitDefaultRepository borrowLimitDefaultRepository;
+    @Mock private org.booklore.repository.OverDriveToolLogRepository toolLogRepository;
     @Mock private org.booklore.repository.OverDriveBookbagRepository bookbagRepository;
     @Mock private org.booklore.repository.OverDriveImportDestinationRepository importDestinationRepository;
     @Mock private org.booklore.repository.OverDriveAutoSyncRepository autoSyncRepository;
@@ -76,7 +77,7 @@ class OverDriveServiceTest {
         service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
+                cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
     }
 
@@ -749,7 +750,7 @@ class OverDriveServiceTest {
         return new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
+                cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
     }
 
@@ -3396,7 +3397,7 @@ class OverDriveServiceTest {
         OverDriveService svc = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler,
                 magazineHandler, ebookHandler, bookService,
                 client, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
+                cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
                 new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService);
         return new SyncHarness(svc, calls);
     }
@@ -3601,5 +3602,49 @@ class OverDriveServiceTest {
         assertThatThrownBy(() -> service.unifyChips("card-shared"))
                 .isInstanceOf(org.booklore.exception.APIException.class)
                 .hasMessageContaining("shared with you");
+    }
+
+    // ── Handler output ──────────────────────────────────────────────────
+
+    @Test
+    void anUnattendedHandlerRunIsStoredButStreamedToNobody() {
+        authAs(7L);
+
+        service.toolLogRunForTest("2277633", "card-a", true, false, List.of("starting", "boom"));
+
+        // Nobody is watching a pass, and pushing its output at whoever has the page open threw the
+        // console over their work every time the automation touched a title. It is still the only
+        // account of why an unattended download failed, so it goes to the database.
+        verifyNoInteractions(notificationService);
+        ArgumentCaptor<org.booklore.model.entity.OverDriveToolLogEntity> saved =
+                ArgumentCaptor.forClass(org.booklore.model.entity.OverDriveToolLogEntity.class);
+        verify(toolLogRepository).save(saved.capture());
+        assertThat(saved.getValue().getOutput()).contains("starting").contains("boom");
+        assertThat(saved.getValue().isAutomated()).isTrue();
+        assertThat(saved.getValue().isSucceeded()).isFalse();
+        assertThat(saved.getValue().getIdentity()).isEqualTo("card-a");
+    }
+
+    @Test
+    void aRunSomebodyStartedIsBothStreamedAndStored() {
+        // A username, not just an id: the stream is addressed to a user's own queue.
+        when(authenticationService.getAuthenticatedUser())
+                .thenReturn(BookLoreUser.builder().id(7L).username("william").build());
+
+        service.toolLogRunForTest("2277633", "card-a", false, true, List.of("done"));
+
+        // Live output is the point of the console for a download you asked for and are watching.
+        verify(notificationService).sendMessageToUser(any(), any(), any());
+        verify(toolLogRepository).save(any());
+    }
+
+    @Test
+    void aRunThatPrintedNothingStoresNothing() {
+        authAs(7L);
+
+        service.toolLogRunForTest("2277633", "card-a", true, true, List.of());
+
+        // A handler that never ran, or produced no output, is not worth a row saying so.
+        verify(toolLogRepository, never()).save(any());
     }
 }

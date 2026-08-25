@@ -10,6 +10,7 @@ import org.booklore.model.entity.BookLoreUserEntity;
 import org.booklore.model.entity.OverDriveAuditEntity;
 import org.booklore.model.entity.OverDriveBookbagEntity;
 import org.booklore.model.entity.OverDriveBorrowLimitDefaultEntity;
+import org.booklore.model.entity.OverDriveToolLogEntity;
 import org.booklore.model.entity.OverDriveCardLimitEntity;
 import org.booklore.model.entity.OverDriveAutoSyncEntity;
 import org.booklore.model.entity.OverDriveCardShareEntity;
@@ -106,6 +107,7 @@ public class OverDriveService {
     private final OverDriveCardShareRepository cardShareRepository;
     private final OverDriveAuditRepository auditRepository;
     private final org.booklore.repository.OverDriveCardLimitRepository cardLimitRepository;
+    private final org.booklore.repository.OverDriveToolLogRepository toolLogRepository;
     private final org.booklore.repository.OverDriveBorrowLimitDefaultRepository borrowLimitDefaultRepository;
     private final org.booklore.repository.OverDriveBookbagRepository bookbagRepository;
     private final OverDriveImportDestinationRepository importDestinationRepository;
@@ -172,21 +174,159 @@ public class OverDriveService {
         return currentUser().getId();
     }
 
+    /** How much of one run's output is worth keeping. Enough to diagnose a failure, not a log file. */
+    private static final int TOOL_LOG_MAX_CHARS = 64_000;
+
+    /** How long a kept run stays interesting. Diagnostic output, not a record of what happened. */
+    private static final java.time.Duration TOOL_LOG_RETENTION = java.time.Duration.ofDays(14);
+
     /**
-     * A sink that streams each line of an external handler's output to the current user's OverDrive
-     * tool-log websocket topic (labelled with the title id), so the UI can show live progress. Resolves
-     * the username now (on the request thread) since the handler drains on a background thread without a
-     * security context. Returns null when there's no authenticated user.
+     * A sink for one external handler run: it records the output, and streams it live to the user who
+     * asked for it.
+     *
+     * <p>Only live for an interactive run. The stream exists so somebody watching a download they
+     * started can see it progress; an unattended pass has nobody watching, and pushing its output at
+     * whoever happens to have the page open threw the console over their work every time the
+     * automation touched a title. That output is still worth having afterwards — it is the only
+     * account of why an unattended download failed — so it goes to the database either way.
+     *
+     * <p>Resolves the user now, on the calling thread: the handler drains on a background thread with
+     * no security context. Returns a closeable recorder; closing it persists what was collected.
      */
-    private java.util.function.Consumer<String> toolLogSink(String titleId) {
+    private ToolLogRun toolLogSink(String titleId) {
         BookLoreUser user = authenticationService.getAuthenticatedUser();
-        if (user == null || user.getUsername() == null) {
+        String username = user == null ? null : user.getUsername();
+        boolean live = !isAutomated() && username != null;
+        String label = titleId == null ? "" : titleId;
+        // A null user id means nothing to attribute the output to, so the run collects and discards.
+        return new ToolLogRun(user == null ? null : user.getId(), titleId, isAutomated(),
+                live ? line -> notificationService.sendMessageToUser(username, Topic.OVERDRIVE_TOOL_LOG,
+                        toolLogPayload(label, line)) : null);
+    }
+
+    /**
+     * Collects one handler run's output, forwarding it live when somebody is watching, and writes it
+     * on close.
+     *
+     * <p>Buffered rather than appended line by line: a download prints hundreds of lines, and a row
+     * update each would put the handler's stdout on the database's critical path. The cost is that a
+     * hard kill mid-download loses the buffer — which is why the close on the failure path matters
+     * more than the one on success.
+     */
+    private final class ToolLogRun implements AutoCloseable {
+
+        private final Long userId;
+        private final String titleId;
+        private final boolean automated;
+        private final java.util.function.Consumer<String> live;
+        private final StringBuilder collected = new StringBuilder();
+        private final Instant startedAt = Instant.now();
+        private boolean truncated;
+        private String identity;
+        private boolean closed;
+
+        private ToolLogRun(Long userId, String titleId, boolean automated,
+                           java.util.function.Consumer<String> live) {
+            this.userId = userId;
+            this.titleId = titleId;
+            this.automated = automated;
+            this.live = live;
+        }
+
+        /** The sink to hand the handler. Null-safe for callers that pass it straight through. */
+        java.util.function.Consumer<String> sink() {
+            return line -> {
+                if (live != null) {
+                    live.accept(line);
+                }
+                if (!truncated && collected.length() < TOOL_LOG_MAX_CHARS) {
+                    collected.append(line).append('\n');
+                    if (collected.length() >= TOOL_LOG_MAX_CHARS) {
+                        collected.append("… truncated; the handler printed more than this run keeps.");
+                        truncated = true;
+                    }
+                }
+            };
+        }
+
+        /** Which card the run was for, known by the caller rather than by the sink. */
+        ToolLogRun on(String cardIdentity) {
+            this.identity = cardIdentity;
+            return this;
+        }
+
+        void finish(boolean succeeded) {
+            if (closed || userId == null || collected.isEmpty()) {
+                closed = true;
+                return;
+            }
+            closed = true;
+            try {
+                toolLogRepository.save(OverDriveToolLogEntity.builder()
+                        .userId(userId)
+                        .titleId(titleId)
+                        .identity(identity)
+                        .automated(automated)
+                        .succeeded(succeeded)
+                        .startedAt(startedAt)
+                        .finishedAt(Instant.now())
+                        .output(collected.toString())
+                        .build());
+            } catch (Exception e) {
+                // Never fail an import over its own diagnostics.
+                log.debug("OverDrive: could not store handler output for title {}: {}", titleId, e.getMessage());
+            }
+        }
+
+        /** Closing without a verdict means nobody said it worked. */
+        @Override
+        public void close() {
+            finish(false);
+        }
+    }
+
+    /**
+     * The stored handler output for a title's most recent run, or null when there is none.
+     *
+     * <p>Scoped to the caller: a shared card means several users can each have run the handler on the
+     * same title, and one user's diagnostics are not another's to read.
+     */
+    public ToolLogView toolLogFor(String titleId) {
+        if (titleId == null || titleId.isBlank()) {
             return null;
         }
-        String username = user.getUsername();
-        String label = titleId == null ? "" : titleId;
-        return line -> notificationService.sendMessageToUser(username, Topic.OVERDRIVE_TOOL_LOG,
-                toolLogPayload(label, line));
+        return toolLogRepository
+                .findFirstByUserIdAndTitleIdOrderByStartedAtDesc(currentUserId(), titleId)
+                .map(row -> new ToolLogView(row.getTitleId(), row.getIdentity(), row.isAutomated(),
+                        row.isSucceeded(),
+                        row.getStartedAt() != null ? row.getStartedAt().toString() : null,
+                        row.getFinishedAt() != null ? row.getFinishedAt().toString() : null,
+                        row.getOutput()))
+                .orElse(null);
+    }
+
+    /**
+     * One stored handler run, for the history view.
+     *
+     * @param automated whether the automation produced it — the run nobody watched happen
+     */
+    public record ToolLogView(String titleId, String identity, boolean automated, boolean succeeded,
+                              String startedAt, String finishedAt, String output) {}
+
+    /** Drop handler output old enough that nobody is going to ask about it. */
+    int pruneToolLogs() {
+        try {
+            int removed = toolLogRepository.deleteStartedBefore(Instant.now().minus(TOOL_LOG_RETENTION));
+            if (removed > 0) {
+                log.info("OverDrive: pruned {} handler log(s) older than {} days",
+                        removed, TOOL_LOG_RETENTION.toDays());
+            }
+            return removed;
+        } catch (Exception e) {
+            // Housekeeping, on the end of a pass that has already done its real work.
+            log.debug("OverDrive: could not prune handler logs: {}", e.getMessage());
+            return 0;
+        }
     }
 
     /** Lenient reader for handler progress events; unknown fields are tolerated (forward-compat). */
@@ -479,6 +619,21 @@ public class OverDriveService {
                     .build());
         } catch (Exception e) {
             log.debug("OverDrive: could not record history for {}: {}", action, e.getMessage());
+        }
+    }
+
+    /**
+     * Run a handler sink the way a pass would, so tests can observe what an unattended run streams and
+     * what it stores. Mirrors the real call shape: open, feed lines, close with a verdict.
+     */
+    void toolLogRunForTest(String titleId, String identity, boolean automated, boolean succeeded,
+                           List<String> lines) { // package-private for testing
+        automationInProgress.set(automated);
+        try (ToolLogRun run = toolLogSink(titleId).on(identity)) {
+            lines.forEach(run.sink());
+            run.finish(succeeded);
+        } finally {
+            automationInProgress.remove();
         }
     }
 
@@ -4245,6 +4400,10 @@ public class OverDriveService {
             failures += autoReturn.failures();
         }
 
+        // Housekeeping last, once the pass has done everything it was for. Handler output accumulates
+        // a run at a time and nothing else would ever remove it.
+        pruneToolLogs();
+
         return new AutoSyncOutcome(identities.size(), borrowed, imported, linked, moved,
                 bagBorrowed, bagHeld, returned, failures);
       }
@@ -5090,8 +5249,16 @@ public class OverDriveService {
             throw ApiError.GENERIC_BAD_REQUEST.createException("No audiobook format found for loan " + loanId);
         }
         try {
-            AudiobookHandler.Result result = audiobookHandler.handle(
-                    audiobookRequest(identity, loanId, chosenFormat), workDir, toolLogSink(loanId));
+            ToolLogRun toolLog = toolLogSink(loanId).on(identity);
+            AudiobookHandler.Result result;
+            try {
+                result = audiobookHandler.handle(
+                        audiobookRequest(identity, loanId, chosenFormat), workDir, toolLog.sink());
+                toolLog.finish(result != null && !isEmptyFile(result.file()));
+            } catch (RuntimeException e) {
+                toolLog.finish(false);
+                throw e;
+            }
             if (result == null || isEmptyFile(result.file())) {
                 recordAuditFailure(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, "Audiobook handler produced no file");
                 throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("The audiobook handler did not produce a file for loan " + loanId + ".");
@@ -5257,8 +5424,12 @@ public class OverDriveService {
             // (its own chip + app-emulating UA, kept separate from Grimmory's web chip), then fulfils,
             // downloads and assembles the file. The tool picks the output extension (m4b/mp3/…).
             // The result stays on disk in workDir — an assembled audiobook is far too large to buffer.
-            AudiobookHandler.Result audiobook = audiobookHandler.handle(
-                    audiobookRequest(card, titleId, chosenFormat), workDir, toolLogSink(titleId));
+            AudiobookHandler.Result audiobook;
+            try (ToolLogRun toolLog = toolLogSink(titleId).on(card)) {
+                audiobook = audiobookHandler.handle(
+                        audiobookRequest(card, titleId, chosenFormat), workDir, toolLog.sink());
+                toolLog.finish(audiobook != null && !isEmptyFile(audiobook.file()));
+            }
             content = audiobook.file();
             extension = audiobook.extension();
             if (isEmptyFile(content)) {
@@ -5268,8 +5439,12 @@ public class OverDriveService {
             // Read-in-browser only: there is no downloadable file and no ACSM, so the external ebook
             // tool authenticates itself and rebuilds a book file from the web-reader assets. It picks
             // the output extension (epub/pdf), same as the audiobook and magazine handlers.
-            EbookHandler.Result ebook = ebookHandler.handle(
-                    ebookRequest(card, titleId, chosenFormat), workDir, toolLogSink(titleId));
+            EbookHandler.Result ebook;
+            try (ToolLogRun toolLog = toolLogSink(titleId).on(card)) {
+                ebook = ebookHandler.handle(
+                        ebookRequest(card, titleId, chosenFormat), workDir, toolLog.sink());
+                toolLog.finish(ebook != null && !isEmptyFile(ebook.file()));
+            }
             content = ebook.file();
             extension = ebook.extension();
             if (isEmptyFile(content)) {
@@ -5289,7 +5464,11 @@ public class OverDriveService {
             if (acsm == null || acsm.length == 0) {
                 throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("Could not fetch the ACSM for loan " + loanId);
             }
-            byte[] bytes = acsmHandler.handle(acsm, fileExtension(chosenFormat), toolLogSink(titleId));
+            byte[] bytes;
+            try (ToolLogRun toolLog = toolLogSink(titleId).on(card)) {
+                bytes = acsmHandler.handle(acsm, fileExtension(chosenFormat), toolLog.sink());
+                toolLog.finish(bytes != null && bytes.length > 0);
+            }
             if (bytes == null || bytes.length == 0) {
                 throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("The external ACSM handler did not produce a book file for loan "
                         + loanId + ".");
@@ -5541,8 +5720,12 @@ public class OverDriveService {
         try {
             resolveToken(identity); // validate the card is accessible even though the tool re-auths
 
-            MagazineHandler.Result magazine = magazineHandler.handle(
-                    magazineRequest(identity, titleId), workDir, toolLogSink(titleId));
+            MagazineHandler.Result magazine;
+            try (ToolLogRun toolLog = toolLogSink(titleId).on(identity)) {
+                magazine = magazineHandler.handle(
+                        magazineRequest(identity, titleId), workDir, toolLog.sink());
+                toolLog.finish(magazine != null && magazine.files() != null && !magazine.files().isEmpty());
+            }
             List<MagazineHandler.OutputFile> produced = magazine != null ? magazine.files() : null;
             if (produced == null || produced.isEmpty()) {
                 throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("The magazine handler did not produce a file for title " + titleId + ".");

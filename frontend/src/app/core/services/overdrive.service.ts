@@ -720,6 +720,11 @@ export class OverDriveService {
     return this.http.put<OverDriveCardBudget>(`${this.baseUrl}/card-limits/${identity}`, limits);
   }
 
+  /** What the download handler printed on its last run for a title; null when nothing was kept. */
+  toolLog(titleId: string): Observable<OverDriveToolLog | null> {
+    return this.http.get<OverDriveToolLog | null>(`${this.baseUrl}/tool-log/${titleId}`);
+  }
+
   /** The ceilings every card inherits for the windows it does not set itself. */
   defaultCardLimits(): Observable<OverDriveBorrowLimits> {
     return this.http.get<OverDriveBorrowLimits>(`${this.baseUrl}/card-limits/default`);
@@ -779,6 +784,18 @@ export interface OverDriveBorrowLimits {
   perDay?: number | null;
   perWeek?: number | null;
   perMonth?: number | null;
+}
+
+/** One stored run of an external download handler. */
+export interface OverDriveToolLog {
+  titleId: string;
+  identity?: string | null;
+  /** True when the automation produced it — the run nobody was watching. */
+  automated: boolean;
+  succeeded: boolean;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  output?: string | null;
 }
 
 /** Borrows a card has actually taken in each window, right now. */

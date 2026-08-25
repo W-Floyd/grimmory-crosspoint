@@ -865,7 +865,16 @@
             }
           </td>
           <td>{{ entry.cardName || entry.libraryKey || '—' }}</td>
-          <td class="history-detail">{{ entry.detail || '—' }}</td>
+          <td class="history-detail">
+            {{ entry.detail || '—' }}
+            @if (entry.titleId) {
+              <p-button label="Handler log" icon="pi pi-align-left" size="small" [text]="true"
+                styleClass="history-log-link"
+                pTooltip="What the download handler printed. An unattended run is not streamed anywhere, so this is the only account of it."
+                tooltipPosition="top"
+                (onClick)="openStoredToolLog(entry.titleId)" />
+            }
+          </td>
         </tr>
       </ng-template>
       <ng-template pTemplate="emptymessage">
@@ -930,6 +939,31 @@
           styleClass="tool-console-follow" (onClick)="resumeFollow()" />
       }
     </div>
+  }
+</p-dialog>
+
+<!--
+  Handler output read back from the database, as opposed to the console above, which shows a run
+  happening now. The two are deliberately separate: one is live and belongs to whoever started it,
+  the other is a record anybody who can see the history row can go and read.
+-->
+<p-dialog [visible]="storedToolLogFor() !== null" (visibleChange)="$event || closeStoredToolLog()"
+  [modal]="true" [style]="{ width: '60rem', maxWidth: '95vw' }" [dismissableMask]="true"
+  header="Handler output">
+  @if (storedToolLog(); as log) {
+    <p class="tool-console-meta">
+      {{ log.automated ? 'Unattended run' : 'Started by you' }}
+      @if (log.startedAt) { on {{ formatDateTime(log.startedAt) }} }
+      — {{ log.succeeded ? 'produced a file' : 'produced nothing' }}
+    </p>
+    <pre class="tool-console">{{ log.output }}</pre>
+  } @else if (storedToolLogMissing()) {
+    <p class="tool-console-empty">
+      Nothing was recorded for this title. Handler output is only kept for runs that actually reached
+      a download handler, and only for a couple of weeks.
+    </p>
+  } @else {
+    <p class="tool-console-empty">Loading…</p>
   }
 </p-dialog>
 
