@@ -144,6 +144,24 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.autoReturnTooltip(loan as never)).toContain('picked at random within 48h');
   });
 
+  it('explains that a resting card is what pushed the return out', () => {
+    setup();
+    const loan = {
+      id: '1',
+      autoReturn: {
+        dueAt: null, earliestAt: '2026-08-29T04:04:00Z', windowHours: 48,
+        restingUntil: '2026-08-29T04:04:00Z'
+      }
+    };
+
+    // The backend has already pushed earliestAt out to the end of the rest, so the date is right —
+    // but on its own it looks arbitrary next to a loan borrowed weeks earlier. Say why.
+    expect(component.autoReturnLabel(loan as never))
+      .toBe(`Auto-return from ${component.formatDate('2026-08-29T04:04:00Z')}`);
+    expect(component.autoReturnTooltip(loan as never)).toContain('resting until');
+    expect(component.autoReturnTooltip(loan as never)).not.toContain('picked at random');
+  });
+
   it('says plainly that a zero window returns on the day', () => {
     setup();
     const loan = {id: '1', autoReturn: {dueAt: null, earliestAt: '2026-08-15T10:00:00Z', windowHours: 0}};

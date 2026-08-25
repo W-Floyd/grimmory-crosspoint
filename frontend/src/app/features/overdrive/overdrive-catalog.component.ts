@@ -1848,6 +1848,13 @@ export class OverdriveCatalogComponent {
    autoReturnTooltip(loan: OverDriveLoan): string {
      const schedule = loan.autoReturn;
      if (!schedule) return '';
+     // A rest overrides everything else: it is why the date reads later than the loan's age alone
+     // would put it, and without saying so the date looks arbitrary.
+     if (schedule.restingUntil) {
+       return `This card is resting until ${this.formatDateTimeShort(schedule.restingUntil)} after `
+         + 'OverDrive refused it for borrowing and returning too many titles, so nothing goes back '
+         + 'before then. The return happens once the card is free again.';
+     }
      if (schedule.dueAt) {
        return 'Grimmory will return this loan automatically at this time, giving the copy back to the '
          + 'library before it expires on its own.';

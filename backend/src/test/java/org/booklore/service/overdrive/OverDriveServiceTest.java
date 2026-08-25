@@ -2013,6 +2013,61 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void theScheduleWaitsForTheCardToStopResting() {
+        authAs(7L);
+        optedIntoAutoReturn(14, 48);
+        var borrowedAt = Instant.parse("2026-08-01T10:00:00Z");
+        var restsUntil = Instant.parse("2026-08-29T04:04:00Z");
+        OverDriveLoanEntity loan = fulfilledLoan("loan-1", borrowedAt);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(loan));
+        when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(restingCard("card-a", restsUntil)));
+
+        var schedule = service.autoReturnSchedule().get("loan-1");
+
+        // Age alone would put this on the 15th, but a resting card refuses returns as firmly as
+        // borrows — so that date is one nothing will act on. Say when it can actually happen, and why.
+        assertThat(schedule.earliestAt()).isEqualTo(restsUntil.toString());
+        assertThat(schedule.restingUntil()).isEqualTo(restsUntil.toString());
+    }
+
+    @Test
+    void aRestDropsADrawnTimeItHasOvertaken() {
+        authAs(7L);
+        optedIntoAutoReturn(14, 48);
+        var borrowedAt = Instant.parse("2026-08-01T10:00:00Z");
+        var restsUntil = Instant.parse("2026-08-29T04:04:00Z");
+        OverDriveLoanEntity loan = fulfilledLoan("loan-1", borrowedAt);
+        loan.setAutoReturnDueAt(Instant.parse("2026-08-16T03:20:00Z"));
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(loan));
+        when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(restingCard("card-a", restsUntil)));
+
+        var schedule = service.autoReturnSchedule().get("loan-1");
+
+        // The poller drew a moment the rest has since overtaken. The loan goes back when the card is
+        // free, not when it was picked, so showing the drawn time to the minute would be a promise
+        // for a moment that has already passed without anything happening.
+        assertThat(schedule.dueAt()).isNull();
+        assertThat(schedule.earliestAt()).isEqualTo(restsUntil.toString());
+    }
+
+    @Test
+    void aFreeCardLeavesTheScheduleAlone() {
+        authAs(7L);
+        optedIntoAutoReturn(14, 48);
+        var borrowedAt = Instant.parse("2026-08-01T10:00:00Z");
+        OverDriveLoanEntity loan = fulfilledLoan("loan-1", borrowedAt);
+        when(loanRepository.findByUserId(7L)).thenReturn(List.of(loan));
+        notResting("card-a");
+
+        var schedule = service.autoReturnSchedule().get("loan-1");
+
+        // Nothing holding the card back means nothing to explain: the age is the whole answer.
+        assertThat(schedule.restingUntil()).isNull();
+        assertThat(schedule.earliestAt())
+                .isEqualTo(borrowedAt.plus(14, java.time.temporal.ChronoUnit.DAYS).toString());
+    }
+
+    @Test
     void theScheduleGivesOnlyTheEarliestDateUntilTheTimeIsDrawn_andDoesNotDrawIt() {
         authAs(7L);
         optedIntoAutoReturn(14, 48);

@@ -165,10 +165,12 @@ export interface OverDriveLoan {
 export interface OverDriveAutoReturnSchedule {
   /** The exact moment, once the poller has drawn it from the window; null until it first looks. */
   dueAt?: string | null;
-  /** The minimum age falling due — the return cannot happen before this. */
+  /** The earliest the return can happen: the minimum age falling due, or the end of the card's rest. */
   earliestAt: string;
   /** Width of the random window after `earliestAt`; 0 means it returns exactly then. */
   windowHours: number;
+  /** When the card is resting, the moment it stops — why `earliestAt` may be later than the age alone. */
+  restingUntil?: string | null;
 }
 
 export interface OverDriveHold {

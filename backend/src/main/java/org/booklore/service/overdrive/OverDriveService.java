@@ -4339,16 +4339,36 @@ public class OverDriveService {
             return Map.of();
         }
         Map<String, AutoReturnSchedule> schedule = new HashMap<>();
+        Map<String, Optional<Instant>> restingUntil = new HashMap<>();
         for (OverDriveLoanEntity loan : loanRepository.findByUserId(currentUserId())) {
             if (!eligibleForAutoReturn(loan) || loan.getCreatedAt() == null) {
                 continue;
             }
             Instant earliest = loan.getCreatedAt().plus(settings.autoReturnMinAgeDays(), ChronoUnit.DAYS);
             Instant exact = loan.getAutoReturnDueAt();
+
+            // A resting card refuses returns as firmly as borrows, so a date before its rest ends is one
+            // nothing will act on. Take the later of the two — and if the poller drew a moment that the
+            // rest has since overtaken, that moment is stale: the loan goes back when the card is free,
+            // not when it was picked, so fall back to describing the earliest it can happen.
+            // Memoised: several loans share a card, and this is a read on a page load.
+            Instant resting = restingUntil
+                    .computeIfAbsent(loan.getIdentity(), id -> Optional.ofNullable(churnCooldownUntil(id)))
+                    .orElse(null);
+            if (resting != null) {
+                if (resting.isAfter(earliest)) {
+                    earliest = resting;
+                }
+                if (exact != null && resting.isAfter(exact)) {
+                    exact = null;
+                }
+            }
+
             schedule.put(loan.getOverdriveLoanId(), new AutoReturnSchedule(
                     exact != null ? exact.toString() : null,
                     earliest.toString(),
-                    settings.autoReturnMaxDelayHours()));
+                    settings.autoReturnMaxDelayHours(),
+                    resting != null ? resting.toString() : null));
         }
         return schedule;
       }
@@ -4357,10 +4377,14 @@ public class OverDriveService {
        * When a loan is due to go back on its own.
        *
        * @param dueAt        the exact moment, once the poller has drawn it; null until then
-       * @param earliestAt   the minimum age falling due — the return cannot happen before this
+       * @param earliestAt   the earliest the return can happen: the minimum age falling due, or the end
+       *                     of the card's rest when that is later
        * @param windowHours  width of the random window after {@code earliestAt}; 0 means exactly then
+       * @param restingUntil when the card is resting, the moment it stops — the reason a date otherwise
+       *                     due sooner has been pushed out; null when nothing is holding it back
        */
-      public record AutoReturnSchedule(String dueAt, String earliestAt, int windowHours) {}
+      public record AutoReturnSchedule(String dueAt, String earliestAt, int windowHours,
+                                       String restingUntil) {}
 
       /**
        * Whether a loan is a candidate for automatic return at all: still on loan, and already
