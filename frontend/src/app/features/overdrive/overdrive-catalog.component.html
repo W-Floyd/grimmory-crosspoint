@@ -533,8 +533,9 @@
             }
             <p-button label="Return" icon="pi pi-sign-out"
               severity="danger"
-              pTooltip="Return this loan to the library"
+              [pTooltip]="returnBlockedReason(loan) ?? 'Return this loan to the library'"
               tooltipPosition="top"
+              [disabled]="anyOperationInFlight() || !!returnBlockedReason(loan)"
               (onClick)="onReturn(loan)" />
             @if (actionOutcome()[loan.id]; as st) {
               <span class="action-status" [class.error]="st === 'error'">

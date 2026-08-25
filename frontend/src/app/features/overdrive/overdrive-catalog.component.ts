@@ -658,6 +658,29 @@ export class OverdriveCatalogComponent {
        : `https://share.libbyapp.com/title/${titleId}`;
    }
 
+   /**
+    * Why this loan cannot go back right now, or null when it can.
+    *
+    * <p>The same two reasons the server refuses a return, in the same order: OverDrive's own rest
+    * outranks a ceiling we set ourselves. Asking here only decides whether the button is offered —
+    * the server still checks — but a control that fails on click reads as a broken feature, where a
+    * disabled one carrying the reason reads as the rule working.
+    */
+   returnBlockedReason(loan: OverDriveLoan): string | null {
+     const card = this.cards().find(c => c.cardId === loan.cardId);
+     if (!card) return null;
+     if (card.churnCooldownUntil) {
+       return `This card is resting until ${this.formatDateTimeShort(card.churnCooldownUntil)}: `
+         + 'OverDrive counts giving books back as churning too, so returns are paused along with '
+         + 'borrows. This loan goes back on its own once the card is free.';
+     }
+     if (card.returnLimitReached) {
+       return `This card has already used ${card.returnLimitReached}. Returns resume as the window `
+         + 'rolls forward.';
+     }
+     return null;
+   }
+
    cardLibraryKey(cardId: string | null | undefined): string | null {
      if (!cardId) return null;
      return this.cards().find(c => c.cardId === cardId)?.libraryKey ?? null;

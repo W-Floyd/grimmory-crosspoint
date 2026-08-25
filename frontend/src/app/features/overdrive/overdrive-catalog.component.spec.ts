@@ -144,6 +144,41 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.autoReturnTooltip(loan as never)).toContain('picked at random within 48h');
   });
 
+  it('will not offer Return on a card that is resting', () => {
+    setup();
+    component.cards.set([
+      {cardId: 'card-a', churnCooldownUntil: '2026-08-29T04:04:00Z'},
+      {cardId: 'card-b'}
+    ] as never);
+
+    // The server refuses either way, but a red button that errors on click reads as broken, where a
+    // disabled one carrying the reason reads as the rule doing its job.
+    expect(component.returnBlockedReason({id: '1', cardId: 'card-a'} as never)).toContain('resting until');
+    expect(component.returnBlockedReason({id: '2', cardId: 'card-b'} as never)).toBeNull();
+  });
+
+  it('gives the ceiling as the reason when nothing is resting', () => {
+    setup();
+    component.cards.set([
+      {cardId: 'card-a', returnLimitReached: '40 of 40 returns this 30 days'}
+    ] as never);
+
+    expect(component.returnBlockedReason({id: '1', cardId: 'card-a'} as never))
+      .toContain('40 of 40 returns this 30 days');
+  });
+
+  it('lets a rest outrank a ceiling, as the server does', () => {
+    setup();
+    component.cards.set([{
+      cardId: 'card-a',
+      churnCooldownUntil: '2026-08-29T04:04:00Z',
+      returnLimitReached: '40 of 40 returns this 30 days'
+    }] as never);
+
+    // Both apply; OverDrive's own refusal is the one worth naming, and it is the one that lasts.
+    expect(component.returnBlockedReason({id: '1', cardId: 'card-a'} as never)).toContain('resting until');
+  });
+
   it('explains that a resting card is what pushed the return out', () => {
     setup();
     const loan = {
