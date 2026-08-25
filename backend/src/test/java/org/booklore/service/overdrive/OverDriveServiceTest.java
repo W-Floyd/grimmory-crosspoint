@@ -1373,6 +1373,39 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void aLoanOnASiblingCardIsFetchedFromTheCardThatHoldsIt() {
+        authAs(7L);
+        stubCard(7L, "card-a", "chip-1");
+        stubCard(7L, "card-b", "chip-1");
+
+        // One chip, two cards. The sync we make against card-a lists the loan too, because a chip sync
+        // covers every card on it — but the copy is checked out on card-b.
+        OverDriveSyncResponse body = new OverDriveSyncResponse();
+        OverDriveLoan onB = new OverDriveLoan();
+        onB.setId("2277633");
+        onB.setCardId("card-b");
+        body.setLoans(List.of(onB));
+        when(loanRepository.findByUserIdAndOverdriveLoanId(any(), any())).thenReturn(Optional.empty());
+        var svc = syncHarness(body).service();
+
+        assertThatThrownBy(() -> svc.borrowAndImport("card-a", "2277633", null, null,
+                "The Almost Last Roundup", null, null, null, "ebook-epub-adobe", null, null))
+                .isInstanceOf(Exception.class);
+
+        ArgumentCaptor<org.booklore.model.entity.OverDriveAuditEntity> saved =
+                ArgumentCaptor.forClass(org.booklore.model.entity.OverDriveAuditEntity.class);
+        verify(auditRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+        // Asking card-a to fulfil a checkout it does not have returns CheckoutNotFound, which is what
+        // this looked like in the wild. The work — and so the row describing it — belongs to card-b.
+        assertThat(saved.getAllValues()).noneMatch(a -> "BORROW".equals(a.getAction()));
+        assertThat(saved.getAllValues())
+                .extracting(org.booklore.model.entity.OverDriveAuditEntity::getAction,
+                        org.booklore.model.entity.OverDriveAuditEntity::getIdentity,
+                        org.booklore.model.entity.OverDriveAuditEntity::isSuccess)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("IMPORT", "card-b", false));
+    }
+
+    @Test
     void resumingALoanTheCurrentPassAlreadySawCostsNoExtraSync() {
         authAsAdmin(7L);
         // One card, one loan on it, and one unimported row for that loan.

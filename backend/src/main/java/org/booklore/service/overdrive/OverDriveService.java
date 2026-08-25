@@ -3232,7 +3232,13 @@ public class OverDriveService {
       }
 
       /** A resolved loan: the id to fulfill against and the fulfillment format ids it advertises. */
-      private record LoanRef(String loanId, List<String> formatIds) {}
+      /**
+       * A loan found in a sync, and the card it actually sits on.
+       *
+       * <p>The card is not decoration: a sync is chip-scoped, so it lists sibling cards' loans too,
+       * and the card we asked about is not necessarily the one holding the copy.
+       */
+      private record LoanRef(String loanId, List<String> formatIds, String cardId) {}
 
       /**
        * Look for a title already on loan for this card (via sync) so borrow-and-import can resume
@@ -3252,12 +3258,12 @@ public class OverDriveService {
         // This matters at volume. The import sweep asks about every unimported loan on a card, and
         // one card here carries sixty of them — sixty chip syncs, in a tight loop, on top of the one
         // the pass had already done.
-        LoanRef fromPass = loanRefIn(passSyncs.get().get(cardId), titleId);
+        LoanRef fromPass = loanRefIn(passSyncs.get().get(cardId), titleId, cardId);
         if (fromPass != null) {
             return fromPass;
         }
         try {
-            return loanRefIn(sync(cardId), titleId);
+            return loanRefIn(sync(cardId), titleId, cardId);
         } catch (Exception e) {
             // Deliberately not swallowed. The caller reads null as "there is no loan, so borrow one",
             // and a network blip is not evidence of that — it turned a failed check into a fresh
@@ -3267,8 +3273,12 @@ public class OverDriveService {
         }
       }
 
-      /** The loan for a title within one sync response, or null when it is not listed. */
-      private LoanRef loanRefIn(OverDriveSyncResponse synced, String titleId) {
+      /**
+       * The loan for a title within one sync response, or null when it is not listed.
+       *
+       * @param queriedCard the card the sync was fetched with, used only when the feed omits the tag
+       */
+      private LoanRef loanRefIn(OverDriveSyncResponse synced, String titleId, String queriedCard) {
         if (synced == null || synced.getLoans() == null) {
             return null;
         }
@@ -3290,7 +3300,10 @@ public class OverDriveService {
             // Returned even with no formats. The loan exists, and that is the fact that matters: the
             // caller falls back to the format it asked for. Treating "found but unlabelled" as "not
             // on loan" sent it to borrow a title the account was already holding.
-            return new LoanRef(l.getId(), fmts);
+            // Tagged with the card that actually holds it, the same rule persistLoan follows. A feed
+            // that omits the tag is taken to mean the card we asked with.
+            String on = l.getCardId() != null && !l.getCardId().isBlank() ? l.getCardId() : queriedCard;
+            return new LoanRef(l.getId(), fmts, on);
         }
         return null;
       }
@@ -5156,6 +5169,10 @@ public class OverDriveService {
         // Whether a copy was actually taken out during this call. Decides, if something later fails,
         // whether the failure belongs to the borrow or only to the fetch that followed it.
         boolean checkedOut = false;
+        // Which card the fetch works against: the one we were asked about, unless a resumed loan turns
+        // out to sit on a sibling. Hoisted out of the try alongside the flags above so a failure names
+        // the card the work actually went to rather than the one that was requested.
+        String holdingCard = identity;
         // Magazines route to their own handler with no Grimmory borrow (the tool borrows + fulfils itself).
         if ("magazine".equals(normalizeTitleFormat(titleFormat)) || isMagazineFormat(preferredFormat)) {
             return importMagazine(identity, titleId, libraryId, pathId, title, author, coverUrl, isbn,
@@ -5178,6 +5195,16 @@ public class OverDriveService {
         // history should say so.
         alreadyBorrowed = loan != null;
         if (alreadyBorrowed) {
+            // The sync that found it is chip-scoped, so the copy may be checked out on a sibling card
+            // rather than the one we were asked about. Fulfil where the loan actually is: the card we
+            // were given has no checkout for this title, and asking it for one returns
+            // CheckoutNotFound. Refusing instead would be worse — the alternative to fulfilling on the
+            // right card is borrowing a second copy of a book the account already holds.
+            if (loan.cardId() != null && !loan.cardId().equals(identity)) {
+                log.info("OverDrive: title {} is on loan at card {}, not the requested {}; fulfilling "
+                        + "against the card that holds it", titleId, loan.cardId(), identity);
+                holdingCard = loan.cardId();
+            }
             log.info("OverDrive: resuming existing loan {} for title {} (skipping re-borrow)", loan.loanId(), titleId);
         } else {
             // Checked here rather than on the way in, because only this branch takes a copy out.
@@ -5188,7 +5215,7 @@ public class OverDriveService {
             String hint = (titleFormat != null && !titleFormat.isBlank()) ? titleFormat : preferredFormat;
             Map<String, Object> borrowed = withChipRecovery(identity,
                     token -> borrowLoan(identity, token, titleId, hint));
-            loan = new LoanRef(borrowed.get("id").toString(), loanFormatIds(borrowed));
+            loan = new LoanRef(borrowed.get("id").toString(), loanFormatIds(borrowed), identity);
             checkedOut = true;
             // Recorded the moment the copy is taken, not when the file lands. The two are minutes
             // apart now, and the checkout is spent whatever happens to the download — so a single row
@@ -5200,7 +5227,8 @@ public class OverDriveService {
         }
         // Resolved after the borrow so a token renewed by the borrow's chip recovery is the one we
         // fulfill with (fetchFulfillment can still re-mint reactively on top of it).
-        String authToken = resolveToken(identity);
+        final String card = holdingCard;
+        String authToken = resolveToken(card);
         String loanId = loan.loanId();
         List<String> formats = loan.formatIds();
 
@@ -5230,7 +5258,7 @@ public class OverDriveService {
             // downloads and assembles the file. The tool picks the output extension (m4b/mp3/…).
             // The result stays on disk in workDir — an assembled audiobook is far too large to buffer.
             AudiobookHandler.Result audiobook = audiobookHandler.handle(
-                    audiobookRequest(identity, titleId, chosenFormat), workDir, toolLogSink(titleId));
+                    audiobookRequest(card, titleId, chosenFormat), workDir, toolLogSink(titleId));
             content = audiobook.file();
             extension = audiobook.extension();
             if (isEmptyFile(content)) {
@@ -5241,7 +5269,7 @@ public class OverDriveService {
             // tool authenticates itself and rebuilds a book file from the web-reader assets. It picks
             // the output extension (epub/pdf), same as the audiobook and magazine handlers.
             EbookHandler.Result ebook = ebookHandler.handle(
-                    ebookRequest(identity, titleId, chosenFormat), workDir, toolLogSink(titleId));
+                    ebookRequest(card, titleId, chosenFormat), workDir, toolLogSink(titleId));
             content = ebook.file();
             extension = ebook.extension();
             if (isEmptyFile(content)) {
@@ -5249,7 +5277,7 @@ public class OverDriveService {
             }
         } else if (isOpenFormat(chosenFormat)) {
             // DRM-free: fulfill directly — no external tool required.
-            byte[] bytes = fulfillOpen(identity, authToken, loanId, chosenFormat);
+            byte[] bytes = fulfillOpen(card, authToken, loanId, chosenFormat);
             if (bytes == null || bytes.length == 0) {
                 throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("Open fulfillment returned no data for loan " + loanId);
             }
@@ -5257,7 +5285,7 @@ public class OverDriveService {
             content = stageBytes(workDir, bytes, extension);
         } else {
             // Adobe format: hand the ACSM to the configured external tool to procure the book.
-            byte[] acsm = getAcsm(identity, authToken, loanId, chosenFormat);
+            byte[] acsm = getAcsm(card, authToken, loanId, chosenFormat);
             if (acsm == null || acsm.length == 0) {
                 throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("Could not fetch the ACSM for loan " + loanId);
             }
@@ -5296,7 +5324,7 @@ public class OverDriveService {
                 .orElseGet(() -> {
                     OverDriveLoanEntity e = new OverDriveLoanEntity();
                     e.setOverdriveLoanId(loanId);
-                    e.setIdentity(identity);
+                    e.setIdentity(card);
                     e.setUserId(userId);
                     return e;
                 });
@@ -5312,7 +5340,7 @@ public class OverDriveService {
 
         // Always an import at this point: the borrow, if there was one, has its own row already.
         recordAudit(OverDriveAuditAction.IMPORT,
-                identity, titleId, loanId, book != null ? book.getId() : null, title,
+                card, titleId, loanId, book != null ? book.getId() : null, title,
                 book != null ? "Imported to library" : "Dropped into Bookdrop");
         log.info("OverDrive borrow-and-import complete: loan {} ({}) -> {}", loanId, chosenFormat,
                 book != null ? "book " + book.getId() : "Bookdrop");
@@ -5322,7 +5350,7 @@ public class OverDriveService {
             // saying otherwise would suggest no checkout was spent when one was.
             recordAuditFailure(alreadyBorrowed || checkedOut
                             ? OverDriveAuditAction.IMPORT : OverDriveAuditAction.BORROW,
-                    identity, titleId, null, title, e.getMessage());
+                    holdingCard, titleId, null, title, e.getMessage());
             throw e;
         } finally {
             FileUtils.deleteDirectoryQuietly(workDir);
