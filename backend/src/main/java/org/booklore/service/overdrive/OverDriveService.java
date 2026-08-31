@@ -1903,6 +1903,19 @@ public class OverDriveService {
 
             // Already ours — the user got it another way, or a hold we placed came in and was
             // imported. Either way the bag's work on it is done.
+            // Never for an entry the user explicitly marked "get it again" — that is what the flag is
+            // for, and it carries a replace through the import.
+            if (!entry.isAllowReborrow() && previouslyImportedAndRemoved(entry.getTitleId())
+                    && resolveLinkedBookId(entry.getTitleId(), null, null) == null) {
+                // Imported once, book since deleted, file still on disk. Borrowing spends a checkout on
+                // something that cannot then be imported: the fetch downloads the whole book and the
+                // move refuses on a target that already exists.
+                entry.setLastNote("Imported before and the book has since been deleted, so its file is "
+                        + "still on disk. Tick \"get it again\" to replace it.");
+                bookbagRepository.save(entry);
+                continue;
+            }
+
             Long owned = entry.isAllowReborrow() ? null : resolveLinkedBookId(entry.getTitleId(), null, null);
             if (owned != null) {
                 log.info("OverDrive bookbag: \"{}\" is already in the library as book id={}; dropping it "
@@ -1977,6 +1990,26 @@ public class OverDriveService {
             }
         }
         return new BookbagOutcome(borrowed, held, failures);
+      }
+
+      /**
+       * Whether this edition was imported once and the book has since been removed.
+       *
+       * <p>The distinction the linking check cannot make. A soft delete hides the book but leaves its
+       * file at the path a re-import would write to, so disk and database disagree — and the only
+       * other way to find that out is to fetch the whole book and collide.
+       */
+      private boolean previouslyImportedAndRemoved(String overdriveId) {
+        if (overdriveId == null || overdriveId.isBlank()) {
+            return false;
+        }
+        try {
+            return bookRepository.countEverImportedFromOverdriveId(overdriveId.trim()) > 0;
+        } catch (Exception e) {
+            // A guard, not a gate: failing to answer must not stop an import that would have worked.
+            log.debug("OverDrive: could not check whether {} was imported before: {}", overdriveId, e.getMessage());
+            return false;
+        }
       }
 
       /** The card a hold sits on, unless that card is resting or out of borrow budget. */
@@ -4462,6 +4495,20 @@ public class OverDriveService {
         }
         Long existing = resolveLinkedBookId(loan.getOverdriveLoanId(), null, null);
         if (existing == null) {
+            // Nothing to link to, but that is not the same as never having had it. A deleted book keeps
+            // its file where it was, so importing again downloads the whole thing and then refuses at
+            // the last step, on a target that already exists — every pass, for as long as the loan
+            // lives. Stop here instead, and say so once rather than failing repeatedly.
+            if (previouslyImportedAndRemoved(loan.getOverdriveLoanId())) {
+                loan.setAutoImportFailures(MAX_AUTO_IMPORT_FAILURES);
+                loanRepository.save(loan);
+                log.info("OverDrive auto-import: loan {} (\"{}\") was imported before and the book has "
+                        + "since been deleted; not fetching it again", loan.getOverdriveLoanId(), loan.getTitle());
+                recordAudit(OverDriveAuditAction.AUTO_IMPORT, loan.getIdentity(), loan.getOverdriveLoanId(),
+                        loan.getOverdriveLoanId(), null, loan.getTitle(),
+                        "Imported before and the book has since been deleted, so its file is still on "
+                                + "disk. Not fetched again — use Import again to replace it.");
+            }
             return false;
         }
         loan.setBookId(existing);

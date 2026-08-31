@@ -81,6 +81,17 @@ public interface BookRepository extends JpaRepository<BookEntity, Long>, JpaSpec
     java.util.List<Long> findIdsByOverdriveIdAndLibraryIdIn(@Param("overdriveId") String overdriveId, @Param("libraryIds") java.util.Collection<Long> libraryIds);
 
     /**
+     * Whether this OverDrive edition was ever imported, including into a book since deleted.
+     *
+     * <p>Deliberately ignores the deleted flag, which the linking queries above must not. A removed
+     * book cannot be linked to — but a soft delete leaves its file where it was, so the fact that it
+     * once existed is what says a re-import would land on a file already on disk. Without this, the
+     * only way to discover that is to download the whole book and collide at the last step.
+     */
+    @Query("SELECT COUNT(b) FROM BookEntity b WHERE b.metadata.overdriveId = :overdriveId")
+    long countEverImportedFromOverdriveId(@Param("overdriveId") String overdriveId);
+
+    /**
      * OverDrive id paired with the book's title, for a batch of ids. Lets the history view name a title
      * whose audit row recorded only an id, in one query per page rather than one per row.
      */

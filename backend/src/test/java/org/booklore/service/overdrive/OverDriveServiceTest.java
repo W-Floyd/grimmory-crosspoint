@@ -1820,6 +1820,51 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void aTitleWhoseBookWasDeletedIsNotBorrowedAgainToCollideOnItsOwnFile() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
+        // Nothing to link to — the book was deleted — but it was imported once, so its file is still
+        // sitting at the path a re-import would write to.
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+        when(bookRepository.countEverImportedFromOverdriveId("2056901")).thenReturn(1L);
+
+        var outcome = service.runBookbag(7L, Set.of(), Map.of(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), new java.util.HashMap<>(), pacer());
+
+        // Borrowing here spends a checkout on something that cannot then be imported: the fetch pulls
+        // the whole book down and the move refuses on a target that already exists — every pass, for
+        // as long as the loan lives.
+        assertThat(outcome.borrowed()).isZero();
+        assertThat(entry.getLastNote()).contains("since been deleted");
+        verify(bookbagRepository, never()).delete(entry);
+    }
+
+    @Test
+    void tickingGetItAgainStillBorrowsATitleWhoseBookWasDeleted() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        entry.setAllowReborrow(true);
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
+
+        service.runBookbag(7L, Set.of(), Map.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), pacer());
+
+        // Replacing a deleted book is exactly what the flag is for, so the guard must not stand in
+        // front of it — and it should not even ask, since the answer cannot change the outcome.
+        verify(bookRepository, never()).countEverImportedFromOverdriveId(any());
+        assertThat(entry.getLastNote()).doesNotContain("since been deleted");
+    }
+
+    @Test
     void aBookbagTitleAlreadyInTheLibraryIsDroppedRatherThanBorrowedAgain() {
         authAsAdmin(7L);
         var entry = bagged(1L, "2056901", 1);
@@ -2275,16 +2320,18 @@ class OverDriveServiceTest {
     void theScheduleWaitsForTheCardToStopResting() {
         authAs(7L);
         optedIntoAutoReturn(14, 48);
-        var borrowedAt = Instant.parse("2026-08-01T10:00:00Z");
-        var restsUntil = Instant.parse("2026-08-29T04:04:00Z");
+        // Relative to now, not a fixed date: a cooldown only counts while it is in the future, so a
+        // literal stops testing anything the day the calendar passes it.
+        var borrowedAt = Instant.now().minus(30, java.time.temporal.ChronoUnit.DAYS);
+        var restsUntil = Instant.now().plus(4, java.time.temporal.ChronoUnit.DAYS);
         OverDriveLoanEntity loan = fulfilledLoan("loan-1", borrowedAt);
         when(loanRepository.findByUserId(7L)).thenReturn(List.of(loan));
         when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(restingCard("card-a", restsUntil)));
 
         var schedule = service.autoReturnSchedule().get("loan-1");
 
-        // Age alone would put this on the 15th, but a resting card refuses returns as firmly as
-        // borrows — so that date is one nothing will act on. Say when it can actually happen, and why.
+        // Age alone would have this due a fortnight ago, but a resting card refuses returns as firmly
+        // as borrows — so that date is one nothing will act on. Say when it can happen, and why.
         assertThat(schedule.earliestAt()).isEqualTo(restsUntil.toString());
         assertThat(schedule.restingUntil()).isEqualTo(restsUntil.toString());
     }
@@ -2293,10 +2340,11 @@ class OverDriveServiceTest {
     void aRestDropsADrawnTimeItHasOvertaken() {
         authAs(7L);
         optedIntoAutoReturn(14, 48);
-        var borrowedAt = Instant.parse("2026-08-01T10:00:00Z");
-        var restsUntil = Instant.parse("2026-08-29T04:04:00Z");
+        var borrowedAt = Instant.now().minus(30, java.time.temporal.ChronoUnit.DAYS);
+        var restsUntil = Instant.now().plus(4, java.time.temporal.ChronoUnit.DAYS);
         OverDriveLoanEntity loan = fulfilledLoan("loan-1", borrowedAt);
-        loan.setAutoReturnDueAt(Instant.parse("2026-08-16T03:20:00Z"));
+        // Drawn before the rest began, so the rest has overtaken it.
+        loan.setAutoReturnDueAt(Instant.now().minus(2, java.time.temporal.ChronoUnit.DAYS));
         when(loanRepository.findByUserId(7L)).thenReturn(List.of(loan));
         when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(restingCard("card-a", restsUntil)));
 
