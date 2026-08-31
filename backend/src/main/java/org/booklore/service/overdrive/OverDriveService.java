@@ -1930,7 +1930,8 @@ public class OverDriveService {
                     pauseBeforeLoanAction(borrowCard, pacer);
                     loanSlotsLeft.computeIfPresent(borrowCard, (id, left) -> left - 1);
                     borrowAndImport(borrowCard, entry.getTitleId(), null, null,
-                            entry.getTitle(), entry.getAuthor(), null, null, null, null, null);
+                            entry.getTitle(), entry.getAuthor(), null, null, null, null,
+                            bookToReplaceFor(entry));
                     borrowed++;
                     log.info("OverDrive bookbag: borrowed \"{}\" for user {} on card {}",
                             entry.getTitle(), userId, borrowCard);
@@ -2010,6 +2011,22 @@ public class OverDriveService {
             log.debug("OverDrive: could not check whether {} was imported before: {}", overdriveId, e.getMessage());
             return false;
         }
+      }
+
+      /**
+       * The book a "get it again" entry replaces, or null when there is nothing to replace.
+       *
+       * <p>Reborrow deliberately skips the "we already have this" check — that is the whole point of
+       * the flag — which leaves the import writing to the path the existing copy already occupies.
+       * Without naming that copy the move refuses on a file that is already there, and because the
+       * entry only clears on success it comes back and does it again every pass.
+       */
+      Long bookToReplaceForTest(OverDriveBookbagEntity entry) { // package-private for testing
+        return bookToReplaceFor(entry);
+      }
+
+      private Long bookToReplaceFor(OverDriveBookbagEntity entry) {
+        return entry.isAllowReborrow() ? resolveLinkedBookId(entry.getTitleId(), null, null) : null;
       }
 
       /** The card a hold sits on, unless that card is resting or out of borrow budget. */
@@ -2289,7 +2306,7 @@ public class OverDriveService {
         }
         // Not automated, so borrowAndImport fulfils immediately rather than pausing first.
         Book book = borrowAndImport(card, entry.getTitleId(), null, null,
-                entry.getTitle(), entry.getAuthor(), null, null, null, null, null);
+                entry.getTitle(), entry.getAuthor(), null, null, null, null, bookToReplaceFor(entry));
         bookbagRepository.delete(entry);
         log.info("OverDrive bookbag: user {} borrowed \"{}\" on demand from card {}",
                 userId, entry.getTitle(), card);

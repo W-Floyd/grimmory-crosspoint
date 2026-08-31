@@ -1820,6 +1820,23 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void aGetItAgainEntryReplacesTheCopyItWouldOtherwiseCollideWith() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        entry.setAllowReborrow(true);
+
+        // Reborrow skips the "we already have this" check by design, so the import lands on the path
+        // the existing copy occupies. Naming that copy is what turns a collision into a replacement —
+        // and because the entry only clears on success, getting this wrong retried every pass.
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(536L));
+
+        assertThat(service.bookToReplaceForTest(entry)).isEqualTo(536L);
+
+        entry.setAllowReborrow(false);
+        assertThat(service.bookToReplaceForTest(entry)).isNull();
+    }
+
+    @Test
     void aTitleWhoseBookWasDeletedIsNotBorrowedAgainToCollideOnItsOwnFile() {
         authAsAdmin(7L);
         var entry = bagged(1L, "2056901", 1);
