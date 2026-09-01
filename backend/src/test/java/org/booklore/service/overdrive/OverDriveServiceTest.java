@@ -2800,6 +2800,30 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void holdShoppingLeavesAHoldForABookTheLibraryAlreadyHas() {
+        authAsAdmin(7L);
+        OverDriveSyncResponse body = syncCovering(List.of("card-a", "card-b"));
+        body.setHolds(List.of(waitingHold("2056901", "card-a", "30")));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build(),
+                OverDriveTokenEntity.builder().userId(7L).identity("card-b").libraryKey("bpl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        // The book arrived by another route while this hold was still waiting.
+        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(536L));
+
+        var outcome = service.runHoldShopping(7L, holdShopping(true),
+                Map.of("card-a", body, "card-b", body), new java.util.HashMap<>(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), pacer());
+
+        // Auto-borrow makes this check on a ready hold; shopping never did. Borrowing here spends a
+        // checkout to fetch a file we already have, and the import then refuses on a target that
+        // exists — every pass, since the failure also means the hold is never cancelled.
+        assertThat(outcome).isEqualTo(new OverDriveService.HoldShoppingOutcome(0, 0, 0));
+        // Not even looked up: nothing about where else it is available can change the answer.
+        verifyNoInteractions(overDriveParser);
+    }
+
+    @Test
     void holdShoppingIgnoresAHoldThatIsAlreadyReadyToBorrow() {
         OverDriveSyncResponse body = syncCovering(List.of("card-a", "card-b"));
         var ready = waitingHold("2056901", "card-a", "0");

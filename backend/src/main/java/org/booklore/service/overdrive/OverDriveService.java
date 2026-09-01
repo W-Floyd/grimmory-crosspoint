@@ -4976,17 +4976,41 @@ public class OverDriveService {
             return new HoldShoppingOutcome(0, 0, 0); // nowhere else to look
         }
 
+        // The same check auto-borrow makes on a ready hold, for the same reason: a hold placed months
+        // ago can still be waiting long after the book arrived by another route. Borrowing it spends a
+        // checkout to fetch a file we already have, and the fetch then refuses on a target that exists
+        // — every pass, for as long as the hold waits, since the failure also means the superseded
+        // hold is never cancelled.
+        //
+        // Filtered before the availability call rather than inside the loop below, so an owned title
+        // costs no lookup either: nothing the shelf could say would change the answer. After the cheap
+        // exits above, though — this one reads the library.
+        List<OverDriveHold> shoppable = waiting.stream()
+                .filter(hold -> {
+                    Long owned = resolveLinkedBookId(hold.getId(), null, null);
+                    if (owned != null) {
+                        log.info("OverDrive hold shopping: leaving \"{}\" for user {} — book id={} is "
+                                + "already in the library, so there is nothing to shop for",
+                                hold.getTitle(), userId, owned);
+                    }
+                    return owned == null;
+                })
+                .toList();
+        if (shoppable.isEmpty()) {
+            return new HoldShoppingOutcome(0, 0, 0);
+        }
+
         // One lightweight call per library covering every waiting title, rather than a media fetch
         // per title per library.
         Map<String, List<OverDriveLibraryAvailability>> availability = availabilityForTitles(
-                waiting.stream().map(OverDriveHold::getId).distinct().toList(),
+                shoppable.stream().map(OverDriveHold::getId).distinct().toList(),
                 List.copyOf(cardByLibrary.values()));
 
         int borrowed = 0;
         int moved = 0;
         int failures = 0;
 
-        for (OverDriveHold hold : waiting) {
+        for (OverDriveHold hold : shoppable) {
             List<OverDriveLibraryAvailability> options = availability.getOrDefault(hold.getId(), List.of());
             if (options.isEmpty() || churnCooldownUntil(hold.getCardId()) != null) {
                 // Moving a hold off a resting card means cancelling on it, and borrowing elsewhere

@@ -160,7 +160,8 @@ LIMIT 30;
 SELECT '=== 8. Loan / book / library disagreements ===' AS report;
 
 -- Three ways the record can contradict itself. Each has a different cause, so the flag matters:
---   fulfilled with no book   an import that reported success without producing one
+--   fulfilled with no book   normal for a Bookdrop import (magazines especially), which produces a
+--                            file but no library book — only worth a look for an ordinary ebook
 --   linked to a missing book the book was deleted; its file may still hold the import path
 --   no id on the book        the link can never be made again, so it will re-import forever
 SELECT l.overdrive_loan_id,
