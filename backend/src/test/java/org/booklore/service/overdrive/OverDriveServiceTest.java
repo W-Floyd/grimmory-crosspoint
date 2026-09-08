@@ -2506,6 +2506,60 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void aFailedBorrowForgetsAHoldThatHasLapsed() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        entry.setHoldCardId("card-a");
+        entry.setHoldPlacedAt(Instant.now().minus(java.time.Duration.ofDays(40)));
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
+        notResting("card-a");
+        when(bookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
+        // The shelf says a copy is there, so a borrow is attempted — and fails, because the hold that
+        // reserved it has lapsed. heldTitleIds is empty: the hold is gone from the feed.
+        stubAvailability("lapl", "2056901", true, false, null, 2);
+
+        var outcome = service.runBookbag(7L, Set.of(), Map.of(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), new java.util.HashMap<>(), pacer());
+
+        // The recovery for a lapsed hold sat below the borrow attempt, which always continued past it
+        // on failure. So the dead card id survived and the same doomed borrow ran every pass — eight
+        // times over a week, in the wild.
+        assertThat(outcome.failures()).isEqualTo(1);
+        assertThat(entry.getHoldCardId()).isNull();
+        assertThat(entry.getHoldPlacedAt()).isNull();
+        assertThat(entry.getLastNote()).contains("hold lapsed");
+    }
+
+    @Test
+    void aFailedBorrowKeepsAHoldThatIsStillLive() {
+        authAsAdmin(7L);
+        var entry = bagged(1L, "2056901", 1);
+        entry.setHoldCardId("card-a");
+        when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of(entry));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
+        when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(
+                OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
+        notResting("card-a");
+        when(bookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
+        stubAvailability("lapl", "2056901", true, false, null, 2);
+
+        // Still in the feed, so the queue position is real and must not be thrown away over one
+        // failed borrow — losing it would cost weeks of waiting.
+        service.runBookbag(7L, Set.of("2056901"), Map.of(), new java.util.HashMap<>(),
+                new java.util.HashMap<>(), new java.util.HashMap<>(), pacer());
+
+        assertThat(entry.getHoldCardId()).isEqualTo("card-a");
+        assertThat(entry.getLastNote()).doesNotContain("hold lapsed");
+    }
+
+    @Test
     void aBookbagEntryWaitsWhileItsHoldIsStillLive() {
         authAsAdmin(7L);
         var entry = bagged(1L, "2056901", 1);

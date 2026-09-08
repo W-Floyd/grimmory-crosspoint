@@ -1939,7 +1939,21 @@ public class OverDriveService {
                     continue;
                 } catch (Exception e) {
                     failures++;
-                    entry.setLastNote(truncate("Couldn't borrow it: " + e.getMessage(), 512));
+                    // Reconcile the hold on the way out. A borrow attempt used to skip this entirely,
+                    // so an entry whose hold had lapsed kept the dead card id and tried the same borrow
+                    // on every pass — the recovery below existed but nothing could reach it once a
+                    // borrow was being attempted at all.
+                    String note = "Couldn't borrow it: " + e.getMessage();
+                    if (entry.getHoldCardId() != null && !heldTitleIds.contains(entry.getTitleId())) {
+                        log.info("OverDrive bookbag: the hold on \"{}\" for user {} is no longer on card "
+                                + "{}; forgetting it so the entry can queue again",
+                                entry.getTitle(), userId, entry.getHoldCardId());
+                        entry.setHoldCardId(null);
+                        entry.setHoldPlacedAt(null);
+                        note = "The hold lapsed before it could be claimed, and borrowing without it "
+                                + "failed: " + e.getMessage() + " Queueing again next pass.";
+                    }
+                    entry.setLastNote(truncate(note, 512));
                     bookbagRepository.save(entry);
                     log.warn("OverDrive bookbag: borrowing \"{}\" for user {} on card {} failed: {}",
                             entry.getTitle(), userId, borrowCard, e.getMessage());
