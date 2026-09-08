@@ -1834,7 +1834,8 @@ public class OverDriveService {
        * loan-capacity snapshot is shared with the rest of the pass so slots spent here are visible to
        * it. When every card is out of budget the bag simply waits for the next poll.
        */
-      BookbagOutcome runBookbag(Long userId, Set<String> heldTitleIds, Map<String, String> loanedCardByTitle,
+      BookbagOutcome runBookbag(Long userId, Map<String, Set<String>> heldCardsByTitle,
+                                Map<String, String> loanedCardByTitle,
                                 Map<String, Integer> loanSlotsLeft, Map<String, Integer> holdSlotsLeft,
                                 Map<String, Integer> holdsPerCard,
                                 LoanActionPacer pacer) { // package-private for testing
@@ -1944,7 +1945,8 @@ public class OverDriveService {
                     // on every pass — the recovery below existed but nothing could reach it once a
                     // borrow was being attempted at all.
                     String note = "Couldn't borrow it: " + e.getMessage();
-                    if (entry.getHoldCardId() != null && !heldTitleIds.contains(entry.getTitleId())) {
+                    if (entry.getHoldCardId() != null && !heldCardsByTitle
+                            .getOrDefault(entry.getTitleId(), Set.of()).contains(entry.getHoldCardId())) {
                         log.info("OverDrive bookbag: the hold on \"{}\" for user {} is no longer on card "
                                 + "{}; forgetting it so the entry can queue again",
                                 entry.getTitle(), userId, entry.getHoldCardId());
@@ -1963,8 +1965,21 @@ public class OverDriveService {
 
             // Nobody can lend it now. Queue for it, unless we already have.
             if (entry.getHoldCardId() != null) {
-                if (heldTitleIds.contains(entry.getTitleId())) {
+                Set<String> holdingCards = heldCardsByTitle.getOrDefault(entry.getTitleId(), Set.of());
+                if (holdingCards.contains(entry.getHoldCardId())) {
                     entry.setLastNote("Waiting on the hold placed at " + entry.getHoldCardId() + ".");
+                    bookbagRepository.save(entry);
+                    continue;
+                }
+                if (!holdingCards.isEmpty()) {
+                    // The position exists, just not where this entry remembers — hold shopping moves
+                    // one to a shorter queue. Follow it rather than forgetting a real place in line and
+                    // joining the back of another.
+                    String actual = holdingCards.iterator().next();
+                    log.info("OverDrive bookbag: the hold on \"{}\" for user {} is on card {}, not {}; "
+                            + "following it", entry.getTitle(), userId, actual, entry.getHoldCardId());
+                    entry.setHoldCardId(actual);
+                    entry.setLastNote("Waiting on the hold placed at " + actual + ".");
                     bookbagRepository.save(entry);
                     continue;
                 }
@@ -4435,7 +4450,7 @@ public class OverDriveService {
         int bagBorrowed = 0;
         int bagHeld = 0;
         if (hasBookbag) {
-            BookbagOutcome bookbag = runBookbag(userId, heldTitleIds(syncs), loanCardByTitle, loanSlotsLeft,
+            BookbagOutcome bookbag = runBookbag(userId, heldCardsByTitle(syncs), loanCardByTitle, loanSlotsLeft,
                     holdSlotsLeft, holdsPerCard, pacer);
             bagBorrowed = bookbag.borrowed();
             bagHeld = bookbag.held();
@@ -5107,15 +5122,31 @@ public class OverDriveService {
       }
 
       /** Every title the user currently has a hold on, ready or waiting, across this pass's cards. */
-      private Set<String> heldTitleIds(Map<String, OverDriveSyncResponse> syncs) {
-        return syncs.values().stream()
-                .filter(Objects::nonNull)
-                .map(OverDriveSyncResponse::getHolds)
-                .filter(Objects::nonNull)
-                .flatMap(List::stream)
-                .map(OverDriveHold::getId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+      /**
+       * Which cards hold a queue position for each title.
+       *
+       * <p>Keyed by card, not just title. A sync is chip-scoped, so it lists every card's holds, and a
+       * bag entry that only asked "is this title held anywhere?" would keep reporting a queue position
+       * on a card that had lost it, so long as some sibling card still had one.
+       */
+      private Map<String, Set<String>> heldCardsByTitle(Map<String, OverDriveSyncResponse> syncs) {
+        Map<String, Set<String>> byTitle = new HashMap<>();
+        syncs.forEach((queriedCard, sync) -> {
+            if (sync == null || sync.getHolds() == null) {
+                return;
+            }
+            for (OverDriveHold hold : sync.getHolds()) {
+                if (hold.getId() == null) {
+                    continue;
+                }
+                // The feed tags each hold with its own card; fall back to the card we asked with only
+                // when it does not, the same rule loans follow.
+                String on = hold.getCardId() != null && !hold.getCardId().isBlank()
+                        ? hold.getCardId() : queriedCard;
+                byTitle.computeIfAbsent(hold.getId(), k -> new HashSet<>()).add(on);
+            }
+        });
+        return byTitle;
       }
 
       /** Holds the user is still queued for — the ready ones are auto-borrow's business, not this. */
