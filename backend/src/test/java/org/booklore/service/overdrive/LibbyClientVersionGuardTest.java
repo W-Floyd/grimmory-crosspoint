@@ -141,6 +141,18 @@ class LibbyClientVersionGuardTest {
     }
 
     @Test
+    void openingThePageChecksWhenDueAndNotOtherwise() {
+        ScriptedGuard guard = new ScriptedGuard();
+        guard.at(9, 9, 0);
+        guard.pages.add("22.1.2");
+
+        assertThat(guard.status().blockedReason()).contains("not been checked");
+        assertThat(guard.checkedStatus().blockedReason()).isNull();
+        assertThat(guard.checkedStatus().liveVersion()).isEqualTo("22.1.2");
+        assertThat(guard.fetches).isEqualTo(1);
+    }
+
+    @Test
     void aPinnedGuardNeverFetches() {
         LibbyClientVersionGuard guard = LibbyClientVersionGuard.pinned(
                 LibbyClientProfiles.forVersion("22.0.2").orElseThrow());

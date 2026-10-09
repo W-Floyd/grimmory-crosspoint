@@ -471,14 +471,14 @@ public class OverDriveController {
      */
     @Operation(summary = "OverDrive capabilities",
                description = "Reports whether an external ACSM handler is configured (required to import Adobe-DRM formats), "
-                       + "and whether the live Libby client version is one this build supports. Reading it never checks the version.")
+                       + "and whether the live Libby client version is one this build supports. Checks the live version first when the daily check is due.")
     @ApiResponse(responseCode = "200", description = "Capabilities returned")
     @GetMapping("/capabilities")
     public ResponseEntity<OverDriveCapabilities> capabilities() {
         return ResponseEntity.ok(new OverDriveCapabilities(
                 acsmHandler.isConfigured(), overDriveService.credentialStorageEnabled(),
                 overDriveService.audiobookHandlerConfigured(), overDriveService.magazineHandlerConfigured(),
-                overDriveService.ebookHandlerConfigured(), libbyClientVersionGuard.status()));
+                overDriveService.ebookHandlerConfigured(), libbyClientVersionGuard.checkedStatus()));
     }
 
     /**

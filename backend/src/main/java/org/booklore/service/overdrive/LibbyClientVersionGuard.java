@@ -96,7 +96,17 @@ public class LibbyClientVersionGuard {
         return firefoxVersion.userAgent();
     }
 
-    /** The last verdict, without fetching. For display. */
+    /**
+     * The verdict for someone opening the OverDrive pages: checks the live version first if a check
+     * is due. Opening the app is the moment the daily check imitates, so it is the natural trigger,
+     * and without it the page reports "not checked yet" until the first Libby request of the day.
+     */
+    public synchronized Status checkedStatus() {
+        refreshIfDue();
+        return status();
+    }
+
+    /** The last verdict, without fetching. */
     public synchronized Status status() {
         return new Status(liveVersion, profile != null ? profile.version() : null,
                 LibbyClientProfiles.supportedVersions(), checkedAt, blockedReason, firefoxVersion.major());
