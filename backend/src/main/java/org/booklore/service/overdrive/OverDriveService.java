@@ -740,17 +740,45 @@ public class OverDriveService {
     // Mirror the Libby web client exactly (verified against a working browser HAR): a normal desktop
     // browser UA, plus Accept: application/json and Origin on API calls. The fulfill endpoint returns
     // JSON ({"fulfill":{"href":...}}), 403 {"result":"missing_chip"} until the chip is re-minted for
-    // this loan (recover by re-minting and retrying), and 403 {"result":"whoa"} when fulfilling with an
-    // identity the /chip re-mint stamped prbn=v. prbn=v happens when the re-mint lacked the correct
-    // Accept-Language "shibboleth" the web client computes (see refreshIdentity/chipShibboleth); a
-    // re-mint carrying the right shibboleth returns a prbn-absent identity that fulfills. So "whoa" is
-    // a signal our shibboleth was wrong/missing — not a rate limit — and no retry/cooldown helps.
+    // this loan (recover by re-minting and retrying), and 403 {"result":"whoa"} when it refuses the
+    // fulfillment outright — see fetchFulfillment for what that turned out to mean and why it now
+    // freezes the card instead of retrying.
+    //
+    // These strings go stale, and stale is itself a signature: a client claiming a browser and a Libby
+    // build that no longer exist together is trivially separable from real traffic. Both were last
+    // checked against a live capture on 2026-09-22 (Firefox 156, dewey 22.1.1). The current web build
+    // is one GET away — https://libbyapp.com/ serves its assets from /dewey-<version>/ — so this is
+    // worth re-reading whenever OverDrive starts refusing things it used to allow.
     private static final String USER_AGENT =
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0";
-    private static final String REFERER = "https://libbyapp.com/";
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0";
+    /**
+     * What the web client sends on every call but the chip mint.
+     *
+     * <p>Every captured request carries this — all 79 audiobook reads, all 11 syncs, and all 16
+     * fulfillments. We sent no Accept-Language at all until 2026-09-23, on any request: a browser
+     * always sends one, so its absence marked every call we made. It is worth noting where that
+     * absence fell hardest — the fulfill endpoint, which is the one that started refusing us.
+     *
+     * <p>The exception is POST /chip, where the client replaces this with the two-letter shibboleth
+     * derived from the identity (see chipShibboleth). Across the captures those values are all
+     * different — bh, bn, dd, eu, ln, lo, ly, nf, pu, sa, uk, uz, vr, zw — which is what a per-token
+     * derivation looks like, and why a fixed guess would be worse than the real computation.
+     */
+    private static final String ACCEPT_LANGUAGE = "en-US,en";
+
+    // No Referer, deliberately — "add one, it looks more like a browser" is the obvious wrong move.
+    // The Libby page carries <meta name="referrer" content="no-referrer">, so the browser strips it
+    // from every API call: across the captures, 205 of 205 sentry requests and 197 of 197 first-party
+    // thunder requests carry none. (The twenty that do come from the reader and listener iframes on
+    // dewey-<hash>.read.libbyapp.com, a separate origin with its own policy — not from the app.)
+    //
+    // We sent https://libbyapp.com/ on every request until 2026-09-23. With the Accept-Language that
+    // was missing until the same day, that gave our traffic two independent tells on every single
+    // call: a header no real client sends, and the absence of one every real client sends.
     private static final String ORIGIN = "https://libbyapp.com";
     /** Dewey (Libby) client version sent to the chip endpoint (c=d:<version>), per the web client. */
-    private static final String DEWEY_VERSION = "22.0.2";
+    /** The Libby web build we claim to be. See the note on USER_AGENT for how to check it. */
+    private static final String DEWEY_VERSION = "22.1.1";
     private static final int LOAN_PERIOD_DAYS = 21;
 
     private static final java.util.regex.Pattern RESULT_PATTERN =
@@ -893,7 +921,7 @@ public class OverDriveService {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.USER_AGENT, USER_AGENT);
         headers.set(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
-        headers.set(HttpHeaders.REFERER, REFERER);
+        headers.set(HttpHeaders.ACCEPT_LANGUAGE, ACCEPT_LANGUAGE);
         headers.set(HttpHeaders.ORIGIN, ORIGIN);
         headers.set(HttpHeaders.CACHE_CONTROL, "no-cache");
         headers.set(HttpHeaders.PRAGMA, "no-cache");
@@ -906,11 +934,23 @@ public class OverDriveService {
      // ── Chip / Auth ─────────────────────────────────────────────────────
 
       /**
-       * POST /chip?client=dewey to obtain a fresh chip identity. The returned {@code identity} JWT is
-       * the bearer token used for all subsequent authenticated Libby calls.
+       * POST {@code /chip?c=d:<ver>&s=0} to obtain a fresh chip identity. The returned {@code identity}
+       * JWT is the bearer token used for all subsequent authenticated Libby calls.
+       *
+       * <p>The query shape is the web client's own, verified against an anonymous mint in a browser
+       * capture: {@code c} and {@code s}, and no {@code v} — that one carries the chip-id prefix and so
+       * only exists on a re-mint, which already has an identity to take it from (see
+       * {@link #refreshIdentity}). This used to send {@code ?client=dewey}, which no Libby build
+       * produces; it minted chips perfectly well, which is exactly what made it easy to leave in place
+       * while it marked every request as something other than the client we claim to be.
+       *
+       * <p>Not matched: the browser sends an {@code Accept-Language} shibboleth here too ("bh" in the
+       * capture), and with no bearer to derive it from there is nothing to compute it out of — one
+       * sample does not say whether it is seeded from stored state or simply arbitrary. Left off rather
+       * than guessed at, since a wrong one is likely worse than none.
        */
       public ChipResult requestChip() {
-        String url = sentryBaseUrl + "/chip?client=" + clientId;
+        String url = sentryBaseUrl + "/chip?c=d:" + DEWEY_VERSION + "&s=0";
         try {
             ResponseEntity<OverDriveChipResponse> resp = restClient.post()
                     .uri(url)
@@ -959,10 +999,14 @@ public class OverDriveService {
             // ("whoa"). With it, the re-mint returns a prbn-absent identity that fulfills. (Verified
             // end-to-end; see docs/OverDrive-Testing.md.)
             String shibboleth = chipShibboleth(token, "chip".length());
+            // Set on the header map rather than through the builder's header(): that one appends, and
+            // libbyHeaders now carries an Accept-Language of its own, so adding here would send both
+            // ("en-US,en, ln") — a value no client sends and the server has no reason to accept.
+            HttpHeaders chipHeaders = libbyHeaders(token);
+            chipHeaders.set(HttpHeaders.ACCEPT_LANGUAGE, shibboleth);
             ResponseEntity<OverDriveChipResponse> resp = restClient.post()
                     .uri(finalUri)
-                    .headers(h -> h.addAll(libbyHeaders(token)))
-                    .header(HttpHeaders.ACCEPT_LANGUAGE, shibboleth)
+                    .headers(h -> h.addAll(chipHeaders))
                     .retrieve()
                     .toEntity(OverDriveChipResponse.class);
             OverDriveChipResponse body = resp.getBody();
@@ -3768,7 +3812,7 @@ public class OverDriveService {
             Object raw = restClient.post()
                     .uri(url)
                     // Apply headers via .headers(): RestClient does not unwrap an HttpEntity passed to
-                    // .body(), so the bearer token / browser UA / Referer would otherwise be dropped
+                    // .body(), so the bearer token and browser UA would otherwise be dropped
                     // and Sentry 403s the request.
                     .headers(h -> h.addAll(headers))
                     .body(body)
@@ -3907,9 +3951,9 @@ public class OverDriveService {
       private static HttpRequest.Builder apiRequest(String url, String bearerToken) {
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
                 .header("User-Agent", USER_AGENT)
-                .header("Referer", REFERER)
                 .header("Origin", ORIGIN)
                 .header("Accept", "application/json")
+                .header("Accept-Language", ACCEPT_LANGUAGE)
                 .header("Cache-Control", "no-cache")
                 .header("Pragma", "no-cache")
                 .GET();
@@ -4057,7 +4101,6 @@ public class OverDriveService {
       private byte[] downloadContent(String href, String loanId) throws IOException, InterruptedException {
         HttpRequest req = HttpRequest.newBuilder(URI.create(href))
                 .header("User-Agent", USER_AGENT)
-                .header("Referer", REFERER)
                 .header("Accept", "*/*")
                 .GET()
                 .build();
