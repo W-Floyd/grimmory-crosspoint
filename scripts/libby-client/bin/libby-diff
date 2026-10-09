@@ -1,0 +1,206 @@
+#!/usr/bin/env node
+// Compare two archived versions, module by module.
+//
+// The naive comparison is useless and it is worth saying why, because the first version of this
+// script was the naive one. Between 22.0.2 and 22.1.1, 581 of 755 modules differ textually — but
+// almost all of those differ only in which single letter the minifier picked for a local. The
+// service-sentry module "changed" by swapping `t` and `e` throughout and nothing else.
+//
+// So every module is compared twice: once literally, and once after normalising away the things a
+// minifier is free to change between builds — local names, whitespace, comments. What survives that
+// is a list short enough to read, and reading it is the point.
+//
+// String literals are deliberately NOT normalised. They carry the facts this codebase depends on:
+// the "c=d:" query shape, endpoint paths, header names. A release that changes only a string is a
+// release that changes our contract with the server.
+//
+// Usage: libby-diff <old> <new>             — summary
+//        libby-diff <old> <new> --full      — summary, then each real change as a unified diff
+//        libby-diff <old> <new> --all       — include rename-only churn in the lists
+//        libby-diff <old> <new> <module-id> — one module, verbatim
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const versionsDir = path.join(here, '..', 'versions');
+
+const [oldV, newV, third] = process.argv.slice(2);
+if (!oldV || !newV) {
+  console.error('usage: libby-diff <old-version> <new-version> [--full | --all | <module-id>]');
+  const have = fs.existsSync(versionsDir) ? fs.readdirSync(versionsDir).sort() : [];
+  console.error(`archived: ${have.length ? have.join(', ') : '(none)'}`);
+  process.exit(2);
+}
+
+const aDir = path.join(versionsDir, oldV, 'modules');
+const bDir = path.join(versionsDir, newV, 'modules');
+for (const d of [aDir, bDir]) {
+  if (!fs.existsSync(d)) {
+    console.error(`not split yet: ${d}\nrun: libby-split ${path.dirname(d)}`);
+    process.exit(1);
+  }
+}
+
+// The modules whose contents this repo has reverse-engineered into Java. A change in one of these is
+// a reason to re-read OverDriveService, not merely to note that a release happened.
+const PRIORS = [
+  ['obf/shib.js', 'the Accept-Language shibboleth on /chip'],
+  ['app/base/services/service-sentry.js', 'how requests to sentry are shaped'],
+];
+
+if (third && !third.startsWith('--')) {
+  showDiff(third);
+  process.exit(0);
+}
+
+const RESERVED = new Set(('break case catch class const continue debugger default delete do else export '
+  + 'extends finally for function if import in instanceof let new return super switch this throw try '
+  + 'typeof var void while with yield async await of static get set null true false').split(' '));
+
+/**
+ * The parts of a module a minifier is not free to change between builds.
+ *
+ * Identifiers become `_` unless they are reserved words or property names — `a.fetch` keeps `fetch`,
+ * because a property name is part of the interface, while `var a` is not. Strings and numbers are
+ * kept exactly. Whitespace and comments go.
+ */
+function normalise(src) {
+  let out = '';
+  let i = 0;
+  let prevSignificant = '';
+  while (i < src.length) {
+    const c = src[i];
+
+    if (c === '"' || c === "'" || c === '`') {
+      const start = i;
+      const quote = c;
+      i++;
+      while (i < src.length) {
+        if (src[i] === '\\') { i += 2; continue; }
+        if (src[i] === quote) break;
+        i++;
+      }
+      i++;
+      out += src.slice(start, i);
+      prevSignificant = '"';
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i++; continue; }
+    if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? src.length : e + 2; continue; }
+    if (/\s/.test(c)) { i++; continue; }
+
+    if (/[A-Za-z_$]/.test(c)) {
+      let j = i;
+      while (j < src.length && /[\w$]/.test(src[j])) j++;
+      const word = src.slice(i, j);
+      // A name after a dot is a property: part of the shape, so it stays.
+      out += (RESERVED.has(word) || prevSignificant === '.') ? word : '_';
+      prevSignificant = 'w';
+      i = j;
+      continue;
+    }
+
+    out += c;
+    prevSignificant = c;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * The shape of a module: normalised, then with the *contents* of strings and numbers blanked too.
+ *
+ * For the obfuscated modules this is the question that matters. obf/shib.js differs between every
+ * build because the string table is re-keyed — `a0putz(158,"vPDU")` becomes `a0dress(476,"Q^xv")` —
+ * while the algorithm underneath is untouched. Comparing shapes separates "they rotated the
+ * obfuscation" from "they changed what it computes", and only the second is our problem.
+ */
+function shape(src) {
+  return normalise(src)
+    .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, '""')
+    .replace(/\b\d+(?:\.\d+)?\b/g, '0');
+}
+
+function listModules(dir) {
+  const out = [];
+  (function walk(d, rel) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(path.join(d, e.name), r);
+      else if (e.name.endsWith('.js')) out.push(r);
+    }
+  })(dir, '');
+  return out.sort();
+}
+
+function showDiff(mod) {
+  const a = path.join(aDir, mod);
+  const b = path.join(bDir, mod);
+  try {
+    execFileSync('diff', ['-u', a, b], { stdio: 'inherit' });
+  } catch { /* diff exits 1 when files differ, which is the normal case here */ }
+}
+
+const inA = new Set(listModules(aDir));
+const inB = listModules(bDir);
+
+const added = inB.filter(m => !inA.has(m));
+const removed = [...inA].filter(m => !fs.existsSync(path.join(bDir, m)));
+const real = [];
+const renameOnly = [];
+
+for (const m of inB) {
+  if (!inA.has(m)) continue;
+  const a = fs.readFileSync(path.join(aDir, m), 'utf8');
+  const b = fs.readFileSync(path.join(bDir, m), 'utf8');
+  if (a === b) continue;
+  (normalise(a) === normalise(b) ? renameOnly : real).push(m);
+}
+
+console.log(`dewey-${oldV} → dewey-${newV}`);
+console.log(`  modules:       ${inA.size} → ${inB.length}`);
+console.log(`  real changes:  ${real.length}`);
+console.log(`  rename-only:   ${renameOnly.length}  (minifier churn, ignored)`);
+console.log(`  added:         ${added.length}`);
+console.log(`  removed:       ${removed.length}`);
+
+console.log('\nmodules this codebase depends on:');
+for (const [p, why] of PRIORS) {
+  const hasA = fs.existsSync(path.join(aDir, p));
+  const hasB = fs.existsSync(path.join(bDir, p));
+  let status;
+  if (!hasA && !hasB) status = 'absent from both — is the id still right?';
+  else if (!hasA) status = `NEW in ${newV}`;
+  else if (!hasB) status = `GONE in ${newV} — our port is against something that no longer exists`;
+  else if (real.includes(p)) {
+    const sameShape = shape(fs.readFileSync(path.join(aDir, p), 'utf8'))
+      === shape(fs.readFileSync(path.join(bDir, p), 'utf8'));
+    status = sameShape
+      ? 'constants changed, same shape — obfuscation rotated, algorithm intact'
+      : 'CHANGED — re-read our port';
+  }
+  else if (renameOnly.includes(p)) status = 'renamed locals only';
+  else status = 'unchanged';
+  console.log(`  ${p.padEnd(40)} ${status}`);
+  console.log(`  ${''.padEnd(40)} (${why})`);
+}
+
+const show = (label, items) => {
+  if (!items.length) return;
+  console.log(`\n${label}:`);
+  for (const m of items) console.log(`  ${m}`);
+};
+show('added', added);
+show('removed', removed);
+show('changed', real);
+if (third === '--all') show('rename-only churn', renameOnly);
+
+if (third === '--full') {
+  for (const m of real) {
+    console.log(`\n════ ${m}`);
+    showDiff(m);
+  }
+}

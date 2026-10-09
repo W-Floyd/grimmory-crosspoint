@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# What version of the Libby web client is live right now, and is that what we claim to be?
+#
+# The version is not published anywhere official. It is visible because the app loads its own assets
+# from a versioned directory — /dewey-22.1.1/src/main.js — so the index page names it in every build.
+#
+# Exit status is the point: 0 when we match, 1 when we have drifted. That makes this usable from a
+# check rather than only by eye.
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+source "$here/libby-assets"
+
+live="$(curl -fsS --max-time 30 -A "$LIBBY_UA" "$LIBBY_BASE/" \
+        | grep -oE 'dewey-[0-9]+\.[0-9]+\.[0-9]+' | sort -u | head -1 | cut -d- -f2)"
+if [[ -z "$live" ]]; then
+  echo "could not read a version from $LIBBY_BASE/ — the page layout may have changed" >&2
+  exit 2
+fi
+
+service="$here/../../../backend/src/main/java/org/booklore/service/overdrive/OverDriveService.java"
+ours="$(grep -oE 'DEWEY_VERSION = "[^"]+"' "$service" 2>/dev/null | cut -d'"' -f2 || true)"
+
+echo "live:  $live"
+echo "ours:  ${ours:-<not found>}"
+
+archived="$here/../versions/$live"
+if [[ ! -d "$archived" ]]; then
+  echo
+  echo "not archived yet — run: $here/libby-fetch $live"
+  echo "  (old versions are NOT kept on the server; once it rolls, this one is gone for good)"
+fi
+
+if [[ "$live" == "$ours" ]]; then
+  exit 0
+fi
+echo
+echo "DRIFT: we are announcing a client version OverDrive no longer serves."
+exit 1

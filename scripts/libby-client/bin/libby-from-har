@@ -1,0 +1,126 @@
+#!/usr/bin/env node
+// Recover an archived Libby version from a saved browser HAR.
+//
+// This is the only way back to a version that has already rolled: the server keeps exactly one, so
+// for anything older the HARs in ~/Downloads are the sole surviving copy. 22.0.2 — the version our
+// client announced for two months — exists nowhere else.
+//
+// Takes any number of HARs and sorts what it finds by the version in the asset path, so pointing it
+// at a whole directory of captures and letting it fill in what it can is the intended use.
+//
+// Usage: libby-from-har <file.har|dir> [...]
+//        libby-from-har ~/Downloads            — scan them all
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const versionsDir = path.join(here, '..', 'versions');
+
+const inputs = process.argv.slice(2);
+if (inputs.length === 0) {
+  console.error('usage: libby-from-har <file.har|dir> [...]');
+  process.exit(2);
+}
+
+function harFiles(target) {
+  const st = fs.statSync(target);
+  if (st.isDirectory()) {
+    return fs.readdirSync(target)
+      .filter(f => f.toLowerCase().endsWith('.har'))
+      .map(f => path.join(target, f));
+  }
+  return [target];
+}
+
+/**
+ * A HAR entry's body as text.
+ *
+ * Browsers write large bodies base64-encoded, and a HAR that was saved without response bodies has
+ * the entry but no content — which is worth telling apart from a body that failed to decode, since
+ * the first means "recapture with bodies enabled" and the second means something is wrong here.
+ */
+function bodyOf(entry) {
+  const c = entry.response?.content;
+  if (!c || c.size === 0) return null;
+  if (typeof c.text !== 'string') return null;
+  if (c.encoding === 'base64') {
+    const buf = Buffer.from(c.text, 'base64');
+    // Some tools store the compressed bytes; decompress when it looks like gzip.
+    if (buf[0] === 0x1f && buf[1] === 0x8b) {
+      try { return zlib.gunzipSync(buf).toString('utf8'); } catch { /* fall through */ }
+    }
+    return buf.toString('utf8');
+  }
+  return c.text;
+}
+
+const found = new Map(); // version -> Map(assetPath -> {text, from})
+let scanned = 0;
+let skippedHuge = 0;
+
+for (const input of inputs) {
+  for (const file of harFiles(input)) {
+    // A few of these captures are over 100MB. JSON.parse wants the whole thing in memory as a string
+    // and then again as objects; skip the ones that would thrash rather than fall over mid-run.
+    if (fs.statSync(file).size > 200 * 1024 * 1024) { skippedHuge++; continue; }
+    let har;
+    try {
+      har = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      continue;
+    }
+    scanned++;
+    for (const entry of har.log?.entries ?? []) {
+      const url = entry.request?.url ?? '';
+      const m = url.match(/libbyapp\.com\/dewey-([\d.]+)\/([^?#]+)/);
+      if (!m) continue;
+      const [, version, asset] = m;
+      const text = bodyOf(entry);
+      if (text === null) continue;
+      if (!found.has(version)) found.set(version, new Map());
+      const bucket = found.get(version);
+      // Keep the largest copy seen: a truncated body in one capture should not beat a whole one.
+      const existing = bucket.get(asset);
+      if (!existing || Buffer.byteLength(existing.text) < Buffer.byteLength(text)) {
+        bucket.set(asset, { text, from: path.basename(file) });
+      }
+    }
+  }
+}
+
+console.log(`scanned ${scanned} HAR(s)${skippedHuge ? `, skipped ${skippedHuge} over 200MB` : ''}`);
+if (found.size === 0) {
+  console.log('no dewey-* assets with bodies found');
+  console.log('(a HAR saved without response bodies has the requests but not the files)');
+  process.exit(0);
+}
+
+for (const [version, assets] of [...found].sort()) {
+  const dest = path.join(versionsDir, version, 'raw');
+  console.log(`\ndewey-${version}`);
+  const sources = new Set();
+  for (const [asset, { text, from }] of [...assets].sort()) {
+    const out = path.join(dest, asset);
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, text);
+    sources.add(from);
+    // Byte length, not string length: `text.length` counts UTF-16 units, so a bundle with any
+    // non-ASCII in it reports short and looks like a truncated recovery when it is nothing of the
+    // kind. (Checked: a HAR-recovered main.js is byte-identical to the same version fetched live.)
+    console.log(`  ${asset.padEnd(24)} ${String(Buffer.byteLength(text)).padStart(8)} bytes  [${from}]`);
+  }
+  const provenance = path.join(versionsDir, version, 'PROVENANCE');
+  // Never overwrite a live fetch's provenance with a HAR's: a direct capture is the better record.
+  if (!fs.existsSync(provenance)) {
+    fs.writeFileSync(provenance,
+      `version: ${version}\n`
+      + `recovered: ${new Date().toISOString()}\n`
+      + `source:  browser HAR (the server no longer serves this version)\n`
+      + `hars:    ${[...sources].join(', ')}\n`);
+  }
+}
+
+console.log('\nnext: libby-split versions/<version>');

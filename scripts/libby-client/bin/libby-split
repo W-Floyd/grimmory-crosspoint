@@ -1,0 +1,247 @@
+#!/usr/bin/env node
+// Split a Libby bundle into one file per AMD module, then beautify each.
+//
+// main.js is a single concatenation of `define("module/id", [deps], factory)` calls — a few hundred
+// of them. Diffing two versions as whole bundles is useless: the minifier renames locals and reflows
+// everything, so every line differs. Diffing module by module is not, because a module id is stable
+// across releases. That is the whole point of this script — "did obf/shib.js change between 22.0.2
+// and 22.1.1" is a question with an answer, where "did main.js change" is not.
+//
+// No dependencies, deliberately. This has to run years from now against a bundle nobody has seen
+// yet, and a lockfile that resolves today is not a thing to rely on for that.
+//
+// Usage: libby-split <version-dir>        (e.g. versions/22.1.1)
+//        libby-split <version-dir> --raw  (skip beautifying)
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+const dir = process.argv[2];
+const skipBeautify = process.argv.includes('--raw');
+if (!dir) {
+  console.error('usage: libby-split <version-dir> [--raw]');
+  process.exit(2);
+}
+
+const bundlePath = path.join(dir, 'raw', 'src', 'main.js');
+if (!fs.existsSync(bundlePath)) {
+  console.error(`no bundle at ${bundlePath} — run libby-fetch or libby-from-har first`);
+  process.exit(1);
+}
+const src = fs.readFileSync(bundlePath, 'utf8');
+
+/**
+ * Walk forward from an opening bracket to its match, skipping over anything where a bracket does not
+ * count: strings, template literals, comments and regex literals.
+ *
+ * The regex case is the only subtle one. `/` is division or the start of a literal depending on what
+ * came before it, and minified code is full of both. The rule used here is the one every JS lexer
+ * uses in some form: after a value (identifier, number, closing bracket) a slash is division; after
+ * an operator, a comma, an opening bracket or a keyword that takes an expression, it starts a regex.
+ * Getting this wrong swallows the rest of the file, which is why the caller re-checks every module
+ * against a real parser afterwards rather than trusting this.
+ */
+function matchBracket(s, start) {
+  const open = s[start];
+  const close = open === '(' ? ')' : open === '[' ? ']' : '}';
+  let depth = 0;
+  let i = start;
+  let prev = '';           // last significant character, for the regex/division decision
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '"' || c === "'" || c === '`') {
+      const quote = c;
+      i++;
+      while (i < s.length) {
+        if (s[i] === '\\') { i += 2; continue; }
+        if (s[i] === quote) break;
+        // A template literal can contain `${ ... }` holding arbitrary code, brackets included.
+        if (quote === '`' && s[i] === '$' && s[i + 1] === '{') {
+          i = matchBracket(s, i + 1) + 1;
+          continue;
+        }
+        i++;
+      }
+      prev = quote;
+      i++;
+      continue;
+    }
+    if (c === '/' && s[i + 1] === '/') {
+      while (i < s.length && s[i] !== '\n') i++;
+      continue;
+    }
+    if (c === '/' && s[i + 1] === '*') {
+      i = s.indexOf('*/', i + 2);
+      if (i < 0) throw new Error('unterminated block comment');
+      i += 2;
+      continue;
+    }
+    if (c === '/' && regexCanStartHere(prev, s.slice(Math.max(0, i - 16), i))) {
+      i++;
+      let inClass = false;
+      while (i < s.length) {
+        if (s[i] === '\\') { i += 2; continue; }
+        if (s[i] === '[') inClass = true;
+        else if (s[i] === ']') inClass = false;
+        else if (s[i] === '/' && !inClass) break;
+        else if (s[i] === '\n') throw new Error('newline in regex literal');
+        i++;
+      }
+      prev = '/';
+      i++;
+      continue;
+    }
+    if (c === open) depth++;
+    else if (c === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
+    if (!/\s/.test(c)) prev = c;
+    i++;
+  }
+  throw new Error('unbalanced brackets');
+}
+
+// `return /re/.test(x)` is a regex; `count /re/ 2` is not a thing anyone writes, but `a.length /2/ b`
+// is division twice. The character before the slash settles most cases; where it is a letter, only a
+// keyword that takes an expression can legally precede a regex, so the preceding text decides.
+const KEYWORDS_BEFORE_REGEX = /(?:^|[^$\w])(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/;
+
+function regexCanStartHere(prev, preceding) {
+  if (prev === '') return true;
+  if (/[([{,;:!&|?+\-*~^%<>=]/.test(prev)) return true;
+  return KEYWORDS_BEFORE_REGEX.test(preceding);
+}
+
+/** Every `define("id", ...)` in the bundle, with its source text. */
+function extractModules(s) {
+  const out = [];
+  const re = /(^|[^$\w.])define\s*\(\s*(["'])((?:[^"'\\]|\\.)+?)\2\s*,/g;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    const id = m[3];
+    const callOpen = s.indexOf('(', m.index + m[1].length);
+    let end;
+    try {
+      end = matchBracket(s, callOpen);
+    } catch (e) {
+      out.push({ id, error: e.message });
+      continue;
+    }
+    out.push({ id, text: `${s.slice(m.index + m[1].length, end + 1)};\n` });
+    re.lastIndex = end;
+  }
+  return out;
+}
+
+/**
+ * Does V8 accept this as a program?
+ *
+ * The scanner above is a heuristic, and a heuristic that silently produces plausible-looking garbage
+ * is worse than one that fails. `new Function` compiles without running, so it is a free syntax check
+ * from the same engine that will be reading these files — a module that parses here is a module that
+ * was cut at the right place.
+ */
+function parses(text) {
+  try {
+    new Function(text); // eslint-disable-line no-new-func
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A formatter that rewrites a whole tree in one go.
+ *
+ * In one process, not one per module: there are several hundred modules and both of these cost more
+ * to start than to run, so spawning per file turned a two-second job into a four-minute one.
+ */
+// prettier takes a glob — a bare directory path matches nothing and it exits 0 without a word, which
+// is how an unformatted split once passed for a formatted one. js-beautify takes files, so it gets
+// the list. Neither is given a shell, so the glob reaches prettier literally, which is what it wants.
+function beautifier(dirTarget, fileTargets) {
+  for (const candidate of [
+    // --ignore-path /dev/null because prettier honours .gitignore by default, and versions/ is
+    // gitignored on purpose — without this it skips the entire archive and reports success.
+    { cmd: 'prettier', args: ['--write', '--no-config', '--ignore-path', '/dev/null',
+                              '--log-level', 'warn', `${dirTarget}/**/*.js`] },
+    { cmd: 'js-beautify', args: ['-r', '-q', '--end-with-newline', ...fileTargets] },
+  ]) {
+    try {
+      execFileSync(candidate.cmd, ['--version'], { stdio: 'ignore' });
+      return candidate;
+    } catch { /* try the next one */ }
+  }
+  return null;
+}
+
+const modules = extractModules(src);
+if (modules.length === 0) {
+  console.error('no define() modules found — has the bundle format changed?');
+  process.exit(1);
+}
+
+const outDir = path.join(dir, 'modules');
+fs.rmSync(outDir, { recursive: true, force: true });
+
+let written = 0;
+const writtenPaths = [];
+const bad = [];
+for (const mod of modules) {
+  if (mod.error) { bad.push(`${mod.id}: ${mod.error}`); continue; }
+  if (!parses(mod.text)) { bad.push(`${mod.id}: extracted text does not parse`); continue; }
+
+  // Module ids are paths ("app/base/services/service-sentry"), so they nest naturally. `..` segments
+  // appear in dependency lists but not in ids; guard anyway rather than write outside the tree.
+  const rel = mod.id.replace(/\.js$/, '') + '.js';
+  const dest = path.join(outDir, rel);
+  if (!path.resolve(dest).startsWith(path.resolve(outDir))) {
+    bad.push(`${mod.id}: id escapes the output directory`);
+    continue;
+  }
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.writeFileSync(dest, mod.text);
+  writtenPaths.push(dest);
+  written++;
+}
+
+if (!skipBeautify && writtenPaths.length) {
+  const pretty = beautifier(outDir, writtenPaths);
+  if (!pretty) {
+    console.warn('warning: neither js-beautify nor prettier on PATH — modules left minified');
+  } else {
+    try {
+      execFileSync(pretty.cmd, pretty.args, { stdio: 'inherit', maxBuffer: 256 * 1024 * 1024 });
+    } catch {
+      // Formatting is a convenience, not the artefact. A formatter that chokes on obfuscated code
+      // must not cost us the split, which is the part that took the reverse engineering.
+      bad.push(`${pretty.cmd} failed over the tree; modules left minified`);
+    }
+    // Exiting 0 is not evidence of having done anything — see the note on globs above. A minified
+    // module is one enormous line, so the line count of the biggest file settles it.
+    const sample = writtenPaths.reduce((big, p) =>
+      fs.statSync(p).size > fs.statSync(big).size ? p : big, writtenPaths[0]);
+    if (fs.readFileSync(sample, 'utf8').split('\n').length < 5) {
+      bad.push(`${pretty.cmd} ran but changed nothing — modules are still minified`);
+    }
+  }
+}
+
+// The non-module remainder: bootstrap, config, whatever sits between the define() calls. Small, but
+// it is where a loader change would show up, so it is not thrown away.
+const spans = modules.filter(m => m.text).map(m => m.text.length);
+fs.writeFileSync(path.join(outDir, '_bundle-info.txt'),
+  `bundle: ${path.relative(dir, bundlePath)}\n`
+  + `bytes: ${src.length}\n`
+  + `modules: ${written}\n`
+  + `module bytes: ${spans.reduce((a, b) => a + b, 0)}\n`
+  + (bad.length ? `\nproblems:\n${bad.map(b => `  ${b}`).join('\n')}\n` : ''));
+
+console.log(`${written} module(s) → ${outDir}`);
+if (bad.length) {
+  console.warn(`${bad.length} problem(s):`);
+  for (const b of bad.slice(0, 10)) console.warn(`  ${b}`);
+  if (bad.length > 10) console.warn(`  ... and ${bad.length - 10} more (see _bundle-info.txt)`);
+}

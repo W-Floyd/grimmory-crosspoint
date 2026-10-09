@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Archive one Libby client version from the live server.
+#
+# Only the current version is served: /dewey-22.0.2/ started 404ing the moment 22.1.1 shipped, which
+# is why this exists at all. Whatever is live has to be captured while it is live, or the only copy
+# left is whatever happens to be sitting in an old browser HAR (see libby-from-har).
+#
+# Usage: libby-fetch [version]      — defaults to whatever is live now
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+source "$here/libby-assets"
+
+version="${1:-}"
+if [[ -z "$version" ]]; then
+  version="$(curl -fsS --max-time 30 -A "$LIBBY_UA" "$LIBBY_BASE/" \
+             | grep -oE 'dewey-[0-9]+\.[0-9]+\.[0-9]+' | sort -u | head -1 | cut -d- -f2)"
+  [[ -n "$version" ]] || { echo "could not read the live version" >&2; exit 2; }
+  echo "live version: $version"
+fi
+
+dest="$here/../versions/$version/raw"
+mkdir -p "$dest"
+
+for asset in "${LIBBY_ASSETS[@]}"; do
+  out="$dest/$asset"
+  mkdir -p "$(dirname "$out")"
+  url="$LIBBY_BASE/dewey-$version/$asset"
+  # --fail so a 404 leaves no file behind: a zero-byte main.js that looks archived is worse than an
+  # obvious gap, because the gap can still be filled from a HAR while the lie cannot be noticed.
+  if curl -fsS --max-time 120 -A "$LIBBY_UA" "$url" -o "$out"; then
+    printf '  %-24s %8d bytes\n' "$asset" "$(wc -c <"$out")"
+  else
+    echo "  $asset — FAILED (${url})" >&2
+    rm -f "$out"
+  fi
+done
+
+# The index too: it names the version, and it is where a change in how the app boots would show up.
+curl -fsS --max-time 60 -A "$LIBBY_UA" "$LIBBY_BASE/" -o "$dest/index.html" || true
+
+{
+  echo "version: $version"
+  echo "fetched: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "source:  $LIBBY_BASE/dewey-$version/"
+  echo "ua:      $LIBBY_UA"
+} >"$here/../versions/$version/PROVENANCE"
+
+echo
+echo "archived → versions/$version/raw"
+echo "next: bin/libby-split versions/$version"

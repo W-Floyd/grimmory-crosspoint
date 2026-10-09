@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# The per-version asset list, in one place because three scripts need to agree on it.
+#
+# Paths are relative to https://libbyapp.com/dewey-<version>/. Only main.js is load-bearing for our
+# purposes; the other two are here because they are cheap and they answer questions the bundle does
+# not. en-US.js carries the user-facing strings, which is the fastest way to tell what a release
+# changed. main.css dates a release when nothing else does.
+LIBBY_ASSETS=(
+  "src/main.js"
+  "inc/str/en-US.js"
+  "css/main.css"
+)
+
+# What a browser looks like. Kept beside the rest so one edit updates fetching and the notes on it.
+LIBBY_UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0"
+
+LIBBY_BASE="https://libbyapp.com"

@@ -1,0 +1,7 @@
+# Archived bundles: megabytes of OverDrive's minified app per release, re-fetchable with libby-fetch
+# while a version is live and recoverable from a HAR after it rolls. PRIORS.md is what we actually
+# keep — the facts read out of these, and which module to re-read when one changes.
+versions/
+
+# The root .gitignore drops every bin/ as build output; these are the tools.
+!bin/
