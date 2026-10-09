@@ -764,6 +764,13 @@ public class OverDriveService {
      */
     static final String ACCEPT_LANGUAGE = "en-US,en";
 
+    /**
+     * Firefox's own value, on every captured request. Sentry has only ever answered gzip (212 of 212
+     * compressed responses), but ContentDecoding decodes all four, so a switch on its side is a
+     * non-event.
+     */
+    static final String ACCEPT_ENCODING = "gzip, deflate, br, zstd";
+
     // No Referer, deliberately — "add one, it looks more like a browser" is the obvious wrong move.
     // The Libby page carries <meta name="referrer" content="no-referrer">, so the browser strips it
     // from every API call: across the captures, 205 of 205 sentry requests and 197 of 197 first-party
@@ -774,6 +781,8 @@ public class OverDriveService {
     // was missing until the same day, that gave our traffic two independent tells on every single
     // call: a header no real client sends, and the absence of one every real client sends.
     private static final String ORIGIN = "https://libbyapp.com";
+    /** Firefox's Accept on a top-level page load. */
+    static final String NAVIGATION_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
     private static final int LOAN_PERIOD_DAYS = 21;
 
     private static final java.util.regex.Pattern RESULT_PATTERN =
@@ -917,9 +926,14 @@ public class OverDriveService {
         headers.set(HttpHeaders.USER_AGENT, libbyClientVersionGuard.userAgent());
         headers.set(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
         headers.set(HttpHeaders.ACCEPT_LANGUAGE, ACCEPT_LANGUAGE);
+        headers.set(HttpHeaders.ACCEPT_ENCODING, ACCEPT_ENCODING);
         headers.set(HttpHeaders.ORIGIN, ORIGIN);
         headers.set(HttpHeaders.CACHE_CONTROL, "no-cache");
         headers.set(HttpHeaders.PRAGMA, "no-cache");
+        // What every captured fetch from the app to sentry carries: a same-site CORS request.
+        headers.set("Sec-Fetch-Dest", "empty");
+        headers.set("Sec-Fetch-Mode", "cors");
+        headers.set("Sec-Fetch-Site", "same-site");
         if (bearerToken != null && !bearerToken.isBlank()) {
             headers.setBearerAuth(bearerToken);
         }
@@ -1484,9 +1498,11 @@ public class OverDriveService {
       private String fetchIlsName(String websiteId) {
         libbyClient();
         try {
+            HttpHeaders formHeaders = libbyHeaders(null);
+            formHeaders.set(HttpHeaders.ACCEPT, "*/*"); // the one sentry call the app makes without asking for JSON
             String body = restClient.get()
                     .uri(sentryBaseUrl + "/auth/forms/" + websiteId)
-                    .headers(h -> h.addAll(libbyHeaders(null)))
+                    .headers(h -> h.addAll(formHeaders))
                     .retrieve()
                     .body(String.class);
             if (body == null) {
@@ -3816,6 +3832,7 @@ public class OverDriveService {
 
         HttpHeaders headers = libbyHeaders(authToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Priority", "u=0"); // on all eight captured borrows; Firefox marks it urgent
 
         try {
             Object raw = restClient.post()
@@ -3963,8 +3980,12 @@ public class OverDriveService {
                 .header("Origin", ORIGIN)
                 .header("Accept", "application/json")
                 .header("Accept-Language", ACCEPT_LANGUAGE)
+                .header("Accept-Encoding", ACCEPT_ENCODING)
                 .header("Cache-Control", "no-cache")
                 .header("Pragma", "no-cache")
+                .header("Sec-Fetch-Dest", "empty")
+                .header("Sec-Fetch-Mode", "cors")
+                .header("Sec-Fetch-Site", "same-site")
                 .GET();
         if (bearerToken != null && !bearerToken.isBlank()) {
             b.header("Authorization", "Bearer " + bearerToken);
@@ -3998,7 +4019,7 @@ public class OverDriveService {
         String url = sentryBaseUrl + "/card/" + cardId + "/loan/" + loanId + "/fulfill/" + formatId;
         try {
             HttpResponse<byte[]> resp = httpClient.send(
-                    apiRequest(url, authToken).build(), HttpResponse.BodyHandlers.ofByteArray());
+                    apiRequest(url, authToken).build(), org.booklore.util.ContentDecoding.decodedBytes());
             String body = resp.body() != null ? new String(resp.body(), StandardCharsets.UTF_8) : "";
             String result = firstMatch(RESULT_PATTERN, body);
             log.info("OverDrive fulfill {} loan {}: status {}{}", formatId, loanId, resp.statusCode(),
@@ -4013,7 +4034,7 @@ public class OverDriveService {
                 persistReMintedToken(cardId, refreshed);
                 authToken = refreshed;
                 resp = httpClient.send(
-                        apiRequest(url, refreshed).build(), HttpResponse.BodyHandlers.ofByteArray());
+                        apiRequest(url, refreshed).build(), org.booklore.util.ContentDecoding.decodedBytes());
                 body = resp.body() != null ? new String(resp.body(), StandardCharsets.UTF_8) : "";
                 result = firstMatch(RESULT_PATTERN, body);
                 log.info("OverDrive fulfill {} loan {} (retry): status {}{}", formatId, loanId, resp.statusCode(),
@@ -4026,7 +4047,7 @@ public class OverDriveService {
                 String relinked = relinkCard(cardId);
                 if (relinked != null) {
                     resp = httpClient.send(
-                            apiRequest(url, relinked).build(), HttpResponse.BodyHandlers.ofByteArray());
+                            apiRequest(url, relinked).build(), org.booklore.util.ContentDecoding.decodedBytes());
                     body = resp.body() != null ? new String(resp.body(), StandardCharsets.UTF_8) : "";
                     result = firstMatch(RESULT_PATTERN, body);
                     log.info("OverDrive fulfill {} loan {} (post-relink): status {}{}", formatId, loanId,
@@ -4110,12 +4131,22 @@ public class OverDriveService {
       /** GET a pre-signed fulfillment content URL (ACSM/open file) without auth; returns the bytes. */
       private byte[] downloadContent(String href, String loanId) throws IOException, InterruptedException {
         libbyClient();
+        // The app opens the pre-signed link as a top-level navigation, so it carries a page load's
+        // headers, cross-site from libbyapp.com, and no Origin. Matched to both captured ACSM fetches.
         HttpRequest req = HttpRequest.newBuilder(URI.create(href))
                 .header("User-Agent", libbyClientVersionGuard.userAgent())
-                .header("Accept", "*/*")
+                .header("Accept", NAVIGATION_ACCEPT)
+                .header("Accept-Language", ACCEPT_LANGUAGE)
+                .header("Accept-Encoding", ACCEPT_ENCODING)
+                .header("Upgrade-Insecure-Requests", "1")
+                .header("Sec-Fetch-Dest", "document")
+                .header("Sec-Fetch-Mode", "navigate")
+                .header("Sec-Fetch-Site", "cross-site")
+                .header("Sec-Fetch-User", "?1")
+                .header("Priority", "u=0, i")
                 .GET()
                 .build();
-        HttpResponse<byte[]> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofByteArray());
+        HttpResponse<byte[]> resp = httpClient.send(req, org.booklore.util.ContentDecoding.decodedBytes());
         log.info("OverDrive content download ({}): status {}", safeHost(href), resp.statusCode());
         if (resp.statusCode() >= 400 || resp.body() == null || resp.body().length == 0) {
             throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive content download failed (" + resp.statusCode()

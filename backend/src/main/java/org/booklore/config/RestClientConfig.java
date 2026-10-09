@@ -71,6 +71,7 @@ public class RestClientConfig {
     public RestClient restClient(ClientHttpRequestFactory clientHttpRequestFactory) {
         return RestClient.builder()
                 .requestFactory(clientHttpRequestFactory)
+                .requestInterceptor(org.booklore.util.ContentDecoding.restClientInterceptor())
                 .build();
     }
 

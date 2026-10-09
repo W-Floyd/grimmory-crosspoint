@@ -168,12 +168,20 @@ public class LibbyClientVersionGuard {
     String fetchLiveVersion() throws Exception { // package-private for testing
         HttpRequest request = HttpRequest.newBuilder(URI.create(LIBBY_INDEX_URL))
                 .header("User-Agent", firefoxVersion.userAgent())
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept", OverDriveService.NAVIGATION_ACCEPT)
                 .header("Accept-Language", OverDriveService.ACCEPT_LANGUAGE)
+                .header("Accept-Encoding", OverDriveService.ACCEPT_ENCODING)
+                .header("Upgrade-Insecure-Requests", "1")
+                // Opening the app from the address bar or a bookmark: a user-initiated navigation from nowhere.
+                .header("Sec-Fetch-Dest", "document")
+                .header("Sec-Fetch-Mode", "navigate")
+                .header("Sec-Fetch-Site", "none")
+                .header("Sec-Fetch-User", "?1")
+                .header("Priority", "u=0, i")
                 .timeout(Duration.ofSeconds(30))
                 .GET()
                 .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = httpClient.send(request, org.booklore.util.ContentDecoding.decodedString());
         if (response.statusCode() != 200) {
             throw new IllegalStateException("HTTP " + response.statusCode());
         }
