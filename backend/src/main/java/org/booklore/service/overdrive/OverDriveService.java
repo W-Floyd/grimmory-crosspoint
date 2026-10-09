@@ -100,6 +100,27 @@ public class OverDriveService {
      @Value("${app.overdrive.client-id:dewey}")
     private String clientId;
 
+    /**
+     * The zone the library account is read as living in — whose clock decides whether a borrow is
+     * happening at a plausible hour. Defaults to the server's own, which for a deployment that serves
+     * its owner's local libraries is the right answer; set it where the two differ.
+     */
+     @Value("${app.overdrive.waking-hours.zone:#{T(java.time.ZoneId).systemDefault().getId()}}")
+    String wakingHoursZone = java.time.ZoneId.systemDefault().getId(); // package-private for testing
+
+    /**
+     * First and last hour (local; the first counts as awake, the last does not) a card may act.
+     *
+     * <p>Initialised here as well as injected, because a service built without Spring — every unit test
+     * — would otherwise read 0 for both and conclude the account is never awake. A guard that fails
+     * closed on an unset field stops everything, which is a very quiet way to break an integration.
+     */
+     @Value("${app.overdrive.waking-hours.from:8}")
+    int wakingHourFrom = 8; // package-private for testing
+
+     @Value("${app.overdrive.waking-hours.until:23}")
+    int wakingHourUntil = 23; // package-private for testing
+
     private final RestClient restClient;
     private final OverDriveImportService overDriveImportService;
     private final OverDriveParser overDriveParser;
@@ -954,6 +975,28 @@ public class OverDriveService {
       }
 
       /**
+       * Whether a refusal came with OverDrive's "you are not Libby" notice attached.
+       *
+       * <p>This is the whole difference between a refusal worth ignoring and one worth stopping for,
+       * and it is invisible if you match on {@code result} alone. Across the browser captures every
+       * {@code whoa} body is exactly {@code {"result":"whoa"}} — seventeen bytes, no notice, no Link
+       * header. Across ours, all ten carried the notice and the terms-of-service Link header.
+       *
+       * <p>Matched on both, because either alone could be reworded or dropped: the prose is a sentence
+       * meant for a person, and the Link header is the machine-readable half of the same statement.
+       */
+      static boolean identifiedAsAnotherClientForTest(String body, java.net.http.HttpHeaders headers) {
+        return identifiedAsAnotherClient(body, headers);
+      }
+
+      private static boolean identifiedAsAnotherClient(String body, java.net.http.HttpHeaders headers) {
+        if (body != null && body.contains("private API")) {
+            return true;
+        }
+        return headers.allValues("link").stream().anyMatch(v -> v.contains("terms-of-service"));
+      }
+
+      /**
        * Compute the {@code Accept-Language} "shibboleth" the Libby web client sends on the {@code /chip}
        * re-mint (reverse-engineered from its obfuscated {@code obf/shib.js}): strip the identity JWT to
        * lowercase letters only, reverse it, and take the 2 characters at {@code pathLen} (the request
@@ -1488,6 +1531,7 @@ public class OverDriveService {
             }
             recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null,
                     "Token refreshed from stored credentials" + onBehalfOfSuffix(ownerUserId));
+            thawCard(identity);
             return;
         }
         if (relinkCard(identity) == null) {
@@ -1496,6 +1540,10 @@ public class OverDriveService {
                     + "failed. Unlink it and link again.");
         }
         recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null, "Token refreshed from stored credentials");
+        // A person asked for this one, so it is the deliberate act that lifts a freeze. The automatic
+        // re-link inside fetchFulfillment goes through relinkCard directly and never gets here, which
+        // is the point: the freeze exists to stop that path retrying.
+        thawCard(identity);
       }
 
       /**
@@ -1604,6 +1652,16 @@ public class OverDriveService {
        * is checked first: it is OverDrive's own refusal, and it outranks a ceiling we set ourselves.
        */
       String borrowBlockedReason(String identity) { // package-private for testing
+        // Ahead of resting: a freeze is the card being refused outright rather than asked to slow down,
+        // and it does not lift on its own, so saying "it resumes at ..." would be a promise nothing keeps.
+        String frozen = freezeReason(identity);
+        if (frozen != null) {
+            return frozen;
+        }
+        String asleep = outsideWakingHoursReason();
+        if (asleep != null) {
+            return asleep;
+        }
         Instant resting = churnCooldownUntil(identity);
         if (resting != null) {
             return "OverDrive reported too many titles borrowed and returned on this card; it resumes at "
@@ -1630,6 +1688,14 @@ public class OverDriveService {
        * not pacing. The ceilings are the same numbers, counted separately.
        */
       String returnBlockedReason(String identity) { // package-private for testing
+        String frozen = freezeReason(identity);
+        if (frozen != null) {
+            return frozen;
+        }
+        String asleep = outsideWakingHoursReason();
+        if (asleep != null) {
+            return asleep;
+        }
         Instant resting = churnCooldownUntil(identity);
         if (resting != null) {
             return "OverDrive reported too many titles borrowed and returned on this card; it resumes at "
@@ -1787,8 +1853,8 @@ public class OverDriveService {
        * longer than the gap between titles: the pause that matters is the one inside a single
        * borrow-and-download, which is where the machine-like tell is.
        */
-      private static final long FULFIL_GAP_MIN_MILLIS = 75_000;
-      private static final long FULFIL_GAP_MAX_MILLIS = 240_000;
+      long fulfilGapMinMillis = 90_000;   // package-private for testing
+      long fulfilGapMaxMillis = 600_000;  // package-private for testing
 
       /**
        * Let a fresh borrow settle before fetching the file.
@@ -1805,7 +1871,7 @@ public class OverDriveService {
         if (!isAutomated()) {
             return;
         }
-        long millis = ThreadLocalRandom.current().nextLong(FULFIL_GAP_MIN_MILLIS, FULFIL_GAP_MAX_MILLIS + 1);
+        long millis = ThreadLocalRandom.current().nextLong(fulfilGapMinMillis, fulfilGapMaxMillis + 1);
         log.debug("OverDrive: waiting {}s before fetching title {}", millis / 1000, titleId);
         try {
             Thread.sleep(millis);
@@ -2000,11 +2066,27 @@ public class OverDriveService {
                     bookbagRepository.save(entry);
                     continue;
                 }
-                // The hold is gone — cancelled by hand, or lapsed unclaimed. Forgetting it lets the
-                // entry queue again next pass instead of waiting forever on something that no longer
-                // exists, which is what a bare "is a card recorded?" check used to do.
-                log.info("OverDrive bookbag: the hold on \"{}\" for user {} is no longer on card {}; "
-                        + "the entry will queue again", entry.getTitle(), userId, entry.getHoldCardId());
+                // A frozen card is not synced, so its holds are absent from the feed rather than gone.
+                // Saying "the hold lapsed" here would be a plain untruth, and the difference matters:
+                // the position still exists and we cannot cancel it, because a frozen card takes no
+                // traffic at all. Queue elsewhere anyway — an entry waiting on a card that will not act
+                // again until a person intervenes is an entry waiting for ever — and say plainly that
+                // the old place in line is still out there to be tidied up if the card comes back.
+                String frozen = freezeReason(entry.getHoldCardId());
+                if (frozen != null) {
+                    log.info("OverDrive bookbag: the hold on \"{}\" for user {} is on frozen card {}; "
+                            + "queueing elsewhere and leaving that hold in place, uncancellable while the "
+                            + "card is frozen", entry.getTitle(), userId, entry.getHoldCardId());
+                    entry.setLastNote(truncate("The card this was queued at is frozen, so the hold cannot "
+                            + "be claimed or cancelled. Queueing at another library; the old place in line "
+                            + "stays at " + entry.getHoldCardId() + " until that card is unfrozen.", 512));
+                } else {
+                    // The hold is gone — cancelled by hand, or lapsed unclaimed. Forgetting it lets the
+                    // entry queue again next pass instead of waiting forever on something that no longer
+                    // exists, which is what a bare "is a card recorded?" check used to do.
+                    log.info("OverDrive bookbag: the hold on \"{}\" for user {} is no longer on card {}; "
+                            + "the entry will queue again", entry.getTitle(), userId, entry.getHoldCardId());
+                }
                 entry.setHoldCardId(null);
                 entry.setHoldPlacedAt(null);
             }
@@ -2391,8 +2473,8 @@ public class OverDriveService {
         }
         int perPass = Math.max(1, borrowsLeftThisPass(userId));
         // Midpoints of the pacing a pass really applies, between one checkout and the next.
-        long gapMillis = (LOAN_ACTION_GAP_MIN_MILLIS + LOAN_ACTION_GAP_MAX_MILLIS) / 2
-                + (FULFIL_GAP_MIN_MILLIS + FULFIL_GAP_MAX_MILLIS) / 2;
+        long gapMillis = (loanActionGapMinMillis + loanActionGapMaxMillis) / 2
+                + (fulfilGapMinMillis + fulfilGapMaxMillis) / 2;
 
         List<BookbagPlanEntry> plan = new ArrayList<>();
         int placed = 0;
@@ -2903,6 +2985,202 @@ public class OverDriveService {
       }
 
       /**
+       * Stand a card down completely, and indefinitely, after OverDrive refused a fulfillment on it.
+       *
+       * <p>No end date, unlike {@link #beginChurnCooldown}. A churn cooldown serves a period OverDrive
+       * itself named; nothing about a "whoa" names one, and nothing observed suggests it lifts with
+       * time. It survives the strongest recovery we have — a re-link to a brand new chip — so an
+       * automatic retry, on any schedule, reliably produces only one thing: another chip minted on a
+       * card that has already refused several. The way back is a person re-linking the card
+       * deliberately, which is the one event that means something actually changed.
+       *
+       * <p>Re-freezing an already-frozen card keeps the original moment and only refreshes the reason:
+       * when it stopped is the useful fact, and a later refusal on a card that was already frozen says
+       * nothing new.
+       */
+      private void freezeCard(String identity, String reason) {
+        // Every row for this identity, as with a cooldown: the refusal is against the library account,
+        // so a card three users hold is one refused account and all of their rows freeze together.
+        List<OverDriveTokenEntity> rows = tokenRepository.findByIdentity(identity);
+        if (rows.isEmpty()) {
+            return;
+        }
+        boolean alreadyFrozen = rows.stream().anyMatch(r -> r.getFrozenAt() != null);
+        Instant now = Instant.now();
+        rows.forEach(row -> {
+            if (row.getFrozenAt() == null) {
+                row.setFrozenAt(now);
+            }
+            row.setFrozenReason(reason);
+        });
+        // frozenBy is left as it stands: a card a person already stopped keeps their name on it, and a
+        // refusal arriving afterwards is not grounds to relabel their decision as an automatic one.
+        tokenRepository.saveAll(rows);
+        if (alreadyFrozen) {
+            return; // already stopped; no second log line or history row for the same standstill
+        }
+        log.warn("OverDrive: card {} refused fulfillment; every action on it is frozen for all {} user(s) "
+                + "holding it until someone re-links it. Reason: {}", identity, rows.size(), reason);
+        recordAudit(OverDriveAuditAction.CARD_FROZEN, identity, null, null, null, null,
+                reason + " Nothing will be attempted on this card until it is re-linked.", false);
+      }
+
+      /**
+       * Why acting right now would look wrong whatever the ceilings say, or null during waking hours.
+       *
+       * <p>A ceiling limits how much an account does; it says nothing about when. Ten borrows spread
+       * politely across a night are still ten borrows at three in the morning, which no reader does and
+       * every scheduler does — the one signal that separates us from a person is not how fast we act
+       * but that we never sleep. The cron can fire whenever it likes; this is what keeps the account's
+       * visible history inside hours a person keeps.
+       *
+       * <p>Applies to borrows, returns and holds alike, for the reason returns are paced like borrows:
+       * handing five books back at 4am is the same tell as taking five out then. Reads are untouched —
+       * syncing at night costs the account nothing and shows up nowhere.
+       */
+      private String outsideWakingHoursReason() {
+        java.time.LocalTime now;
+        try {
+            now = java.time.LocalTime.now(java.time.ZoneId.of(wakingHoursZone));
+        } catch (Exception e) {
+            // A mistyped zone must not silently switch the guard off; fall back to the server's clock.
+            log.warn("OverDrive: waking-hours zone \"{}\" is not a zone id; using the server's own", wakingHoursZone);
+            now = java.time.LocalTime.now();
+        }
+        int hour = now.getHour();
+        if (hour >= wakingHourFrom && hour < wakingHourUntil) {
+            return null;
+        }
+        return "it is " + now.withSecond(0).withNano(0) + " where this card's library is, and borrowing, "
+                + "returning and holds only happen between " + wakingHourFrom + ":00 and "
+                + wakingHourUntil + ":00 — an account that acts through the night does not look like a "
+                + "reader. It resumes on its own.";
+      }
+
+      /**
+       * Why this card is frozen, in the words to show whoever asked it to act, or null when it is free.
+       *
+       * <p>Read across every row for the identity, for the same reason {@link #churnCooldownUntil} is:
+       * a freeze recorded against the owner has to stop a sharee too, or the account carries on being
+       * refused by whoever did not trip it.
+       */
+      private String freezeReason(String identity) {
+        if (identity == null) {
+            return null;
+        }
+        return tokenRepository.findByIdentity(identity).stream()
+                .filter(row -> row.getFrozenAt() != null)
+                .findFirst()
+                .map(row -> (row.getFrozenReason() != null ? row.getFrozenReason()
+                        : "OverDrive refused to act on this card.")
+                        + " It has been stopped since " + row.getFrozenAt()
+                        + " — nothing is sent to OverDrive on it at all, syncing included — and stays "
+                        + "stopped until someone unfreezes or re-links it.")
+                .orElse(null);
+      }
+
+      /**
+       * Let a card act again after a person re-linked it. Called only from the deliberate,
+       * person-initiated link paths: the automatic re-link inside a fulfillment is exactly what the
+       * freeze exists to stop, so it must never clear one.
+       *
+       * <p>Lifts only a freeze the refusal itself imposed. A card somebody stopped on purpose stays
+       * stopped until they say otherwise — a refresh is not a decision to put it back in service, and
+       * an administrator's freeze with a reason posted against it least of all.
+       */
+      private void thawCard(String identity) {
+        List<OverDriveTokenEntity> rows = tokenRepository.findByIdentity(identity).stream()
+                .filter(row -> row.getFrozenAt() != null && row.getFrozenBy() == null)
+                .toList();
+        if (rows.isEmpty()) {
+            return;
+        }
+        clearFreeze(rows);
+        log.info("OverDrive: card {} was re-linked by hand; its freeze is lifted", identity);
+        recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null,
+                "Re-linked by hand; the card is no longer frozen.", false);
+      }
+
+      private void clearFreeze(List<OverDriveTokenEntity> rows) {
+        rows.forEach(row -> {
+            row.setFrozenAt(null);
+            row.setFrozenReason(null);
+            row.setFrozenBy(null);
+        });
+        tokenRepository.saveAll(rows);
+      }
+
+      /**
+       * Stop a card by hand, and keep it stopped.
+       *
+       * <p>Anyone who can manage the card can do this — its owner, or somebody with cross-user card
+       * management acting on their behalf — because the reasons to take a card out of service are not
+       * all visible from here: a library account under review, a PIN about to change, a card whose
+       * owner would simply rather it sat still for a while.
+       *
+       * <p>An administrator stopping somebody else's card must say why, and the reason is recorded on
+       * the card and in its owner's history. The owner will meet it as the refusal on their next
+       * borrow, and "no" without a reason from someone who is not you is the kind of thing that gets
+       * debugged for an hour before anyone thinks to ask a person.
+       */
+      @Transactional
+      public void freezeCardByHand(String identity, String reason, Long ownerUserId) {
+        OverDriveTokenEntity card = administrableCard(identity, ownerUserId);
+        Long me = currentUserId();
+        boolean onBehalfOfSomeoneElse = !me.equals(card.getUserId());
+        String given = reason != null ? reason.trim() : "";
+        if (given.isEmpty() && onBehalfOfSomeoneElse) {
+            throw ApiError.GENERIC_BAD_REQUEST.createException("Say why you are freezing somebody else's card — "
+                    + "the reason is what its owner sees when their next borrow is refused.");
+        }
+        String note = given.isEmpty() ? "Frozen by its owner." : truncate(given, 512);
+
+        // Every row for this identity, as with an automatic freeze: the card is one library account
+        // however many people hold it, so stopping it stops it for all of them.
+        List<OverDriveTokenEntity> rows = tokenRepository.findByIdentity(identity);
+        Instant now = Instant.now();
+        rows.forEach(row -> {
+            if (row.getFrozenAt() == null) {
+                row.setFrozenAt(now);
+            }
+            row.setFrozenReason(note);
+            row.setFrozenBy(me);
+        });
+        tokenRepository.saveAll(rows);
+        log.info("OverDrive: card {} frozen by user {}{}: {}", identity, me,
+                onBehalfOfSomeoneElse ? " (owner is user " + card.getUserId() + ")" : "", note);
+        recordAudit(OverDriveAuditAction.CARD_FROZEN, identity, null, null, null, null,
+                note + " Nothing will be attempted on this card until it is unfrozen.", false);
+        // The owner's own history, so a card that stopped acting explains itself where they will look.
+        if (onBehalfOfSomeoneElse) {
+            recordAuditForUser(card.getUserId(), OverDriveAuditAction.CARD_FROZEN, identity,
+                    note + " Frozen by an administrator; nothing will be attempted on this card until "
+                            + "it is unfrozen.");
+        }
+      }
+
+      /** Put a frozen card back in service. Same permission as freezing it, whoever froze it. */
+      @Transactional
+      public void unfreezeCardByHand(String identity, Long ownerUserId) {
+        OverDriveTokenEntity card = administrableCard(identity, ownerUserId);
+        List<OverDriveTokenEntity> rows = tokenRepository.findByIdentity(identity).stream()
+                .filter(row -> row.getFrozenAt() != null)
+                .toList();
+        if (rows.isEmpty()) {
+            return; // already free; unfreezing twice is not an error
+        }
+        clearFreeze(rows);
+        Long me = currentUserId();
+        log.info("OverDrive: card {} unfrozen by user {}", identity, me);
+        recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null,
+                "Unfrozen; the card is back in service.", false);
+        if (!me.equals(card.getUserId())) {
+            recordAuditForUser(card.getUserId(), OverDriveAuditAction.CARD_REFRESHED, identity,
+                    "Unfrozen by an administrator; the card is back in service.");
+        }
+      }
+
+      /**
        * When this card may act again, or null if it is free to act now. Read across every row for the
        * identity, and the latest wins: a cooldown recorded against the owner has to stop a sharee too,
        * or the account carries on being churned by whoever did not trip it.
@@ -2928,6 +3206,14 @@ public class OverDriveService {
        * the message says when it lifts so the refusal is actionable rather than mysterious.
        */
       private void assertNotChurnLimited(String identity, String action) {
+        String frozen = freezeReason(identity);
+        if (frozen != null) {
+            throw ApiError.CONFLICT.createException(frozen);
+        }
+        String asleep = outsideWakingHoursReason();
+        if (asleep != null) {
+            throw ApiError.CONFLICT.createException("Not " + action + " right now: " + asleep);
+        }
         Instant until = churnCooldownUntil(identity);
         if (until != null) {
             throw ApiError.CONFLICT.createException(
@@ -2967,6 +3253,19 @@ public class OverDriveService {
        * writes the owner's row, which is the row the share points at.
        */
       private <T> T withChipRecovery(String identity, java.util.function.Function<String, T> call) {
+        // Every card-scoped Libby call passes through here — sync and the audiobook reads as much as
+        // borrow, hold and return — so this is what makes a freeze mean no traffic at all rather than
+        // no writes. Reading costs the account nothing by itself, but a frozen card is one OverDrive
+        // has already refused or one somebody deliberately stood down, and in both cases the useful
+        // property is that it stops appearing upstream.
+        //
+        // The cost is that the frozen card's loan cache stops being refreshed, so what it shows is
+        // what was true when it froze. That is the intended trade: a stale cache on a card nothing may
+        // act on says nothing misleading, and unfreezing re-syncs it.
+        String frozen = freezeReason(identity);
+        if (frozen != null) {
+            throw ApiError.CONFLICT.createException(frozen);
+        }
         String token = tokenRenewedIfExpired(identity);
         try {
             return call.apply(token);
@@ -3040,7 +3339,7 @@ public class OverDriveService {
                         // Freshly read from a live sync during linking — always the current user's own card.
                         // Credential/expiry details aren't known here; reloadCards() (listCards) is authoritative.
                         cards.add(new OverDriveCard(card.get("cardId").toString(), name, libraryKey, false, null, null,
-                                true, null, 0, false, null, null, null, null));
+                                true, null, 0, false, null, null, null, null, null, null));
                     }
                 }
             }
@@ -3114,6 +3413,17 @@ public class OverDriveService {
                     .orElse(null);
             if (token == null) {
                 log.debug("OverDrive syncAll: no stored token for card {}; skipping", identity);
+                continue;
+            }
+            // Dropped here rather than left to throw inside the call: a frozen card in a group would
+            // otherwise abort the chip sync and take its unfrozen chip-mates down with it, every pass.
+            //
+            // Cards sharing a chip share one bearer, so a chip-mate's sync still returns the frozen
+            // card's loans upstream — we simply stop asking on its behalf and drop it from the result.
+            // Full silence for a card sharing a chip means unlinking it, not freezing it. Each card
+            // having its own chip, which is the usual shape, makes the distinction moot.
+            if (freezeReason(identity) != null) {
+                log.debug("OverDrive syncAll: card {} is frozen; skipping", identity);
                 continue;
             }
             cardsByToken.computeIfAbsent(token, t -> new ArrayList<>()).add(identity);
@@ -3624,6 +3934,13 @@ public class OverDriveService {
        * </ol>
        */
       private byte[] fetchFulfillment(String cardId, String authToken, String loanId, String formatId) {
+        // The choke point every fulfillment passes through — the import sweep, the bookbag, a person
+        // clicking Download — so one check here is what makes a freeze mean "nothing is attempted".
+        // Checked before the request, not after: the point of the freeze is that the call is not made.
+        String frozen = freezeReason(cardId);
+        if (frozen != null) {
+            throw ApiError.CONFLICT.createException(frozen);
+        }
         String url = sentryBaseUrl + "/card/" + cardId + "/loan/" + loanId + "/fulfill/" + formatId;
         try {
             HttpResponse<byte[]> resp = httpClient.send(
@@ -3663,22 +3980,58 @@ public class OverDriveService {
                 }
             }
 
-            // "whoa" = the identity we're fulfilling with is stamped prbn=v, which means its /chip
-            // re-mint was made without the correct Accept-Language shibboleth (see refreshIdentity/
-            // chipShibboleth). Since we now send that shibboleth, this should be rare; if it recurs, the
-            // shibboleth computation is off (e.g. path length / token) or the token was minted elsewhere.
-            // It is NOT a rate limit — no retry/cooldown helps; the re-mint must carry the shibboleth.
+            // "whoa" = OverDrive refused to fulfill on this card, and by the time we get here every
+            // recovery has already run: the stored token, a re-minted identity, and a re-link to a brand
+            // new chip from the stored card + PIN. A refusal that survives all three is not something a
+            // fourth attempt fixes.
+            //
+            // The original reading of this was prbn=v — an identity whose /chip re-mint lacked the
+            // Accept-Language shibboleth (see refreshIdentity/chipShibboleth). Observation since says
+            // otherwise: on 2026-09-22 the stored token for the refused card carried no prbn claim at
+            // all, was a primary chip, and had fulfilled successfully two days earlier on this same
+            // code. The refusal came with OverDrive's reverse-engineering notice and no Retry-After, and
+            // the first call of each later pass went back to missing_chip — the freshly linked chip was
+            // not accepted as registered either. That is the account or the chip lineage being refused
+            // upstream, not a token we minted wrongly.
+            //
+            // So: freeze the card rather than retry it. Left running, each pass mints another chip on a
+            // card that has already refused several — the behaviour most likely to make an upstream
+            // block permanent, and the exact opposite of what the error message used to advise.
             if ("whoa".equals(result)) {
                 String retryAfter = resp.headers().firstValue("retry-after").orElse(null);
                 String reqId = resp.headers().firstValue("x-request-id").orElse(null);
                 String date = resp.headers().firstValue("date").orElse(null);
-                log.warn("OverDrive fulfill \"whoa\" (prbn=v — chip re-mint lacked a valid shibboleth) — "
-                        + "loan {}, format {}, status {}; retry-after={}, x-request-id={}, date={}; body={}; headers={}",
+                boolean identified = identifiedAsAnotherClient(body, resp.headers());
+                log.warn("OverDrive fulfill \"whoa\" ({}) — loan {}, format {}, status {}; "
+                        + "retry-after={}, x-request-id={}, date={}; body={}; headers={}",
+                        identified ? "WITH the terms-of-service notice" : "bare, as the web client also sees",
                         loanId, formatId, resp.statusCode(), retryAfter, reqId, date, body,
                         resp.headers().map());
-                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive refused this fulfillment (\"whoa\") for loan " + loanId
-                        + ": the identity is not fulfillment-capable (prbn=v). Re-link this card so a fresh "
-                        + "identity is minted; if it persists, the chip shibboleth may need updating.");
+
+                // A bare "whoa" is something the real Libby client meets too. In the browser captures
+                // it happened twice, on two loans, and the client's whole response was to report the
+                // error and abandon that fulfillment — no re-mint, no re-link, and no consequence: the
+                // card involved (107556024) went on working for months afterwards. So treat it the way
+                // the client does. Failing here counts against the loan, which stops it being retried
+                // for ever, and leaves the card alone.
+                if (!identified) {
+                    throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive would not fulfill loan "
+                            + loanId + " just now (\"whoa\"). The Libby client meets this too and simply drops the "
+                            + "attempt; nothing is wrong with the card.");
+                }
+
+                // With the notice attached it is a different message wearing the same result code. The
+                // browser's body is seventeen bytes, `{"result":"whoa"}`, and nothing else. Ours arrives
+                // with a paragraph naming the dewey app as a private API, calling reverse engineering of
+                // its requests prohibited, and citing account suspension and legal action — plus a
+                // terms-of-service Link header the browser never receives. That is not a transient
+                // refusal, it is OverDrive saying it knows what is calling, so the card stops.
+                freezeCard(cardId, "OverDrive refused fulfillment on this card and attached its "
+                        + "terms-of-service notice, which it does not send to the Libby app itself — it has "
+                        + "identified this client as something other than Libby.");
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive refused this fulfillment (\"whoa\") for loan "
+                        + loanId + " and attached its terms-of-service notice, which it does not send to its own "
+                        + "app. This card is now frozen: nothing will be attempted on it until someone unfreezes it.");
             }
 
             String href = firstMatch(HREF_PATTERN, body);
@@ -4211,8 +4564,11 @@ public class OverDriveService {
        * one. These cost the account nothing, so they only need enough spacing not to arrive as a
        * single burst.
        */
-      private static final long TITLE_GAP_MIN_MILLIS = 2_000;
-      private static final long TITLE_GAP_MAX_MILLIS = 8_000;
+      // Not final, and not static: the tests set these to zero. A suite that honours the real bounds
+      // does not test pacing, it waits for it — widening the loan gap to twenty minutes turned a
+      // two-minute suite into an eighteen-minute one, which is a slow way to learn nothing.
+      long titleGapMinMillis = 3_000;   // package-private for testing
+      long titleGapMaxMillis = 30_000;  // package-private for testing
 
       /**
        * Bounds on the gap between two actions that take a copy out or give one back.
@@ -4221,9 +4577,15 @@ public class OverDriveService {
        * PatronExceededChurningLimit counts. Returns are paced like borrows deliberately: the limit is
        * on titles "borrowed and returned", so handing five books back in twenty seconds is the same
        * signal as taking five out that fast, and pacing one while bursting the other is not pacing.
+       *
+       * <p>The spread matters as much as the floor. A narrow band is itself a signature — forty-odd
+       * borrows spaced 45 to 150 seconds apart describe a machine however patient each individual gap
+       * looks, and the recorded history bears that out: 107 of this deployment's gaps were under a
+       * minute and the shortest was three seconds. Two to twenty minutes puts a person's irregularity
+       * into the trace, and at the ceilings below it still clears a day's work with room to spare.
        */
-      private static final long LOAN_ACTION_GAP_MIN_MILLIS = 45_000;
-      private static final long LOAN_ACTION_GAP_MAX_MILLIS = 150_000;
+      long loanActionGapMinMillis = 120_000;    // package-private for testing
+      long loanActionGapMaxMillis = 1_200_000;  // package-private for testing
 
       /** Defaults for a user who has never opted in: everything off, with the schema's suggested values. */
       private static final OverDriveAutoSyncSettings AUTO_SYNC_DEFAULTS =
@@ -4603,16 +4965,16 @@ public class OverDriveService {
        * titles will be picked up on the next poll.
        */
       private void pauseBetweenTitles(int handledSoFar) {
-        pauseBetween(handledSoFar, TITLE_GAP_MIN_MILLIS, TITLE_GAP_MAX_MILLIS);
+        pauseBetween(handledSoFar, titleGapMinMillis, titleGapMaxMillis);
       }
 
       /**
        * Wait before taking another copy out or giving one back. See
-       * {@link #LOAN_ACTION_GAP_MIN_MILLIS} — these are the actions the churning limit counts, so they
+       * {@link #loanActionGapMinMillis} — these are the actions the churning limit counts, so they
        * are spaced in minutes rather than seconds. Does nothing before the first of a pass.
        */
       private void pauseBetweenLoanActions(int handledSoFar) {
-        pauseBetween(handledSoFar, LOAN_ACTION_GAP_MIN_MILLIS, LOAN_ACTION_GAP_MAX_MILLIS);
+        pauseBetween(handledSoFar, loanActionGapMinMillis, loanActionGapMaxMillis);
       }
 
       /**
@@ -4644,7 +5006,7 @@ public class OverDriveService {
        */
       private void pauseBeforeLoanAction(String identity, LoanActionPacer pacer) {
         long passGap = pacer.next() == 0 ? 0L
-                : ThreadLocalRandom.current().nextLong(LOAN_ACTION_GAP_MIN_MILLIS, LOAN_ACTION_GAP_MAX_MILLIS + 1);
+                : ThreadLocalRandom.current().nextLong(loanActionGapMinMillis, loanActionGapMaxMillis + 1);
         long wait = Math.max(passGap, millisUntilCardMayActAgain(identity));
         if (wait <= 0) {
             return;
@@ -4673,7 +5035,7 @@ public class OverDriveService {
                 return 0L;
             }
             long required = ThreadLocalRandom.current()
-                    .nextLong(LOAN_ACTION_GAP_MIN_MILLIS, LOAN_ACTION_GAP_MAX_MILLIS + 1);
+                    .nextLong(loanActionGapMinMillis, loanActionGapMaxMillis + 1);
             return Math.max(0L, required - java.time.Duration.between(last, Instant.now()).toMillis());
         } catch (Exception e) {
             // Pacing is a courtesy, not a correctness guarantee — never fail a pass over it. The pass
@@ -5065,9 +5427,16 @@ public class OverDriveService {
 
         for (OverDriveHold hold : shoppable) {
             List<OverDriveLibraryAvailability> options = availability.getOrDefault(hold.getId(), List.of());
-            if (options.isEmpty() || churnCooldownUntil(hold.getCardId()) != null) {
+            if (options.isEmpty() || churnCooldownUntil(hold.getCardId()) != null
+                    || freezeReason(hold.getCardId()) != null) {
                 // Moving a hold off a resting card means cancelling on it, and borrowing elsewhere
                 // still ends in a return here. Leave the whole title alone until it is free.
+                //
+                // A frozen card cannot be cancelled on at all, so a "move" would place the new hold and
+                // then fail to give up the old one, every pass. In practice a frozen card is not synced
+                // and its holds never reach this list — the check is here so that stops being the only
+                // thing preventing it. The bookbag handles the same case deliberately: it re-queues the
+                // entry elsewhere and says the old position is stranded.
                 continue;
             }
 
@@ -6603,6 +6972,8 @@ public class OverDriveService {
                             owned ? cardShareRepository.countByTokenId(t.getId()) : 0,
                             canAutoRenew(t), t.getExpiresAt(),
                             resting ? t.getChurnCooldownUntil().toString() : null,
+                            t.getFrozenAt() != null ? t.getFrozenReason() : null,
+                            t.getFrozenAt() != null ? t.getFrozenAt().toString() : null,
                             // Not computed while resting: OverDrive's own refusal outranks a ceiling we
                             // set ourselves, and reporting both would say the same thing twice.
                             resting ? null

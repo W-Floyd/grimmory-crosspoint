@@ -367,6 +367,15 @@ export class OverdriveSettingsComponent {
     }
   }
 
+  // ── Freezing a card (stop it entirely until somebody says otherwise) ─────────────────────────
+  freezeDialogVisible = signal(false);
+  // Trailing underscore: `freezeCard` is the action on the service, and the two reading alike in a
+  // template is how the wrong one gets called.
+  freezeCard_ = signal<OverDriveCard | null>(null);
+  freezeReason = signal('');
+  freezingCard = signal(false);
+  freezeError = signal<string | null>(null);
+
   // ── Card credentials (promote a chip-only card to card+PIN / update the stored PIN) ──────────
   credDialogVisible = signal(false);
   credCard = signal<OverDriveCard | null>(null);
@@ -710,6 +719,50 @@ export class OverdriveSettingsComponent {
       },
       error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Could not unify these cards'),
       complete: () => this.unifyingChip.set(null)
+    });
+  }
+
+  /**
+   * Stop a card, or put it back.
+   *
+   * <p>Behind a dialog rather than a straight click: a frozen card silently stops borrowing, returning
+   * and fetching — including loans already paid for — which is a surprising thing to do by a stray tap.
+   *
+   * <p>The reason is asked for on every freeze, not only on somebody else's card, though the server
+   * only insists there. A card you froze three weeks ago is a card whose reason you have forgotten too.
+   */
+  openFreezeDialog(card: OverDriveCard): void {
+    this.freezeCard_.set(card);
+    this.freezeReason.set('');
+    this.freezeError.set(null);
+    this.freezeDialogVisible.set(true);
+  }
+
+  confirmFreeze(): void {
+    const card = this.freezeCard_();
+    if (!card) {
+      return;
+    }
+    this.freezingCard.set(true);
+    this.freezeError.set(null);
+    this.overdriveService.freezeCard(card.cardId, this.freezeReason()).subscribe({
+      next: () => {
+        this.freezeDialogVisible.set(false);
+        this.messageService.add({ severity: 'success', summary: 'Frozen', detail: `${this.cardLabel(card)} is stopped` });
+        this.reloadLinkedCards();
+      },
+      error: (err) => this.freezeError.set(err?.error?.message || err?.message || 'Could not freeze this card'),
+      complete: () => this.freezingCard.set(false)
+    });
+  }
+
+  onUnfreezeCard(card: OverDriveCard): void {
+    this.overdriveService.unfreezeCard(card.cardId).subscribe({
+      next: () => {
+        this.messageService.add({ severity: 'success', summary: 'Unfrozen', detail: `${this.cardLabel(card)} is back in service` });
+        this.reloadLinkedCards();
+      },
+      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Could not unfreeze this card')
     });
   }
 

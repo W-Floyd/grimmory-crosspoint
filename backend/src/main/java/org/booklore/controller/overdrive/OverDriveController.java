@@ -1071,6 +1071,48 @@ public class OverDriveController {
         }
     }
 
+    /**
+     * POST /api/overdrive/{identity}/freeze — stop a card by hand until somebody unfreezes it.
+     *
+     * <p>Its owner, or an administrator on their behalf — who must say why, since the owner meets that
+     * reason as the refusal on their next borrow.
+     */
+    @Operation(summary = "Freeze a card",
+               description = "Stops every borrow, return, hold and fulfillment on the card until it is unfrozen. "
+                       + "A reason is required when freezing a card you do not own.")
+    @ApiResponse(responseCode = "204", description = "Card frozen")
+    @ApiResponse(responseCode = "400", description = "Freezing somebody else's card without a reason")
+    @ApiResponse(responseCode = "403", description = "Not your card, and no cross-user card management")
+    @PostMapping("/{identity}/freeze")
+    public ResponseEntity<Void> freezeCard(
+            @Parameter(description = "Library card id") @PathVariable String identity,
+            @Parameter(description = "Why the card is being frozen; shown to its owner. Required for a card you do not own.")
+            @RequestParam(required = false) String reason,
+            @Parameter(description = "Card owner; omit for your own card. Requires cross-user card management.")
+            @RequestParam(required = false) Long userId) {
+        requireEnabled();
+        overDriveService.freezeCardByHand(identity, reason, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * POST /api/overdrive/{identity}/unfreeze — put a frozen card back in service.
+     */
+    @Operation(summary = "Unfreeze a card",
+               description = "Returns a frozen card to service, whether it was frozen by hand or by a refusal. "
+                       + "Unfreezing a card that is not frozen does nothing.")
+    @ApiResponse(responseCode = "204", description = "Card unfrozen")
+    @ApiResponse(responseCode = "403", description = "Not your card, and no cross-user card management")
+    @PostMapping("/{identity}/unfreeze")
+    public ResponseEntity<Void> unfreezeCard(
+            @Parameter(description = "Library card id") @PathVariable String identity,
+            @Parameter(description = "Card owner; omit for your own card. Requires cross-user card management.")
+            @RequestParam(required = false) Long userId) {
+        requireEnabled();
+        overDriveService.unfreezeCardByHand(identity, userId);
+        return ResponseEntity.noContent().build();
+    }
+
     @Operation(summary = "List stored token identities",
                description = "List all library identities that have stored tokens.")
     @ApiResponse(responseCode = "200", description = "Identities listed successfully")

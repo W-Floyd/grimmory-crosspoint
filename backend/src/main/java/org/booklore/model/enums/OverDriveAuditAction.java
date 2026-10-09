@@ -30,5 +30,8 @@ public enum OverDriveAuditAction {
     CARD_UNLINKED,
     CARD_RELABELED,
     CARD_REFRESHED,
+    /** A card stopped completely after OverDrive refused to fulfill on it even post-re-link. Cleared
+      * only by a deliberate re-link — see OverDriveService#freezeCard. */
+    CARD_FROZEN,
     SHARE_UPDATED
 }

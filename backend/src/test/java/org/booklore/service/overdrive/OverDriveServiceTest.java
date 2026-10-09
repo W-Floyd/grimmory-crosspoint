@@ -79,6 +79,27 @@ class OverDriveServiceTest {
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
+        unblocked(service);
+    }
+
+    /**
+     * Take the wall clock out of a service under test: any hour is a waking hour, and the pacing
+     * between loan actions is instant.
+     *
+     * <p>Both are real behaviour that real tests cover directly — see the waking-hours tests, and the
+     * pacer tests that set their own bounds. Everywhere else they are only a way to make a suite slow
+     * and time-of-day dependent: the pacing is minutes wide by design, so a test that borrows twice
+     * waits minutes for the second one, and a test run at 3am would otherwise find every card asleep.
+     */
+    private static void unblocked(OverDriveService svc) {
+        svc.wakingHourFrom = 0;
+        svc.wakingHourUntil = 24;
+        svc.titleGapMinMillis = 0;
+        svc.titleGapMaxMillis = 0;
+        svc.loanActionGapMinMillis = 0;
+        svc.loanActionGapMaxMillis = 0;
+        svc.fulfilGapMinMillis = 0;
+        svc.fulfilGapMaxMillis = 0;
     }
 
     /** A fresh pass counter. Each of these tests exercises one phase on its own. */
@@ -747,11 +768,13 @@ class OverDriveServiceTest {
 
     /** A service built on the given cipher (the default one in {@link #setUp} has no key). */
     private OverDriveService serviceWith(OverDriveCredentialCipher cipher) {
-        return new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
+        OverDriveService svc = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService);
+        unblocked(svc);
+        return svc;
     }
 
     @Test
@@ -1438,6 +1461,10 @@ class OverDriveServiceTest {
 
     @Test
     void aCardThatJustActedMakesTheNextPassWait() {
+        // Real bounds, since this is the test that is about them — but seconds rather than the
+        // minutes production uses, because what is being checked is that a wait happens at all.
+        service.loanActionGapMinMillis = 3_000;
+        service.loanActionGapMaxMillis = 3_000;
         // The pass counter says "first action, go" — but the card was used seconds ago, by whoever.
         when(auditRepository.lastActionOnCard(org.mockito.ArgumentMatchers.eq("card-a"), any()))
                 .thenReturn(Instant.now().minusSeconds(1));
@@ -2236,6 +2263,127 @@ class OverDriveServiceTest {
         when(tokenRepository.findByIdentity(identity)).thenReturn(List.of());
     }
 
+    private OverDriveTokenEntity frozenCard(String identity, String reason, Long frozenBy) {
+        OverDriveTokenEntity row = OverDriveTokenEntity.builder()
+                .userId(7L).identity(identity).token("chip-1").build();
+        row.setFrozenAt(Instant.now().minusSeconds(3600));
+        row.setFrozenReason(reason);
+        row.setFrozenBy(frozenBy);
+        return row;
+    }
+
+    @Test
+    void aFrozenCardRefusesToBorrowOrReturn() {
+        when(tokenRepository.findByIdentity("card-a"))
+                .thenReturn(List.of(frozenCard("card-a", "OverDrive refused fulfillment.", null)));
+
+        // Both halves stop. A freeze is the card being refused outright, not asked to slow down, so
+        // unlike a ceiling it does not leave one side of the cycle running.
+        assertThat(service.borrowBlockedReason("card-a")).contains("OverDrive refused fulfillment.");
+        assertThat(service.returnBlockedReason("card-a")).contains("OverDrive refused fulfillment.");
+    }
+
+    @Test
+    void aBareWhoaIsNotTreatedAsBeingIdentified() {
+        // Seventeen bytes, exactly what the browser captures show. The Libby client meets this and
+        // just drops the fulfillment, so it must not freeze anything.
+        assertThat(OverDriveService.identifiedAsAnotherClientForTest("{\"result\":\"whoa\"}",
+                java.net.http.HttpHeaders.of(java.util.Map.of("x-request-id", java.util.List.of("abc")),
+                        (a, b) -> true))).isFalse();
+    }
+
+    @Test
+    void aWhoaCarryingTheTermsNoticeMeansWeWereIdentified() {
+        String body = "{\"result\":\"whoa\",\"notice\":\"This is a private API for OverDrive's dewey app.\"}";
+        assertThat(OverDriveService.identifiedAsAnotherClientForTest(body,
+                java.net.http.HttpHeaders.of(java.util.Map.of(), (a, b) -> true))).isTrue();
+
+        // The Link header says the same thing in machine-readable form, so either alone is enough —
+        // the prose could be reworded without the meaning changing.
+        assertThat(OverDriveService.identifiedAsAnotherClientForTest("{\"result\":\"whoa\"}",
+                java.net.http.HttpHeaders.of(java.util.Map.of("link",
+                        java.util.List.of("<https://www.overdrive.com/policies/terms-and-conditions>; rel=\"terms-of-service\"")),
+                        (a, b) -> true))).isTrue();
+    }
+
+    @Test
+    void aFrozenCardIsNotEvenSynced() {
+        when(tokenRepository.findByIdentity("card-a"))
+                .thenReturn(List.of(frozenCard("card-a", "Frozen by its owner.", 7L)));
+
+        // Reads stop too, unlike a churn cooldown. A sync costs the account nothing by itself, but the
+        // point of a freeze is that the card stops appearing upstream at all.
+        assertThatThrownBy(() -> service.sync("card-a"))
+                .hasMessageContaining("Frozen by its owner.");
+        verifyNoInteractions(restClient);
+    }
+
+    @Test
+    void syncAllSkipsAFrozenCardRatherThanFailingItsChipMates() {
+        authAs(7L);
+        // Two cards, one chip each. The frozen one must not abort the other's sync.
+        when(tokenRepository.findByIdentity("card-a"))
+                .thenReturn(List.of(frozenCard("card-a", "Frozen by its owner.", 7L)));
+        when(tokenRepository.findByIdentity("card-b")).thenReturn(List.of());
+        stubCard(7L, "card-a", "chip-a");
+        stubCard(7L, "card-b", "chip-b");
+
+        // card-b's own sync still goes upstream (and fails on the unstubbed client, which syncAll
+        // swallows per chip); what matters is that card-a never became a call at all.
+        assertThat(service.syncAll(List.of("card-a", "card-b"))).doesNotContainKey("card-a");
+    }
+
+    @Test
+    void aFreezeOutranksARestingCardsWording() {
+        OverDriveTokenEntity row = frozenCard("card-a", "Frozen by its owner.", 7L);
+        row.setChurnCooldownUntil(Instant.now().plusSeconds(86_400));
+        when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(row));
+
+        // Resting says "it resumes at ...", which a freeze must never promise: nothing lifts it but a
+        // person. A card that is both must therefore report the freeze.
+        String reason = service.borrowBlockedReason("card-a");
+        assertThat(reason).contains("Frozen by its owner.");
+        assertThat(reason).doesNotContain("resumes at");
+    }
+
+    @Test
+    void aCardIsNotFrozenOnceSomebodyHasThawedIt() {
+        OverDriveTokenEntity row = frozenCard("card-a", "whatever", null);
+        row.setFrozenAt(null);
+        row.setFrozenReason(null);
+        when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(row));
+        when(cardLimitRepository.findById("card-a")).thenReturn(Optional.empty());
+        borrowCounts("card-a", 0);
+
+        assertThat(service.borrowBlockedReason("card-a")).isNull();
+    }
+
+    @Test
+    void nothingBorrowsOrReturnsOutsideWakingHours() {
+        notResting("card-a");
+        // A window that has already closed, whatever the hour the build runs at: an account that acts
+        // through the night is the one thing no reader's history looks like.
+        service.wakingHourFrom = 0;
+        service.wakingHourUntil = 0;
+
+        assertThat(service.borrowBlockedReason("card-a")).contains("only happen between");
+        assertThat(service.returnBlockedReason("card-a")).contains("only happen between");
+    }
+
+    @Test
+    void aMistypedWakingHoursZoneDoesNotSilentlyStopEverything() {
+        notResting("card-a");
+        when(cardLimitRepository.findById("card-a")).thenReturn(Optional.empty());
+        borrowCounts("card-a", 0);
+        service.wakingHoursZone = "Not/AZone";
+        service.wakingHourFrom = 0;
+        service.wakingHourUntil = 24;
+
+        // Falling back to the server's own clock keeps the guard honest; throwing or failing closed on
+        // a typo would take every card out of service with nothing on screen to say why.
+        assertThat(service.borrowBlockedReason("card-a")).isNull();
+    }
+
     private OverDriveTokenEntity restingCard(String identity, Instant until) {
         OverDriveTokenEntity row = OverDriveTokenEntity.builder()
                 .userId(7L).identity(identity).token("chip-1").build();
@@ -2685,6 +2833,13 @@ class OverDriveServiceTest {
     @Test
     void thePlanSpacesEntriesWithinAPassRatherThanStackingThem() {
         authAs(7L);
+        // Real bounds, stated here rather than inherited, because this test is about the plan
+        // agreeing with the pacing — fixed values make the arithmetic something to read rather than
+        // a number that drifts whenever the production spacing is retuned. 120s + 60s = 3 minutes.
+        service.loanActionGapMinMillis = 120_000;
+        service.loanActionGapMaxMillis = 120_000;
+        service.fulfilGapMinMillis = 60_000;
+        service.fulfilGapMaxMillis = 60_000;
         oneCardWithHourlyCeiling(10, 0);
         when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L))
                 .thenReturn(List.of(bagged(1L, "a", 1), bagged(2L, "b", 2)));
@@ -3669,6 +3824,7 @@ class OverDriveServiceTest {
                 client, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
                 new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService);
+        unblocked(svc);
         return new SyncHarness(svc, calls);
     }
 

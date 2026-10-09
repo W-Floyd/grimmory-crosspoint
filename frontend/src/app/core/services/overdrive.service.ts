@@ -24,6 +24,14 @@ export interface OverDriveCard {
   canAutoRenew?: boolean;
   /** While OverDrive has this card flagged for churning: borrows and returns are paused until then. */
   churnCooldownUntil?: string | null;
+  /**
+   * Why the card is stopped entirely, or null when it is not. Stronger than resting: nothing at all is
+   * sent to OverDrive on a frozen card — not a borrow, a return, a fetch, or even a sync — so its loan
+   * list is frozen as of that moment too. It does not lift on its own; somebody unfreezes it.
+   */
+  frozenReason?: string | null;
+  /** When the card was frozen (ISO), or null. */
+  frozenAt?: string | null;
   /** An administrator's ceiling this card's borrows have hit ("100 of 100 borrowed this 30 days"). */
   borrowLimitReached?: string | null;
   /** The same ceilings, reached by this card's returns. Counted separately from borrows. */
@@ -450,6 +458,25 @@ export class OverDriveService {
   /** Refresh a card+PIN card's token by re-linking from its stored credentials. */
   refreshCard(cardId: string, ownerUserId?: number): Observable<void> {
     return this.http.post<void>(`${this.baseUrl}/${cardId}/refresh`, null, { params: this.ownerParams({}, ownerUserId) });
+  }
+
+  /**
+   * Stop a card until somebody unfreezes it. A reason is required when freezing a card you do not own —
+   * its owner meets that text as the refusal on their next borrow.
+   */
+  freezeCard(cardId: string, reason?: string, ownerUserId?: number): Observable<void> {
+    const params: Record<string, string> = {};
+    if (reason?.trim()) {
+      params['reason'] = reason.trim();
+    }
+    return this.http.post<void>(`${this.baseUrl}/${cardId}/freeze`, null,
+      { params: this.ownerParams(params, ownerUserId) });
+  }
+
+  /** Put a frozen card back in service, however it came to be frozen. */
+  unfreezeCard(cardId: string, ownerUserId?: number): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${cardId}/unfreeze`, null,
+      { params: this.ownerParams({}, ownerUserId) });
   }
 
   /** Set a friendly display label for a card (blank clears it back to the default name). */

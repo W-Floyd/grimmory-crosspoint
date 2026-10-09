@@ -88,8 +88,15 @@
                   </span>
                 </div>
                 <!-- Both meters can show room on a card that has stopped borrowing, so whichever of
-                     these applies is the only thing on the row that explains it. -->
-                @if (card.churnCooldownUntil) {
+                     these applies is the only thing on the row that explains it. A freeze comes first:
+                     it stops everything, where the others stop one kind of action for a while. -->
+                @if (card.frozenReason) {
+                  <span class="capacity-resting"
+                    [pTooltip]="card.frozenReason + ' Nothing at all is sent to OverDrive on a frozen card — not a borrow, a return, a fetch, or even a sync — so its loans and holds are shown as they were when it stopped. It stays that way until somebody unfreezes it in settings.'"
+                    tooltipPosition="top">
+                    <i class="pi pi-ban"></i> Frozen
+                  </span>
+                } @else if (card.churnCooldownUntil) {
                   <span class="capacity-resting"
                     pTooltip="OverDrive reported too many titles borrowed and returned on this card. Borrows and returns are paused until then — searching and syncing still work, and it resumes on its own."
                     tooltipPosition="top">
@@ -499,14 +506,15 @@
                 pTooltip="Already in your library — import another copy, or use the menu to replace the existing one"
                 tooltipPosition="top"
                 [model]="importMenuItems(loan)"
-                [disabled]="anyOperationInFlight()"
+                [disabled]="anyOperationInFlight() || !!cardFrozenReason(loan.cardId)"
                 (onClick)="onImportLoan(loan)"
                 class="mr-2" />
             } @else {
               <p-button label="Import" icon="pi pi-file-import"
-                pTooltip="Import server-side into the selected library (Search &amp; Borrow), or into Bookdrop if none is selected"
+                [pTooltip]="cardFrozenReason(loan.cardId)
+                  || 'Import server-side into the selected library (Search &amp; Borrow), or into Bookdrop if none is selected'"
                 tooltipPosition="top"
-                [disabled]="anyOperationInFlight() && importingTitleId() !== loan.id"
+                [disabled]="!!cardFrozenReason(loan.cardId) || (anyOperationInFlight() && importingTitleId() !== loan.id)"
                 [loading]="importingTitleId() === loan.id"
                 (onClick)="onImportLoan(loan)"
                 class="mr-2" />
@@ -515,9 +523,10 @@
               @if (audiobookConfigured()) {
                 <p-button label="Download" icon="pi pi-download"
                   severity="secondary"
-                  pTooltip="Fulfill and download the assembled audiobook file to your browser (via the external audiobook handler)"
+                  [pTooltip]="cardFrozenReason(loan.cardId)
+                    || 'Fulfill and download the assembled audiobook file to your browser (via the external audiobook handler)'"
                   tooltipPosition="top"
-                  [disabled]="anyOperationInFlight() && downloadingLoanId() !== loan.id"
+                  [disabled]="!!cardFrozenReason(loan.cardId) || (anyOperationInFlight() && downloadingLoanId() !== loan.id)"
                   [loading]="downloadingLoanId() === loan.id"
                   (onClick)="onDownloadAudiobook(loan)"
                   class="mr-2" />
@@ -525,9 +534,9 @@
             } @else {
               <p-button label="Download" icon="pi pi-download"
                 severity="secondary"
-                pTooltip="Download the raw ACSM file to your browser"
+                [pTooltip]="cardFrozenReason(loan.cardId) || 'Download the raw ACSM file to your browser'"
                 tooltipPosition="top"
-                [disabled]="anyOperationInFlight()"
+                [disabled]="anyOperationInFlight() || !!cardFrozenReason(loan.cardId)"
                 (onClick)="onFulfill(loan)"
                 class="mr-2" />
             }
@@ -643,23 +652,26 @@
           <td>
             @if (hold.ready) {
               <p-button label="Borrow &amp; Import" icon="pi pi-download" severity="success"
-                pTooltip="Borrow this ready hold and import it (or drop to Bookdrop)"
+                [pTooltip]="cardFrozenReason(hold.cardId)
+                  || 'Borrow this ready hold and import it (or drop to Bookdrop)'"
                 tooltipPosition="top"
-                [disabled]="importingTitleId() !== null || atLoanLimitFor(hold.cardId)"
+                [disabled]="importingTitleId() !== null || atLoanLimitFor(hold.cardId) || !!cardFrozenReason(hold.cardId)"
                 [loading]="importingTitleId() === hold.id"
                 (onClick)="onBorrowHold(hold)"
                 class="mr-2" />
               <p-button label="Borrow" icon="pi pi-bookmark" severity="success" [outlined]="true"
-                pTooltip="Borrow this ready hold to Libby without importing (appears on the Loans tab)"
+                [pTooltip]="cardFrozenReason(hold.cardId)
+                  || 'Borrow this ready hold to Libby without importing (appears on the Loans tab)'"
                 tooltipPosition="top"
-                [disabled]="importingTitleId() !== null || atLoanLimitFor(hold.cardId)"
+                [disabled]="importingTitleId() !== null || atLoanLimitFor(hold.cardId) || !!cardFrozenReason(hold.cardId)"
                 [loading]="importingTitleId() === hold.id"
                 (onClick)="onBorrowHoldOnly(hold)"
                 class="mr-2" />
             }
             <p-button label="Cancel" icon="pi pi-times" severity="danger"
-              pTooltip="Cancel hold"
+              [pTooltip]="cardFrozenReason(hold.cardId) || 'Cancel hold'"
               tooltipPosition="top"
+              [disabled]="!!cardFrozenReason(hold.cardId)"
               (onClick)="onCancelHold(hold)" />
             <!-- Is this held title available now at another of my libraries? Checked on demand. -->
             @if (!hold.ready && canCheckOtherLibraries(hold)) {

@@ -317,7 +317,12 @@
                     }
                     <!-- Without one of these the card just quietly stops borrowing, with nothing on
                          screen to say why. -->
-                    @if (card.churnCooldownUntil) {
+                    @if (card.frozenReason) {
+                      <span class="meta-badge warn"
+                        [pTooltip]="card.frozenReason + ' Nothing at all is sent to OverDrive on a frozen card — not a borrow, a return, a fetch, or even a sync — so what it shows is what was true when it stopped. It stays that way until somebody unfreezes it.'">
+                        <i class="pi pi-ban"></i> Frozen
+                      </span>
+                    } @else if (card.churnCooldownUntil) {
                       <span class="meta-badge warn"
                         pTooltip="OverDrive reported too many titles borrowed and returned on this card. Borrows and returns are paused until then — searching and syncing still work, and it resumes on its own.">
                         <i class="pi pi-pause"></i> Resting until {{ formatDateTimeShort(card.churnCooldownUntil) }}
@@ -362,6 +367,15 @@
                       [loading]="unifyingChip() === card.cardId"
                       pTooltip="Move your other cards onto this card's Libby account, so they all sync in one request"
                       (onClick)="onUnifyChip(card)" />
+                  }
+                  @if (card.frozenReason) {
+                    <p-button label="Unfreeze" icon="pi pi-play" severity="secondary" size="small" [text]="true"
+                      pTooltip="Put this card back in service"
+                      (onClick)="onUnfreezeCard(card)" />
+                  } @else {
+                    <p-button label="Freeze" icon="pi pi-ban" severity="secondary" size="small" [text]="true"
+                      pTooltip="Stop all OverDrive traffic on this card — borrows, returns, holds, fetches and syncing — until you unfreeze it"
+                      (onClick)="openFreezeDialog(card)" />
                   }
                   <p-button label="Unlink" icon="pi pi-times" severity="danger" size="small" [text]="true"
                     pTooltip="Clear this card's stored token/credentials" (onClick)="onUnlinkCard(card)" />
@@ -420,6 +434,30 @@
         <ng-template pTemplate="footer">
           <p-button label="Cancel" severity="secondary" [text]="true" (onClick)="shareDialogVisible.set(false)" />
           <p-button label="Save" icon="pi pi-check" [loading]="savingShares()" (onClick)="saveShares()" />
+        </ng-template>
+      </p-dialog>
+
+      <p-dialog [(visible)]="freezeDialogVisible" [modal]="true" [style]="{ width: '28rem' }"
+        header="Freeze this card" [dismissableMask]="true">
+        @if (freezeCard_(); as card) {
+          <p class="cred-dialog-intro">
+            Nothing at all is sent to OverDrive on <strong>{{ cardLabel(card) }}</strong> until somebody
+            unfreezes it — no borrow, return, hold or fetch, not even a sync. Loans it already has stay
+            out (freezing gives nothing back), and what the card shows will be whatever was true when it
+            stopped, until it is unfrozen.
+          </p>
+          @if (freezeError()) {
+            <p-message severity="error" styleClass="mb-3">{{ freezeError() }}</p-message>
+          }
+          <div class="field">
+            <label for="freeze-reason">Reason <span class="cred-optional">(shown to the card's owner)</span></label>
+            <input pInputText id="freeze-reason" class="w-full" autocomplete="off"
+              [ngModel]="freezeReason()" (ngModelChange)="freezeReason.set($event)" [ngModelOptions]="{ standalone: true }" />
+          </div>
+        }
+        <ng-template pTemplate="footer">
+          <p-button label="Cancel" severity="secondary" [text]="true" (onClick)="freezeDialogVisible.set(false)" />
+          <p-button label="Freeze" icon="pi pi-ban" severity="danger" [loading]="freezingCard()" (onClick)="confirmFreeze()" />
         </ng-template>
       </p-dialog>
 

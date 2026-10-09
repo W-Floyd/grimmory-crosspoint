@@ -82,4 +82,26 @@ public class OverDriveTokenEntity {
      */
     @Column(name = "churn_cooldown_until")
     private java.time.Instant churnCooldownUntil;
+
+    /**
+     * When this card was frozen, or null while it is free to act. Stronger than
+     * {@link #churnCooldownUntil} in three ways: that one lets fulfillment through — and the automatic
+     * freeze exists precisely because fulfillment is what was refused — it leaves reads alone where a
+     * freeze stops those too, and it expires where a freeze does not. Cleared by an explicit unfreeze,
+     * or by a deliberate re-link when the refusal rather than a person imposed it.
+     */
+    @Column(name = "frozen_at")
+    private java.time.Instant frozenAt;
+
+    /** Why the card is frozen, in the words shown to whoever asks it to act. */
+    @Column(name = "frozen_reason")
+    private String frozenReason;
+
+    /**
+     * Who stopped the card, or null when the refusal itself did. The difference decides what lifts it:
+     * an automatic freeze is a retry a re-link may fix, while a person's freeze is a decision, and a
+     * refresh running for its own reasons has no business overturning one.
+     */
+    @Column(name = "frozen_by")
+    private Long frozenBy;
 }

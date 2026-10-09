@@ -682,14 +682,18 @@ export class OverdriveCatalogComponent implements OnInit {
    /**
     * Why this loan cannot go back right now, or null when it can.
     *
-    * <p>The same two reasons the server refuses a return, in the same order: OverDrive's own rest
-    * outranks a ceiling we set ourselves. Asking here only decides whether the button is offered —
+    * <p>The same reasons the server refuses a return, in the same order: a freeze outranks OverDrive's
+    * own rest, which outranks a ceiling we set ourselves. Asking here only decides whether the button is offered —
     * the server still checks — but a control that fails on click reads as a broken feature, where a
     * disabled one carrying the reason reads as the rule working.
     */
    returnBlockedReason(loan: OverDriveLoan): string | null {
      const card = this.cards().find(c => c.cardId === loan.cardId);
      if (!card) return null;
+     if (card.frozenReason) {
+       return `${card.frozenReason} Returning is blocked along with everything else, so this loan `
+         + 'stays out until somebody unfreezes the card in settings.';
+     }
      if (card.churnCooldownUntil) {
        return `This card is resting until ${this.formatDateTimeShort(card.churnCooldownUntil)}: `
          + 'OverDrive counts giving books back as churning too, so returns are paused along with '
@@ -733,6 +737,19 @@ export class OverdriveCatalogComponent implements OnInit {
    private canPlaceHoldsFor(cardId: string): boolean { return this.cardSyncs().get(cardId)?.canPlaceHolds ?? true; }
 
    /** True when a card has reached its loan limit — borrowing on it is blocked until a loan is returned. */
+   /**
+    * Why nothing can be asked of this card at all, or null when it is free.
+    *
+    * <p>Only a freeze answers here. A resting card or one at a ceiling still does most things — it
+    * searches, it syncs, it holds — so those are reported on the meter that applies rather than as a
+    * blanket refusal. A frozen card does nothing, so every control that names it should say so instead
+    * of offering an action the server will certainly refuse.
+    */
+   cardFrozenReason(cardId: string | null | undefined): string | null {
+     if (!cardId) return null;
+     return this.cards().find(c => c.cardId === cardId)?.frozenReason ?? null;
+   }
+
    atLoanLimitFor(cardId: string): boolean {
      const c = this.loanCountFor(cardId);
      const l = this.loanLimitFor(cardId);
