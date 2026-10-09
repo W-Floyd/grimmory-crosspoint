@@ -1885,6 +1885,20 @@ public class OverDriveService {
                     bookbagRepository.save(entry);
                     continue;
                 }
+                // A loan id is a title id, so the bag's entry and the import sweep's loan row are two
+                // views of one thing — and they must share one failure count, or the bag goes on asking
+                // for a fetch the sweep has already given up on. That is what happened to loan 6382556:
+                // the sweep stopped at MAX_AUTO_IMPORT_FAILURES and the bag kept calling every pass for
+                // as long as the loan lived, each call re-linking the card and minting a fresh chip.
+                OverDriveLoanEntity loanRow = loanRepository
+                        .findByUserIdAndOverdriveLoanId(userId, entry.getTitleId()).orElse(null);
+                if (loanRow != null && !pendingAutoImport(loanRow)) {
+                    entry.setLastNote(truncate("Already on loan, but fetching the file has failed "
+                            + loanRow.getAutoImportFailures() + " times; not trying again. Use Import "
+                            + "to retry it by hand.", 512));
+                    bookbagRepository.save(entry);
+                    continue;
+                }
                 try {
                     borrowAndImport(loanedOn, entry.getTitleId(), null, null,
                             entry.getTitle(), entry.getAuthor(), null, null, null, null, null);
@@ -1893,6 +1907,9 @@ public class OverDriveService {
                     bookbagRepository.delete(entry);
                 } catch (Exception e) {
                     failures++;
+                    if (loanRow != null) {
+                        noteAutoImportFailure(loanRow);
+                    }
                     entry.setLastNote(truncate("Already on loan, but fetching the file failed: "
                             + e.getMessage(), 512));
                     bookbagRepository.save(entry);
