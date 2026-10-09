@@ -2554,9 +2554,15 @@ public class OverDriveService {
          *
          * <p>Unlimited was the wrong default. OverDrive will not say what it tolerates, so an
          * unconfigured card is not "known to be free" — it is unmeasured, and the cost of guessing
-         * high is an account refused for days. The monthly figure is the one that matters: the
-         * refusals measured on this deployment came at 144-148 borrows in a rolling thirty days, with
-         * a peak of 153, so 100 sits comfortably below that band rather than probing its edge.
+         * high is an account refused for days, or, as card 107603589 found, refused fulfillment
+         * outright and frozen.
+         *
+         * <p>The first pass at these numbers sat just under the observed refusal band: refusals came
+         * at 144-148 borrows in a rolling thirty days, so the monthly ceiling was 100. That is sizing
+         * a limit to the edge of what got an account flagged, and it is the wrong target — the only
+         * ceiling worth defaulting to is one no ordinary reader would ever reach from below. Forty a
+         * month is more books than most people finish and barely a quarter of the band that drew a
+         * refusal; ten a week and three a day keep a catch-up session from looking like a crawl.
          *
          * <p>The shorter windows are burst insurance rather than measured limits. Nothing shorter than
          * a month correlated with any refusal here, but a bug that borrows in a loop — which has
@@ -2564,9 +2570,10 @@ public class OverDriveService {
          *
          * <p>These are the seed for the deployment default and the fallback if that row is somehow
          * missing — not what a running deployment applies. Administrators edit the stored default,
-         * and each card inherits it for every window it does not set itself.
+         * and each card inherits it for every window it does not set itself. Raising them is a
+         * deliberate act, which is the point.
          */
-        static final BorrowLimits DEFAULTS = new BorrowLimits(2, 5, 10, 30, 100);
+        static final BorrowLimits DEFAULTS = new BorrowLimits(1, 2, 3, 10, 40);
 
         Integer forWindow(BorrowWindow window) {
             return switch (window) {

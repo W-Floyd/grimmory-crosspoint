@@ -1972,8 +1972,9 @@ class OverDriveServiceTest {
         borrowCounts("card-a", 0);
 
         // Unmeasured is not the same as known to be free, and the cost of guessing high is an account
-        // refused for days — so an untouched card is still bounded.
-        assertThat(service.defaultBorrowLimits().perMonth()).isEqualTo(100);
+        // refused for days — so an untouched card is still bounded, and bounded well below the band
+        // where refusals were actually seen (144-148 in a rolling month) rather than just under it.
+        assertThat(service.defaultBorrowLimits().perMonth()).isEqualTo(40);
         assertThat(service.borrowBlockedReason("card-a")).isNull();
     }
 
