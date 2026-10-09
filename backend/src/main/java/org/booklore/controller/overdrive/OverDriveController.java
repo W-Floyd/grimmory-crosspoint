@@ -53,6 +53,7 @@ public class OverDriveController {
     private final AcsmHandlerConfig acsmHandlerConfig;
     private final AudiobookHandler audiobookHandler;
     private final OverdriveProperties overdriveProperties;
+    private final org.booklore.service.overdrive.LibbyClientVersionGuard libbyClientVersionGuard;
 
     /** Feature switch: reject when the operator has not enabled the OverDrive integration. */
     private void requireEnabled() {
@@ -469,14 +470,15 @@ public class OverDriveController {
      * GET /api/overdrive/capabilities — report which OverDrive features are available in this deployment.
      */
     @Operation(summary = "OverDrive capabilities",
-               description = "Reports whether an external ACSM handler is configured (required to import Adobe-DRM formats).")
+               description = "Reports whether an external ACSM handler is configured (required to import Adobe-DRM formats), "
+                       + "and whether the live Libby client version is one this build supports. Reading it never checks the version.")
     @ApiResponse(responseCode = "200", description = "Capabilities returned")
     @GetMapping("/capabilities")
     public ResponseEntity<OverDriveCapabilities> capabilities() {
         return ResponseEntity.ok(new OverDriveCapabilities(
                 acsmHandler.isConfigured(), overDriveService.credentialStorageEnabled(),
                 overDriveService.audiobookHandlerConfigured(), overDriveService.magazineHandlerConfigured(),
-                overDriveService.ebookHandlerConfigured()));
+                overDriveService.ebookHandlerConfigured(), libbyClientVersionGuard.status()));
     }
 
     /**
@@ -1306,7 +1308,8 @@ public class OverDriveController {
 
     record OverDriveCapabilities(boolean acsmHandlerConfigured, boolean credentialStorageEnabled,
                                  boolean audiobookHandlerConfigured, boolean magazineHandlerConfigured,
-                                 boolean ebookHandlerConfigured) {}
+                                 boolean ebookHandlerConfigured,
+                                 org.booklore.service.overdrive.LibbyClientVersionGuard.Status libbyClient) {}
 
     record OverDriveChipResult(String identity, String token) {}
 

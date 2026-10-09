@@ -127,6 +127,7 @@ export class OverdriveSettingsComponent {
 
   // Whether OVERDRIVE_CREDENTIAL_KEY is set (enables encrypted credential storage + auto-relink).
   credentialStorageEnabled = signal(false);
+  libbyBlockedReason = signal<string | null>(null);
   // Whether an external ACSM handler is configured; Adobe-DRM formats are unsupported without it.
   acsmHandlerConfigured = signal(false);
 
@@ -159,6 +160,7 @@ export class OverdriveSettingsComponent {
       next: (c) => {
         this.credentialStorageEnabled.set(!!c?.credentialStorageEnabled);
         this.acsmHandlerConfigured.set(!!c?.acsmHandlerConfigured);
+        this.libbyBlockedReason.set(c?.libbyClient?.blockedReason ?? null);
       },
       error: () => {
         this.credentialStorageEnabled.set(false);

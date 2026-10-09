@@ -23,6 +23,10 @@
     }
   </div>
 
+  @if (libbyBlockedReason()) {
+    <p-message severity="error" styleClass="mb-4">{{ libbyBlockedReason() }}</p-message>
+  }
+
   @if (error()) {
     <p-message severity="error" styleClass="mb-4">{{ error() }}</p-message>
   }

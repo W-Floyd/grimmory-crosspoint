@@ -7,6 +7,10 @@
     <p class="settings-description">Configure your library's OverDrive connection.</p>
   </div>
 
+  @if (libbyBlockedReason()) {
+    <p-message severity="error" styleClass="mb-4">{{ libbyBlockedReason() }}</p-message>
+  }
+
   <div class="settings-card">
     <h3 class="section-title">
       <i class="pi pi-user"></i>

@@ -71,7 +71,8 @@ class OverDriveAutoSyncSettingsTest {
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
-                new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService);
+                new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService,
+                LibbyClientVersionGuard.pinned(LibbyClientProfiles.forVersion("22.1.2").orElseThrow()));
     }
 
     /** A fresh pass counter. Each of these tests exercises one phase on its own. */

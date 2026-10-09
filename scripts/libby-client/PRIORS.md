@@ -3,19 +3,22 @@
 Each entry is a fact `OverDriveService` depends on, the module it was read out of, and how it was
 confirmed. When `libby-diff` reports one of these modules as changed, this is the list to re-read.
 
-Last checked against **dewey-22.1.1** (live as of 2026-09-22).
+Last checked against **dewey-22.1.2** (live as of 2026-10-09).
 
 ---
 
 ## Client version string
 
-`c=d:22.1.1` on `POST /chip`.
+`c=d:22.1.2` on `POST /chip`.
 
 - **Module:** not in the bundle — the version is the asset directory, `/dewey-<version>/`.
-- **Ours:** `DEWEY_VERSION` in `OverDriveService`.
+- **Ours:** one `LibbyClientProfile` per verified build, in `LibbyClientProfiles`. The server reads
+  the live build off the index page once a day (`LibbyClientVersionGuard`) and speaks as its
+  profile; for a build with no profile it sends nothing to OverDrive at all until one is added.
 - **How to check:** `bin/libby-current`, or `curl -s https://libbyapp.com/ | grep -o 'dewey-[0-9.]*'`.
-- **History:** `22.0.2` (July 2026) → `22.1.1` (by September 2026). We announced `22.0.2` until
-  2026-09-22, roughly two months after it stopped being served.
+- **History:** `22.0.2` (July 2026) → `22.1.1` (by September 2026) → `22.1.2` (by 2026-10-09). We
+  announced `22.0.2` until 2026-09-22, roughly two months after it stopped being served. `22.1.2`
+  was adopted from the bundle alone; no browser capture of it yet.
 
 ## Chip mint query shape
 
@@ -23,6 +26,10 @@ Last checked against **dewey-22.1.1** (live as of 2026-09-22).
 - Re-mint (bearer present): `POST /chip?c=d:<version>&s=0&v=<chip-id-prefix>`, where the prefix is
   the first dash-separated segment of the bearer's `chip.id`.
 - **Module:** `app/base/bosses/sentry.js`, `app/base/services/service-sentry.js`.
+- **22.1.1 → 22.1.2:** `bosses/sentry.js` changed, but not on the wire. Chip jobs are now queued with
+  `prioritize: true` (the client's own queue ordering), and the default request headers are conveyed
+  to the native shell as `sentry.headers`. `service-sentry.js` and `server.js` (where
+  `_defaultRequestHeaders` lives) are unchanged.
 - **Ours:** `requestChip()` and `refreshIdentity()`.
 - **Confirmed:** browser HAR, 2026-07-16 (anonymous) and 2026-09-22 (re-mint). Both captures agree
   the parameter is `c`, not `client`. We sent `?client=dewey` until 2026-09-22 — it minted chips
@@ -40,6 +47,7 @@ length (`"chip"` → 4).
   without it the identity is stamped `prbn=v` and fulfillment returns `403 {"result":"whoa"}`.
 - **22.0.2 → 22.1.1:** constants rotated (`a0putz` → `a0dress`, string-table indices shifted), shape
   identical. The algorithm did not change.
+- **22.1.1 → 22.1.2:** rotated again, same shape.
 - **Per-token, confirmed:** across the captures the chip mints carry fourteen different values —
   `bh bn dd eu ln lo ly nf pu sa uk uz vr zw` — which is what a derivation from the identity looks
   like, and why a fixed guess would be worse than computing it.
@@ -104,6 +112,12 @@ and `Accept-Language: en-US,en` on **every** call.
   independent tells on every call — a header no real client sends, and the absence of one they all
   send. (An earlier note here said this applied only to the chip POST. It was based on one request
   and was wrong about the scope.)
+
+## Circulation error codes
+
+- `WEBSITE_MIGRATING` — new in 22.1.2 (`interview-circ-base.js`). The client shows
+  `circ.error.website-migrating` and exits; it is the library moving platforms, not a refusal of the
+  caller. **Ours:** not handled specifically; it surfaces as an ordinary upstream failure.
 
 ## Thunder client id
 

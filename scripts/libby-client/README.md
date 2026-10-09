@@ -25,7 +25,7 @@ They run in sequence, and each does one thing:
 
 | | |
 |---|---|
-| `libby-current` | What version is live, what we announce, do they match. Exits non-zero on drift. |
+| `libby-current` | What version is live, and whether `LibbyClientProfiles` supports it. Exits non-zero if not. |
 | `libby-fetch [version]` | Archive the live version's assets into `versions/<v>/raw/`. |
 | `libby-from-har <har\|dir>` | Recover a version from saved browser HARs — the only route to one already rolled. |
 | `libby-split <version-dir>` | Split `main.js` into one file per AMD module, then beautify. |
@@ -35,11 +35,11 @@ They run in sequence, and each does one thing:
 Typical use, when a release lands or something starts being refused:
 
 ```sh
-bin/libby-current                      # 22.1.2 live, we say 22.1.1 → drift
+bin/libby-current                      # 22.1.3 live, unsupported → Grimmory has stopped
 bin/libby-fetch                        # archive it before it rolls again
-bin/libby-split versions/22.1.2
-bin/libby-diff 22.1.1 22.1.2           # what actually moved
-bin/libby-diff 22.1.1 22.1.2 obf/shib.js   # read the one that matters
+bin/libby-split versions/22.1.3
+bin/libby-diff 22.1.2 22.1.3           # what actually moved
+bin/libby-diff 22.1.2 22.1.3 obf/shib.js   # read the one that matters
 ```
 
 ## Why split the bundle
@@ -71,6 +71,14 @@ kept somewhere durable.
 What *is* tracked is `PRIORS.md`: the facts we copied out, where each came from, and which module to
 re-read when it changes. That file is the actual output of this folder. The bundles are working
 material.
+
+## Supporting a new build
+
+Grimmory checks the live build every morning and stops all OverDrive traffic while it is one
+`LibbyClientProfiles` does not list. To lift that: fetch, split and diff it as above, update
+`PRIORS.md` with what moved, and add a `LibbyClientProfile` for it — reusing the previous build's
+settings if nothing on the wire changed, or adding a new scheme to `LibbyClientProfile` if something
+did. Older builds stay listed, so a rollback on OverDrive's side keeps working.
 
 ## Adding a prior
 

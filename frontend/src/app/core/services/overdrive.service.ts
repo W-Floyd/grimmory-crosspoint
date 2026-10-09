@@ -289,6 +289,17 @@ export interface OverDriveCapabilities {
    * read-in-browser ("ebook-overdrive") format, which has no downloadable file and no ACSM.
    */
   ebookHandlerConfigured: boolean;
+  libbyClient?: OverDriveLibbyClientStatus;
+}
+
+/** The live Libby build versus the ones this server can speak as. */
+export interface OverDriveLibbyClientStatus {
+  liveVersion: string | null;
+  speakingAs: string | null;
+  supportedVersions: string[];
+  checkedAt: string | null;
+  /** Set while every OverDrive action is stopped; says why. */
+  blockedReason: string | null;
 }
 
 /** Result of validating/resolving an OverDrive library key against the Thunder directory. */

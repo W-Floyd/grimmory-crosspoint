@@ -146,6 +146,7 @@ public class OverDriveService {
     private final OverDriveCredentialCipher credentialCipher;
     private final org.booklore.service.NotificationService notificationService;
     private final org.booklore.service.book.BookFileAttachmentService bookFileAttachmentService;
+    private final LibbyClientVersionGuard libbyClientVersionGuard;
 
     /**
      * Titles currently being borrow-and-imported, keyed {@code userId:titleId} — see
@@ -744,12 +745,11 @@ public class OverDriveService {
     // fulfillment outright — see fetchFulfillment for what that turned out to mean and why it now
     // freezes the card instead of retrying.
     //
-    // These strings go stale, and stale is itself a signature: a client claiming a browser and a Libby
-    // build that no longer exist together is trivially separable from real traffic. Both were last
-    // checked against a live capture on 2026-09-22 (Firefox 156, dewey 22.1.1). The current web build
-    // is one GET away — https://libbyapp.com/ serves its assets from /dewey-<version>/ — so this is
-    // worth re-reading whenever OverDrive starts refusing things it used to allow.
-    private static final String USER_AGENT =
+    // These strings go stale, and stale is itself a signature: a client claiming a browser that no
+    // longer exists is trivially separable from real traffic. The user agent was last checked against a
+    // live capture on 2026-09-22 (Firefox 156). The Libby build is not fixed here: LibbyClientVersionGuard
+    // reads the live one daily and speaks as its LibbyClientProfile, or stops if it has none.
+    static final String USER_AGENT =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0";
     /**
      * What the web client sends on every call but the chip mint.
@@ -764,7 +764,7 @@ public class OverDriveService {
      * different — bh, bn, dd, eu, ln, lo, ly, nf, pu, sa, uk, uz, vr, zw — which is what a per-token
      * derivation looks like, and why a fixed guess would be worse than the real computation.
      */
-    private static final String ACCEPT_LANGUAGE = "en-US,en";
+    static final String ACCEPT_LANGUAGE = "en-US,en";
 
     // No Referer, deliberately — "add one, it looks more like a browser" is the obvious wrong move.
     // The Libby page carries <meta name="referrer" content="no-referrer">, so the browser strips it
@@ -776,9 +776,6 @@ public class OverDriveService {
     // was missing until the same day, that gave our traffic two independent tells on every single
     // call: a header no real client sends, and the absence of one every real client sends.
     private static final String ORIGIN = "https://libbyapp.com";
-    /** Dewey (Libby) client version sent to the chip endpoint (c=d:<version>), per the web client. */
-    /** The Libby web build we claim to be. See the note on USER_AGENT for how to check it. */
-    private static final String DEWEY_VERSION = "22.1.1";
     private static final int LOAN_PERIOD_DAYS = 21;
 
     private static final java.util.regex.Pattern RESULT_PATTERN =
@@ -950,7 +947,7 @@ public class OverDriveService {
        * than guessed at, since a wrong one is likely worse than none.
        */
       public ChipResult requestChip() {
-        String url = sentryBaseUrl + "/chip?c=d:" + DEWEY_VERSION + "&s=0";
+        String url = sentryBaseUrl + "/chip?" + libbyClient().chipQuery(null);
         try {
             ResponseEntity<OverDriveChipResponse> resp = restClient.post()
                     .uri(url)
@@ -983,22 +980,21 @@ public class OverDriveService {
         if (token == null || token.isBlank()) {
             return token;
         }
+        LibbyClientProfile client = libbyClient();
         try {
             // Mirror the web client's acquireChip: POST /chip?c=d:<ver>&s=0&v=<chip-id-prefix> with the
             // current identity as the bearer. Libby re-mints the identity registered for fulfillment.
-            String uri = sentryBaseUrl + "/chip?c=d:" + DEWEY_VERSION + "&s=0";
             String chipId = chipIdOf(token);
-            if (chipId != null) {
-                uri += "&v=" + chipId.split("-")[0];
-            }
-            String finalUri = uri;
+            String finalUri = sentryBaseUrl + "/chip?" + client.chipQuery(chipId != null ? chipId.split("-")[0] : null);
             // The web client's obf/shib.js smuggles a "shibboleth" into Accept-Language on the /chip
             // re-mint: 2 chars of the identity token (stripped to [a-z], reversed) at offset = the
             // request path length ("chip" → 4). The server validates it against the bearer identity;
             // without it, the re-mint returns an identity stamped prbn=v and fulfillment is refused
             // ("whoa"). With it, the re-mint returns a prbn-absent identity that fulfills. (Verified
             // end-to-end; see docs/OverDrive-Testing.md.)
-            String shibboleth = chipShibboleth(token, "chip".length());
+            String shibboleth = switch (client.shibboleth()) {
+                case REVERSED_ALPHA_AT_PATH_LENGTH -> chipShibboleth(token, "chip".length());
+            };
             // Set on the header map rather than through the builder's header(): that one appends, and
             // libbyHeaders now carries an Accept-Language of its own, so adding here would send both
             // ("en-US,en, ln") — a value no client sends and the server has no reason to accept.
@@ -1128,6 +1124,7 @@ public class OverDriveService {
         if (!code.matches("\\d{8}")) {
             throw ApiError.GENERIC_BAD_REQUEST.createException("Invalid Libby setup code: expected 8 digits");
         }
+        libbyClient();
 
         // 1. Fresh chip identity — this token authenticates everything that follows.
         String token = requestChip().token();
@@ -1487,6 +1484,7 @@ public class OverDriveService {
 
       /** Read the library's local-auth ILS name from {@code GET /auth/forms/{websiteId}}, or null. */
       private String fetchIlsName(String websiteId) {
+        libbyClient();
         try {
             String body = restClient.get()
                     .uri(sentryBaseUrl + "/auth/forms/" + websiteId)
@@ -1512,6 +1510,7 @@ public class OverDriveService {
       /** POST /auth/link/{websiteId} with {ils, username, password} to link a card to the chip. */
       private void submitLocalAuthentication(String websiteId, String ilsName, String cardNumber, String pin,
                                              String token) {
+        libbyClient();
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("ils", ilsName);
         body.put("username", cardNumber);
@@ -3267,6 +3266,14 @@ public class OverDriveService {
         }
       }
 
+      /**
+       * The Libby build to speak as, or a CONFLICT when the live one is unsupported or unconfirmed.
+       * Called before every request made as the Libby client, so an unsupported build sends nothing.
+       */
+      private LibbyClientProfile libbyClient() {
+        return libbyClientVersionGuard.requireProfile();
+      }
+
       static boolean isMissingChip(Throwable e) { // package-private for testing
         for (Throwable t = e; t != null && t != t.getCause(); t = t.getCause()) {
             if (t instanceof org.springframework.web.client.RestClientResponseException r
@@ -3306,6 +3313,7 @@ public class OverDriveService {
         // The cost is that the frozen card's loan cache stops being refreshed, so what it shows is
         // what was true when it froze. That is the intended trade: a stale cache on a card nothing may
         // act on says nothing misleading, and unfreezing re-syncs it.
+        libbyClient();
         String frozen = freezeReason(identity);
         if (frozen != null) {
             throw ApiError.CONFLICT.createException(frozen);
@@ -3365,6 +3373,7 @@ public class OverDriveService {
 
       /** Read all library cards from a sync as {@link OverDriveCard}s (id + best-effort display name). */
       private List<OverDriveCard> fetchCards(String token) {
+        libbyClient();
         List<OverDriveCard> cards = new ArrayList<>();
         try {
             Map<?, ?> body = restClient.get()
@@ -3517,6 +3526,7 @@ public class OverDriveService {
       }
 
       private OverDriveSyncResponse syncWith(String identity, String authToken) {
+        libbyClient();
         String url = sentryBaseUrl + "/chip/sync";
         HttpHeaders headers = libbyHeaders(authToken);
 
@@ -3799,6 +3809,7 @@ public class OverDriveService {
        * (audiobooks must borrow as "audiobook", not "ebook").
        */
       private Map<String, Object> borrowLoan(String cardId, String authToken, String titleId, String titleFormatHint) {
+        libbyClient();
         String url = sentryBaseUrl + "/card/" + cardId + "/loan/" + titleId;
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("period", LOAN_PERIOD_DAYS);
@@ -3981,6 +3992,7 @@ public class OverDriveService {
         // The choke point every fulfillment passes through — the import sweep, the bookbag, a person
         // clicking Download — so one check here is what makes a freeze mean "nothing is attempted".
         // Checked before the request, not after: the point of the freeze is that the call is not made.
+        libbyClient();
         String frozen = freezeReason(cardId);
         if (frozen != null) {
             throw ApiError.CONFLICT.createException(frozen);
@@ -4099,6 +4111,7 @@ public class OverDriveService {
 
       /** GET a pre-signed fulfillment content URL (ACSM/open file) without auth; returns the bytes. */
       private byte[] downloadContent(String href, String loanId) throws IOException, InterruptedException {
+        libbyClient();
         HttpRequest req = HttpRequest.newBuilder(URI.create(href))
                 .header("User-Agent", USER_AGENT)
                 .header("Accept", "*/*")
@@ -4755,6 +4768,13 @@ public class OverDriveService {
       }
 
       private AutoSyncOutcome doAutoSync() {
+        // Stopped before the sync, not left to fail inside it: a pass that syncs nothing would read
+        // every bookbag hold as lapsed and clear it.
+        String unsupported = libbyClientVersionGuard.blockedReason();
+        if (unsupported != null) {
+            log.warn("OverDrive: skipping the automation pass. {}", unsupported);
+            return AutoSyncOutcome.none();
+        }
         OverDriveAutoSyncSettings settings = getAutoSyncSettings();
         Long userId = currentUserId();
         // One read of the bag for everything the surrounding phases need to know about it.

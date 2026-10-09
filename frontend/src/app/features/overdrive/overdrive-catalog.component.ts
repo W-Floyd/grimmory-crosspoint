@@ -507,6 +507,7 @@ export class OverdriveCatalogComponent implements OnInit {
   // Whether an ACSM handler is configured (enables importing Adobe-DRM formats). Shapes the
   // "No supported format" tooltip: no point suggesting ACSM setup when it's already enabled.
   acsmConfigured = signal(false);
+  libbyBlockedReason = signal<string | null>(null);
   // Whether an audiobook handler is configured server-side (enables audiobook borrows).
   audiobookConfigured = signal(false);
   // Whether a magazine handler is configured server-side (enables magazine borrows).
@@ -651,6 +652,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.audiobookConfigured.set(!!c?.audiobookHandlerConfigured);
          this.magazineConfigured.set(!!c?.magazineHandlerConfigured);
          this.ebookConfigured.set(!!c?.ebookHandlerConfigured);
+         this.libbyBlockedReason.set(c?.libbyClient?.blockedReason ?? null);
        },
        error: () => { /* leave default (assume not configured) */ }
      });

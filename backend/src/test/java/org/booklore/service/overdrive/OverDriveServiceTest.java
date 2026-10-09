@@ -67,6 +67,8 @@ class OverDriveServiceTest {
     @Mock private org.booklore.service.appsettings.AppSettingService appSettingService;
     @Mock private org.booklore.service.NotificationService notificationService;
     @Mock private org.booklore.service.book.BookFileAttachmentService bookFileAttachmentService;
+    private static final LibbyClientVersionGuard libbyClient =
+            LibbyClientVersionGuard.pinned(LibbyClientProfiles.forVersion("22.1.2").orElseThrow());
 
     private OverDriveService service;
 
@@ -78,7 +80,7 @@ class OverDriveServiceTest {
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
-                notificationService, bookFileAttachmentService);
+                notificationService, bookFileAttachmentService, libbyClient);
         unblocked(service);
     }
 
@@ -772,7 +774,7 @@ class OverDriveServiceTest {
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
-                notificationService, bookFileAttachmentService);
+                notificationService, bookFileAttachmentService, libbyClient);
         unblocked(svc);
         return svc;
     }
@@ -3823,7 +3825,7 @@ class OverDriveServiceTest {
                 magazineHandler, ebookHandler, bookService,
                 client, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
-                new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService);
+                new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService, libbyClient);
         unblocked(svc);
         return new SyncHarness(svc, calls);
     }

@@ -49,6 +49,8 @@ for (const d of [aDir, bDir]) {
 const PRIORS = [
   ['obf/shib.js', 'the Accept-Language shibboleth on /chip'],
   ['app/base/services/service-sentry.js', 'how requests to sentry are shaped'],
+  ['app/base/bosses/sentry.js', 'the /chip query shape and when a re-mint happens'],
+  ['app/base/server.js', 'the default request headers (_defaultRequestHeaders)'],
 ];
 
 if (third && !third.startsWith('--')) {

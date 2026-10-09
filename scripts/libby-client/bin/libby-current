@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# What version of the Libby web client is live right now, and is that what we claim to be?
+# What version of the Libby web client is live right now, and can we speak as it?
 #
 # The version is not published anywhere official. It is visible because the app loads its own assets
 # from a versioned directory — /dewey-22.1.1/src/main.js — so the index page names it in every build.
 #
-# Exit status is the point: 0 when we match, 1 when we have drifted. That makes this usable from a
+# Exit status is the point: 0 when it is supported, 1 when it is not. That makes this usable from a
 # check rather than only by eye.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,11 +18,11 @@ if [[ -z "$live" ]]; then
   exit 2
 fi
 
-service="$here/../../../backend/src/main/java/org/booklore/service/overdrive/OverDriveService.java"
-ours="$(grep -oE 'DEWEY_VERSION = "[^"]+"' "$service" 2>/dev/null | cut -d'"' -f2 || true)"
+profiles="$here/../../../backend/src/main/java/org/booklore/service/overdrive/LibbyClientProfiles.java"
+supported="$(grep -oE 'new LibbyClientProfile\("[^"]+"' "$profiles" 2>/dev/null | cut -d'"' -f2 | tr '\n' ' ' || true)"
 
-echo "live:  $live"
-echo "ours:  ${ours:-<not found>}"
+echo "live:       $live"
+echo "supported:  ${supported:-<not found>}"
 
 archived="$here/../versions/$live"
 if [[ ! -d "$archived" ]]; then
@@ -31,9 +31,9 @@ if [[ ! -d "$archived" ]]; then
   echo "  (old versions are NOT kept on the server; once it rolls, this one is gone for good)"
 fi
 
-if [[ "$live" == "$ours" ]]; then
+if [[ " $supported " == *" $live "* ]]; then
   exit 0
 fi
 echo
-echo "DRIFT: we are announcing a client version OverDrive no longer serves."
+echo "UNSUPPORTED: Grimmory stops all OverDrive traffic until $live is added to LibbyClientProfiles."
 exit 1
