@@ -123,12 +123,15 @@ jobs:
           HEAD_REF: ${{ needs.check-for-migrations.outputs.head_ref }}
         run: |
           echo "Applying new migrations from head ref (${HEAD_REF})..."
+          # Out-of-order as the app runs it (spring.flyway.out-of-order): a merge brings upstream
+          # migrations numbered below the fork's V900+ ones the base already applied.
           docker run --network host \
             -v ${GITHUB_WORKSPACE}:/flyway/sql \
             flyway/flyway:12.1.0 \
             -url=jdbc:mariadb://127.0.0.1:3306/booklore_test \
             -user=root -password=root \
             -locations=filesystem:/flyway/sql/backend/src/main/resources/db/migration \
+            -outOfOrder=true \
             migrate
 
       - name: Confirm Flyway Dry Run Success
