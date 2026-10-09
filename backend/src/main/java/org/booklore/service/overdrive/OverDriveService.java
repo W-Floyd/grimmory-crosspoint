@@ -1362,6 +1362,12 @@ public class OverDriveService {
                                                         boolean persistAsMoved) {
         List<OverDriveTokenEntity> moved = new ArrayList<>();
         for (OverDriveTokenEntity card : cards) {
+            // Every caller, not just unify: a re-link carrying its chip-mates across would otherwise
+            // sign a frozen one in at its library.
+            if (freezeReason(card.getIdentity()) != null) {
+                log.info("OverDrive: card {} is frozen, so it stays off chip {}", card.getIdentity(), chipIdOf(token));
+                continue;
+            }
             if (card.getCredCard() == null || card.getWebsiteId() == null || card.getIlsName() == null) {
                 log.info("OverDrive: card {} has no stored card + PIN, so it cannot join another chip",
                         card.getIdentity());
@@ -1420,6 +1426,10 @@ public class OverDriveService {
       public OverDriveChipUnifyResult unifyChips(String targetCardId) {
         Long owner = currentUserId();
         OverDriveTokenEntity target = ownedCardForChip(targetCardId, owner);
+        String targetFrozen = freezeReason(target.getIdentity());
+        if (targetFrozen != null) {
+            throw ApiError.CONFLICT.createException(targetFrozen);
+        }
         String token = tokenRenewedIfExpired(target.getIdentity());
         if (token == null || token.isBlank()) {
             throw ApiError.GENERIC_BAD_REQUEST.createException(
@@ -1434,6 +1444,12 @@ public class OverDriveService {
             }
             if (token.equals(card.getToken())) {
                 continue; // already on this chip
+            }
+            // Joining signs the card in at its library, which a freeze forbids. It would also tie a
+            // card OverDrive refused to the chip every healthy card is moving onto.
+            if (freezeReason(card.getIdentity()) != null) {
+                skipped.add(skipped(card, "Frozen — unfreeze it first if it should join"));
+                continue;
             }
             if (!credentialCipher.isEnabled()) {
                 skipped.add(skipped(card, "Credential storage is off (set OVERDRIVE_CREDENTIAL_KEY)"));

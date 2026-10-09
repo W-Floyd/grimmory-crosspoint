@@ -3972,6 +3972,43 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void unifyingLeavesAFrozenCardWhereItIsAndSaysSo() {
+        authAsOverdriveUser(7L);
+        OverDriveTokenEntity target = cardRow("card-a", "token-a", true);
+        OverDriveTokenEntity frozen = cardRow("card-b", "token-b", true);
+        frozen.setFrozenAt(Instant.now().minusSeconds(3600));
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(target));
+        when(tokenRepository.findByUserId(7L)).thenReturn(List.of(target, frozen));
+        when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(target));
+        when(tokenRepository.findByIdentity("card-b")).thenReturn(List.of(frozen));
+
+        var result = serviceWith(enabledCipher()).unifyChips("card-a");
+
+        assertThat(result.moved()).isEmpty();
+        assertThat(result.skipped()).singleElement()
+                .satisfies(sk -> {
+                    assertThat(sk.cardId()).isEqualTo("card-b");
+                    assertThat(sk.reason()).contains("Frozen");
+                });
+        verifyNoInteractions(restClient);
+    }
+
+    @Test
+    void unifyingOntoAFrozenCardIsRefused() {
+        authAsOverdriveUser(7L);
+        OverDriveTokenEntity target = cardRow("card-a", "token-a", true);
+        target.setFrozenAt(Instant.now().minusSeconds(3600));
+        target.setFrozenReason("OverDrive refused fulfillment.");
+        when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(target));
+        when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(target));
+
+        assertThatThrownBy(() -> serviceWith(enabledCipher()).unifyChips("card-a"))
+                .isInstanceOf(org.booklore.exception.APIException.class)
+                .hasMessageContaining("OverDrive refused fulfillment.");
+        verifyNoInteractions(restClient);
+    }
+
+    @Test
     void unifyingLeavesCardsAlreadyOnTheChipAlone() {
         authAsOverdriveUser(7L);
         OverDriveTokenEntity target = cardRow("card-a", "token-a", true);
