@@ -104,6 +104,9 @@ public class BookMetadataEntity {
     @Column(name = "hardcover_review_count")
     private Integer hardcoverReviewCount;
 
+    @Column(name = "openlibrary_id", length = 100)
+    private String openlibraryId;
+
     @Column(name = "asin", length = 10)
     private String asin;
 
@@ -143,6 +146,15 @@ public class BookMetadataEntity {
     @Column(name = "audible_review_count")
     private Integer audibleReviewCount;
 
+    @Column(name = "applebooks_id", length = 100)
+    private String applebooksId;
+
+    @Column(name = "applebooks_rating")
+    private Double applebooksRating;
+
+    @Column(name = "applebooks_review_count")
+    private Integer applebooksReviewCount;
+
     @Column(name = "title_locked")
     @Builder.Default
     private Boolean titleLocked = Boolean.FALSE;
@@ -170,6 +182,10 @@ public class BookMetadataEntity {
     @Column(name = "isbn_10_locked")
     @Builder.Default
     private Boolean isbn10Locked = Boolean.FALSE;
+
+    @Column(name = "openlibrary_id_locked")
+    @Builder.Default
+    private Boolean openlibraryIdLocked = Boolean.FALSE;
 
     @Column(name = "asin_locked")
     @Builder.Default
@@ -291,6 +307,18 @@ public class BookMetadataEntity {
     @Builder.Default
     private Boolean audibleReviewCountLocked = Boolean.FALSE;
 
+    @Column(name = "applebooks_id_locked")
+    @Builder.Default
+    private Boolean applebooksIdLocked = Boolean.FALSE;
+
+    @Column(name = "applebooks_rating_locked")
+    @Builder.Default
+    private Boolean applebooksRatingLocked = Boolean.FALSE;
+
+    @Column(name = "applebooks_review_count_locked")
+    @Builder.Default
+    private Boolean applebooksReviewCountLocked = Boolean.FALSE;
+
     @Column(name = "narrator", length = 500)
     private String narrator;
 
@@ -351,6 +379,7 @@ public class BookMetadataEntity {
         this.language = trimOrNull(this.language);
         this.isbn13 = trimOrNull(this.isbn13);
         this.isbn10 = trimOrNull(this.isbn10);
+        this.openlibraryId = trimOrNull(this.openlibraryId);
         this.asin = trimOrNull(this.asin);
         this.goodreadsId = trimOrNull(this.goodreadsId);
         this.hardcoverId = trimOrNull(this.hardcoverId);
@@ -360,6 +389,7 @@ public class BookMetadataEntity {
         this.lubimyczytacId = trimOrNull(this.lubimyczytacId);
         this.ranobedbId = trimOrNull(this.ranobedbId);
         this.audibleId = trimOrNull(this.audibleId);
+        this.applebooksId = trimOrNull(this.applebooksId);
         this.contentRating = trimOrNull(this.contentRating);
         this.narrator = trimOrNull(this.narrator);
     }
@@ -433,6 +463,7 @@ public class BookMetadataEntity {
         this.descriptionLocked = lock;
         this.isbn13Locked = lock;
         this.isbn10Locked = lock;
+        this.openlibraryIdLocked = lock;
         this.asinLocked = lock;
         this.pageCountLocked = lock;
         this.languageLocked = lock;
@@ -463,6 +494,9 @@ public class BookMetadataEntity {
         this.audibleIdLocked = lock;
         this.audibleRatingLocked = lock;
         this.audibleReviewCountLocked = lock;
+        this.applebooksIdLocked = lock;
+        this.applebooksRatingLocked = lock;
+        this.applebooksReviewCountLocked = lock;
         this.reviewsLocked = lock;
         this.narratorLocked = lock;
         this.abridgedLocked = lock;
@@ -481,6 +515,7 @@ public class BookMetadataEntity {
                 && Boolean.TRUE.equals(this.descriptionLocked)
                 && Boolean.TRUE.equals(this.isbn13Locked)
                 && Boolean.TRUE.equals(this.isbn10Locked)
+                && Boolean.TRUE.equals(this.openlibraryIdLocked)
                 && Boolean.TRUE.equals(this.asinLocked)
                 && Boolean.TRUE.equals(this.pageCountLocked)
                 && Boolean.TRUE.equals(this.languageLocked)
@@ -511,6 +546,9 @@ public class BookMetadataEntity {
                 && Boolean.TRUE.equals(this.audibleIdLocked)
                 && Boolean.TRUE.equals(this.audibleRatingLocked)
                 && Boolean.TRUE.equals(this.audibleReviewCountLocked)
+                && Boolean.TRUE.equals(this.applebooksIdLocked)
+                && Boolean.TRUE.equals(this.applebooksRatingLocked)
+                && Boolean.TRUE.equals(this.applebooksReviewCountLocked)
                 && Boolean.TRUE.equals(this.reviewsLocked)
                 && Boolean.TRUE.equals(this.narratorLocked)
                 && Boolean.TRUE.equals(this.abridgedLocked)

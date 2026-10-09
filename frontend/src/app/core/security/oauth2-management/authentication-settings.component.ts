@@ -1,5 +1,5 @@
 import {HttpErrorResponse} from '@angular/common/http';
-import {Component, effect, inject, signal} from '@angular/core';
+import {Component, effect, inject, signal, WritableSignal} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {InputText} from '@openng/optimus-ui/inputtext';
 import {Button} from '@openng/optimus-ui/button';
@@ -102,9 +102,9 @@ export class AuthenticationSettingsComponent {
   ];
 
   // Test connection
-  isTestingConnection = false;
-  testConnectionResult: OidcTestResult | null = null;
-  showTestDetails = false;
+  readonly isTestingConnection = signal(false);
+  readonly testConnectionResult: WritableSignal<OidcTestResult | null> = signal(null);
+  readonly showTestDetails = signal(false);
 
   // Group mapping
   readonly groupSyncMode = signal('DISABLED');
@@ -116,10 +116,11 @@ export class AuthenticationSettingsComponent {
   readonly groupMappings = signal<OidcGroupMapping[]>([]);
   readonly groupMappingDraft = signal<OidcGroupMapping | null>(null);
 
+  oidcProviderClientSecret: string = '';
+
   oidcProvider: OidcProviderDetails = {
     providerName: '',
     clientId: '',
-    clientSecret: '',
     issuerUri: '',
     scopes: '',
     claimMapping: {
@@ -174,8 +175,10 @@ export class AuthenticationSettingsComponent {
       clientId: settings.oidcProviderDetails?.clientId || '',
       issuerUri: settings.oidcProviderDetails?.issuerUri || '',
       scopes: settings.oidcProviderDetails?.scopes || '',
-      claimMapping: settings.oidcProviderDetails?.claimMapping || defaultClaimMapping
+      claimMapping: settings.oidcProviderDetails?.claimMapping || defaultClaimMapping,
     };
+
+    this.oidcProviderClientSecret = settings.oidcProviderClientSecret || '';
 
     this.availablePermissions.forEach(perm => {
       perm.selected = this.selectedPermissions.includes(perm.value);
@@ -218,6 +221,10 @@ export class AuthenticationSettingsComponent {
       {
         key: AppSettingKey.OIDC_REDIRECT_URIS,
         newValue: this.mobileRedirectUris
+      },
+      {
+        key: AppSettingKey.OIDC_PROVIDER_CLIENT_SECRET,
+        newValue: this.oidcProviderClientSecret
       }
     ];
     if (this.oidcEnabled) {
@@ -453,14 +460,18 @@ export class AuthenticationSettingsComponent {
     return this.allLibraries.find(l => l.id === id)?.name ?? `#${id}`;
   }
 
+  toggleTestDetails(): void {
+    this.showTestDetails.update(s => !s)
+  }
+
   testConnection(): void {
-    this.isTestingConnection = true;
-    this.testConnectionResult = null;
+    this.isTestingConnection.set(true);
+    this.testConnectionResult.set(null);
     this.appSettingsService.testOidcConnection(this.oidcProvider).subscribe({
       next: (result) => {
-        this.testConnectionResult = result;
-        this.showTestDetails = true;
-        this.isTestingConnection = false;
+        this.testConnectionResult.set(result);
+        this.showTestDetails.set(true);
+        this.isTestingConnection.set(false);
       },
       error: () => {
         this.messageService.add({
@@ -468,7 +479,7 @@ export class AuthenticationSettingsComponent {
           summary: this.t.translate('common.error'),
           detail: this.t.translate('settingsAuth.testConnection.error')
         });
-        this.isTestingConnection = false;
+        this.isTestingConnection.set(false);
       }
     });
   }

@@ -7,6 +7,7 @@ import java.util.List;
 
 @Data
 public class MetadataProviderSettings {
+    private OpenLibrary openLibrary;
     private Amazon amazon;
     private Google google;
     private Goodreads goodReads;
@@ -18,6 +19,12 @@ public class MetadataProviderSettings {
     private Lubimyczytac lubimyczytac;
     private Audible audible;
     private Overdrive overdrive;
+    private AppleBooks appleBooks;
+
+    @Data
+    public static class OpenLibrary {
+        private boolean enabled;
+    }
 
     @Data
     public static class Amazon {
@@ -91,5 +98,11 @@ public class MetadataProviderSettings {
          * ebook-pdf-adobe). Empty/null falls back to the built-in default order.
          */
         private java.util.List<String> formatPreference;
+    }
+
+    @Data
+    public static class AppleBooks {
+        private boolean enabled;
+        private String country;
     }
 }

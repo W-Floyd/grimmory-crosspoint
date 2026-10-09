@@ -18,19 +18,6 @@ export const BOOK_READ_STATUSES = [
 export type KnownBookReadStatus = typeof BOOK_READ_STATUSES[number];
 export type BookReadStatus = KnownBookReadStatus | (string & {});
 
-export const BOOK_METADATA_PROVIDERS = [
-  'Amazon',
-  'GoodReads',
-  'Google',
-  'Hardcover',
-  'Comicvine',
-  'Douban',
-  'Lubimyczytac',
-  'Ranobedb',
-  'Audible',
-] as const;
-export type BookMetadataProvider = typeof BOOK_METADATA_PROVIDERS[number] | (string & {});
-
 export interface BookFileResponse {
   id: number;
   bookId: number;
@@ -128,6 +115,7 @@ export interface BookSummaryComicMetadata {
 interface BookMetadataFields {
   bookId: number;
   title?: string;
+  subtitle?: string;
   publisher?: string;
   publishedDate?: string;
   seriesName?: string;
@@ -144,6 +132,9 @@ interface BookMetadataFields {
   hardcoverRating?: number;
   hardcoverReviewCount?: number;
   ranobedbRating?: number;
+  lubimyczytacRating?: number;
+  audibleRating?: number;
+  audibleReviewCount?: number;
   coverUpdatedOn?: string;
   audiobookCoverUpdatedOn?: string;
   authors?: string[];
@@ -242,7 +233,6 @@ export interface BookDetailComicMetadata extends BookSummaryComicMetadata {
 }
 
 export interface BookDetailMetadata extends BookMetadataFields {
-  subtitle?: string;
   description?: string;
   seriesTotal?: number;
   asin?: string;
@@ -255,15 +245,19 @@ export interface BookDetailMetadata extends BookMetadataFields {
   lubimyczytacId?: string;
   ranobedbId?: string;
   audibleId?: string;
+  openlibraryId?: string;
   doubanRating?: number;
   doubanReviewCount?: number;
   lubimyczytacRating?: number;
   audibleRating?: number;
   audibleReviewCount?: number;
+  applebooksId?: string;
+  applebooksRating?: number;
+  applebooksReviewCount?: number;
   abridged?: boolean;
   audiobookMetadata?: BookDetailAudiobookMetadata;
   comicMetadata?: BookDetailComicMetadata;
-  provider?: BookMetadataProvider;
+  provider?: string;
   externalUrl?: string;
   thumbnailUrl?: string;
   titleLocked?: boolean;
@@ -297,9 +291,13 @@ export interface BookDetailMetadata extends BookMetadataFields {
   lubimyczytacRatingLocked?: boolean;
   ranobedbIdLocked?: boolean;
   ranobedbRatingLocked?: boolean;
+  openlibraryIdLocked?: boolean;
   audibleIdLocked?: boolean;
   audibleRatingLocked?: boolean;
   audibleReviewCountLocked?: boolean;
+  applebooksIdLocked?: boolean;
+  applebooksRatingLocked?: boolean;
+  applebooksReviewCountLocked?: boolean;
   externalUrlLocked?: boolean;
   coverLocked?: boolean;
   audiobookCoverLocked?: boolean;

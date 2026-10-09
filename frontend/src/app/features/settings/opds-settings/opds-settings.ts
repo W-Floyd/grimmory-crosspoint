@@ -217,9 +217,21 @@ export class OpdsSettings implements OnInit {
   }
 
   copyEndpoint(): void {
-    navigator.clipboard.writeText(this.opdsEndpoint).then(() => {
-      this.showMessage('success', this.t.translate('common.success'), this.t.translate('settingsOpds.opdsCopied'));
-    });
+    navigator.clipboard.writeText(this.opdsEndpoint)
+      .then(() => {
+        this.showMessage(
+          'success',
+          this.t.translate('common.success'),
+          this.t.translate('settingsOpds.opdsCopied')
+        );
+      })
+      .catch(() => {
+        this.showMessage(
+          'error',
+          this.t.translate('common.error'),
+          this.t.translate('settingsOpds.copyFailed')
+        );
+      });
   }
 
   toggleOpdsServer(): void {
@@ -241,9 +253,21 @@ export class OpdsSettings implements OnInit {
   }
 
   copyKomgaEndpoint(): void {
-    navigator.clipboard.writeText(this.komgaEndpoint).then(() => {
-      this.showMessage('success', this.t.translate('common.success'), this.t.translate('settingsOpds.komgaCopied'));
-    });
+    navigator.clipboard.writeText(this.komgaEndpoint)
+      .then(() => {
+        this.showMessage(
+          'success',
+          this.t.translate('common.success'),
+          this.t.translate('settingsOpds.komgaCopied')
+        );
+      })
+      .catch(() => {
+        this.showMessage(
+          'error',
+          this.t.translate('common.error'),
+          this.t.translate('settingsOpds.copyFailed')
+        );
+      });
   }
 
   toggleKomgaGroupUnknown(): void {

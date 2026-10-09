@@ -9,7 +9,7 @@ import {DialogLauncherService} from '../../../shared/services/dialog-launcher.se
 import {MagicShelfService} from '../../magic-shelf/service/magic-shelf.service';
 import {MetadataRefreshType} from '../../metadata/model/request/metadata-refresh-type.enum';
 import {TaskHelperService} from '../../settings/task-management/task-helper.service';
-import {BookDialogHelperService} from '../components/book-browser/book-dialog-helper.service';
+import {BookDialogHelperService} from './book-dialog-helper.service';
 import {LibraryService} from './library.service';
 import {ShelfService} from './shelf.service';
 
@@ -223,7 +223,7 @@ export class LibraryShelfMenuService {
 
   private navigateHomeIfViewing(deletedTargetUrl: string): void {
     const currentPath = this.router.url.replace(/[?#].*$/, '');
-    if (currentPath === deletedTargetUrl) {
+    if (currentPath === deletedTargetUrl || currentPath.startsWith(`${deletedTargetUrl}/`)) {
       void this.router.navigate(['/']);
     }
   }

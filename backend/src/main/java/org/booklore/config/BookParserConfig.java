@@ -11,9 +11,22 @@ import java.util.Map;
 public class BookParserConfig {
 
     @Bean
-    public Map<MetadataProvider, BookParser> parserMap(GoogleParser googleParser, AmazonBookParser amazonBookParser,
-                                                       GoodReadsParser goodReadsParser, HardcoverParser hardcoverParser, ComicvineBookParser comicvineBookParser, DoubanBookParser doubanBookParser, RanobeDbParser ranobedbParser, LubimyCzytacParser lubimyczytacParser, AudibleParser audibleParser, OverDriveParser overDriveParser) {
+    public Map<MetadataProvider, BookParser> parserMap(
+            GoogleParser googleParser,
+            AmazonBookParser amazonBookParser,
+            GoodReadsParser goodReadsParser,
+            HardcoverParser hardcoverParser,
+            ComicvineBookParser comicvineBookParser,
+            DoubanBookParser doubanBookParser,
+            RanobeDbParser ranobedbParser,
+            LubimyCzytacParser lubimyczytacParser,
+            AudibleParser audibleParser,
+            AppleBooksParser appleBooksParser,
+            OpenLibraryParser openLibraryParser,
+            OverDriveParser overDriveParser
+    ) {
         return Map.ofEntries(
+                Map.entry(MetadataProvider.OpenLibrary, openLibraryParser),
                 Map.entry(MetadataProvider.Amazon, amazonBookParser),
                 Map.entry(MetadataProvider.GoodReads, goodReadsParser),
                 Map.entry(MetadataProvider.Google, googleParser),
@@ -23,6 +36,7 @@ public class BookParserConfig {
                 Map.entry(MetadataProvider.Lubimyczytac, lubimyczytacParser),
                 Map.entry(MetadataProvider.Ranobedb, ranobedbParser),
                 Map.entry(MetadataProvider.Audible, audibleParser),
+                Map.entry(MetadataProvider.AppleBooks, appleBooksParser),
                 Map.entry(MetadataProvider.Overdrive, overDriveParser)
         );
     }

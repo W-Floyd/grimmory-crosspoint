@@ -11,10 +11,11 @@ public record CursorState(
         @JsonProperty("o") long offset,
         @JsonProperty("l") int limit,
         @JsonProperty("s") String sort,
-        @JsonProperty("f") String paramsHash
+        @JsonProperty("f") String paramsHash,
+        @JsonProperty("r") Integer randomSeed
 ) {
 
     public CursorState withOffset(long newOffset) {
-        return new CursorState(newOffset, limit, sort, paramsHash);
+        return new CursorState(newOffset, limit, sort, paramsHash, randomSeed);
     }
 }

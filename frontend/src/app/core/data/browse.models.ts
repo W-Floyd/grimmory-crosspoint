@@ -21,15 +21,19 @@ export interface BrowsePage<T> {
 export interface BrowseFacetValue {
   value: string;
   title: string;
-  count?: number;
+  count: number;
   selected: boolean;
 }
 
 export interface BrowseFacetGroup {
-  rel: string;
   key: string;
   title: string;
   values: BrowseFacetValue[];
+}
+
+export interface BrowseFacetResult {
+  facets: BrowseFacetGroup[];
+  sortTokens: string[];
 }
 
 export type BrowseFacetLogic = 'and' | 'or' | 'not';
@@ -45,4 +49,18 @@ export function findBrowsePageLink(
   rel: string,
 ): BrowseLink | undefined {
   return page.links.find(link => link.rel.includes(rel));
+}
+
+export function flattenBrowsePages<T extends {id: number}>(
+  data: {pages: BrowsePage<T>[]} | undefined,
+): T[] {
+  const items = data?.pages.flatMap(page => page.content) ?? [];
+  const seen = new Set<number>();
+  return items.filter(item => {
+    if (seen.has(item.id)) {
+      return false;
+    }
+    seen.add(item.id);
+    return true;
+  });
 }

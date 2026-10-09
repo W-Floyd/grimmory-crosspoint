@@ -33,14 +33,14 @@ public class SortRegistry<E> {
         return Collections.unmodifiableSet(builders.keySet());
     }
 
-    public List<Order> toOrders(List<SortTerm> terms, Root<E> root, CriteriaQuery<?> query, CriteriaBuilder cb, Long userId) {
+    public List<Order> toOrders(List<SortTerm> terms, Root<E> root, CriteriaQuery<?> query, CriteriaBuilder cb, Long userId, Integer randomSeed) {
         List<Order> orders = new ArrayList<>();
         for (SortTerm term : terms) {
             SortOrderBuilder<E> builder = builders.get(term.key());
             if (builder == null) {
                 throw ApiError.INVALID_SORT.createException("Unknown sort key: " + term.key());
             }
-            orders.addAll(builder.toOrders(new SortContext<>(root, query, cb, term.descending(), userId)));
+            orders.addAll(builder.toOrders(new SortContext<>(root, query, cb, term.descending(), userId, randomSeed)));
         }
         return orders;
     }

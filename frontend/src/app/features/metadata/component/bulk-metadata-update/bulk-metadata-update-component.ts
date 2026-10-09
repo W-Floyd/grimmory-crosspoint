@@ -1,4 +1,4 @@
-import {Component, computed, effect, inject, Injector, OnInit} from '@angular/core';
+import {Component, computed, inject, OnInit} from '@angular/core';
 import {FormBuilder, FormGroup, FormsModule, ReactiveFormsModule} from '@angular/forms';
 
 import {InputText} from '@openng/optimus-ui/inputtext';
@@ -9,11 +9,13 @@ import {DynamicDialogConfig, DynamicDialogRef} from '@openng/optimus-ui/dynamicd
 import {MessageService} from '@openng/optimus-ui/api';
 import {BookService} from '../../../book/service/book.service';
 import {BookMetadataManageService} from '../../../book/service/book-metadata-manage.service';
-import {Book, BulkMetadataUpdateRequest} from '../../../book/model/book.model';
+import {BulkMetadataUpdateRequest} from '../../../book/model/book.model';
+import {AGE_RATING_OPTIONS, CONTENT_RATING_LABELS} from '../../../book/model/book-value-labels';
 import {Checkbox} from '@openng/optimus-ui/checkbox';
 import {AutoComplete} from '@openng/optimus-ui/autocomplete';
 import {AutoCompleteSelectEvent} from '@openng/optimus-ui/autocomplete';
 import {ProgressSpinner} from '@openng/optimus-ui/progressspinner';
+import {Select} from '@openng/optimus-ui/select';
 
 @Component({
   selector: 'app-bulk-metadata-update-component',
@@ -27,8 +29,9 @@ import {ProgressSpinner} from '@openng/optimus-ui/progressspinner';
     DatePicker,
     Checkbox,
     ProgressSpinner,
-    AutoComplete
-],
+    AutoComplete,
+    Select,
+  ],
   providers: [MessageService],
   templateUrl: './bulk-metadata-update-component.html',
   styleUrl: './bulk-metadata-update-component.scss'
@@ -36,8 +39,6 @@ import {ProgressSpinner} from '@openng/optimus-ui/progressspinner';
 export class BulkMetadataUpdateComponent implements OnInit {
   metadataForm!: FormGroup;
   bookIds: number[] = [];
-  books: Book[] = [];
-  showBookList = true;
   mergeCategories = true;
   mergeMoods = true;
   mergeTags = true;
@@ -54,7 +55,13 @@ export class BulkMetadataUpdateComponent implements OnInit {
     genres: false,
     moods: false,
     tags: false,
+    ageRating: false,
+    contentRating: false,
   };
+
+  readonly ageRatingOptions = AGE_RATING_OPTIONS.map(({id, label}) => ({label, value: id}));
+  readonly contentRatingOptions = Object.entries(CONTENT_RATING_LABELS)
+    .map(([value, label]) => ({label, value}));
 
   private readonly config = inject(DynamicDialogConfig);
   readonly ref = inject(DynamicDialogRef);
@@ -62,7 +69,6 @@ export class BulkMetadataUpdateComponent implements OnInit {
   private readonly bookService = inject(BookService);
   private readonly bookMetadataManageService = inject(BookMetadataManageService);
   private readonly messageService = inject(MessageService);
-  private readonly injector = inject(Injector);
   private readonly uniqueMetadata = computed(() => this.bookService.uniqueMetadata());
 
   get allAuthors(): string[] { return this.uniqueMetadata().authors; }
@@ -122,7 +128,6 @@ export class BulkMetadataUpdateComponent implements OnInit {
 
   ngOnInit(): void {
     this.bookIds = this.config.data?.bookIds ?? [];
-    this.books = this.bookService.getBooksByIds(this.bookIds);
 
     this.metadataForm = this.fb.group({
       authors: [],
@@ -133,12 +138,10 @@ export class BulkMetadataUpdateComponent implements OnInit {
       publishedDate: [null],
       genres: [],
       moods: [],
-      tags: []
+      tags: [],
+      ageRating: [null],
+      contentRating: [null]
     });
-
-    effect(() => {
-      this.books = this.bookService.books().filter(book => this.bookIds.includes(book.id));
-    }, {injector: this.injector});
   }
 
   onFieldClearToggle(field: keyof typeof this.clearFields): void {
@@ -221,6 +224,12 @@ export class BulkMetadataUpdateComponent implements OnInit {
 
       tags: this.clearFields.tags ? [] : (formValue.tags?.length ? formValue.tags : undefined),
       clearTags: this.clearFields.tags,
+
+      ageRating: this.clearFields.ageRating ? null : (formValue.ageRating ?? undefined),
+      clearAgeRating: this.clearFields.ageRating,
+
+      contentRating: this.clearFields.contentRating ? null : (formValue.contentRating ?? undefined),
+      clearContentRating: this.clearFields.contentRating,
 
       mergeCategories: this.mergeCategories,
       mergeMoods: this.mergeMoods,

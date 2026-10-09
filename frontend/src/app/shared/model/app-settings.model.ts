@@ -1,6 +1,8 @@
 import {MetadataRefreshOptions} from '../../features/metadata/model/request/metadata-refresh-options.model';
+import type {MetadataProviderFieldRecord} from '../metadata/metadata-provider-fields';
+import type {MetadataProviderScoreFieldName} from '../metadata/metadata-providers';
 
-export interface MetadataMatchWeights {
+interface GenericMatchWeights {
   title: number;
   subtitle: number;
   description: number;
@@ -15,25 +17,16 @@ export interface MetadataMatchWeights {
   language: number;
   pageCount: number;
   categories: number;
-  amazonRating: number;
-  amazonReviewCount: number;
-  goodreadsRating: number;
-  goodreadsReviewCount: number;
-  hardcoverRating: number;
-  hardcoverReviewCount: number;
   doubanRating: number;
   doubanReviewCount: number;
-  lubimyczytacRating: number;
-  ranobedbRating: number;
-  audibleRating: number;
-  audibleReviewCount: number;
   coverImage: number;
 }
+
+export type MetadataMatchWeights = GenericMatchWeights & Record<MetadataProviderScoreFieldName, number>;
 
 export interface OidcProviderDetails {
   providerName: string;
   clientId: string;
-  clientSecret?: string;
   issuerUri: string;
   scopes?: string;
   claimMapping: {
@@ -52,6 +45,7 @@ export interface OidcAutoProvisionDetails {
 }
 
 export interface MetadataProviderSettings {
+  openLibrary: OpenLibrary;
   amazon: Amazon;
   google: Google;
   goodReads: Goodreads;
@@ -62,6 +56,11 @@ export interface MetadataProviderSettings {
   lubimyczytac: Lubimyczytac;
   audible: Audible;
   overdrive: Overdrive;
+  appleBooks: AppleBooks;
+}
+
+export interface OpenLibrary {
+  enabled: boolean;
 }
 
 export interface Amazon {
@@ -115,6 +114,11 @@ export interface Overdrive {
   sentryBaseUrl: string;
   clientId: string;
   formatPreference?: string[];
+}
+
+export interface AppleBooks {
+  enabled: boolean;
+  country: string;
 }
 
 export interface FormatWriteSettings {
@@ -196,6 +200,7 @@ export interface AppSettings {
   remoteAuthEnabled: boolean;
   oidcEnabled: boolean;
   oidcProviderDetails: OidcProviderDetails;
+  oidcProviderClientSecret: string | null;
   oidcRedirectUris: string[];
   oidcAutoProvisionDetails: OidcAutoProvisionDetails;
   maxFileUploadSizeInMb: number;
@@ -213,27 +218,7 @@ export interface AppSettings {
   diskType: string;
 }
 
-export interface MetadataProviderSpecificFields {
-  asin: boolean;
-  amazonRating: boolean;
-  amazonReviewCount: boolean;
-  googleId: boolean;
-  goodreadsId: boolean;
-  goodreadsRating: boolean;
-  goodreadsReviewCount: boolean;
-  hardcoverId: boolean;
-  hardcoverBookId: boolean;
-  hardcoverRating: boolean;
-  hardcoverReviewCount: boolean;
-  comicvineId: boolean;
-  lubimyczytacId: boolean;
-  lubimyczytacRating: boolean;
-  ranobedbId: boolean;
-  ranobedbRating: boolean;
-  audibleId: boolean;
-  audibleRating: boolean;
-  audibleReviewCount: boolean;
-}
+export type MetadataProviderSpecificFields = MetadataProviderFieldRecord<boolean>;
 
 export enum AppSettingKey {
   QUICK_BOOK_MATCH = 'QUICK_BOOK_MATCH',
@@ -247,6 +232,7 @@ export enum AppSettingKey {
   OPDS_REPLACE_COVER = 'OPDS_REPLACE_COVER',
   OIDC_ENABLED = 'OIDC_ENABLED',
   OIDC_PROVIDER_DETAILS = 'OIDC_PROVIDER_DETAILS',
+  OIDC_PROVIDER_CLIENT_SECRET = 'OIDC_PROVIDER_CLIENT_SECRET',
   OIDC_REDIRECT_URIS = 'OIDC_REDIRECT_URIS',
   OIDC_AUTO_PROVISION_DETAILS = 'OIDC_AUTO_PROVISION_DETAILS',
   MAX_FILE_UPLOAD_SIZE_IN_MB = 'MAX_FILE_UPLOAD_SIZE_IN_MB',

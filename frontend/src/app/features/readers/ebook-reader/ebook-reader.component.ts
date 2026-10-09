@@ -1,4 +1,4 @@
-import {ChangeDetectionStrategy, Component, CUSTOM_ELEMENTS_SCHEMA, DestroyRef, effect, HostListener, inject, OnInit, signal} from '@angular/core';
+import {ChangeDetectionStrategy, Component, CUSTOM_ELEMENTS_SCHEMA, DestroyRef, effect, HostListener, inject, OnInit, signal, ViewChild} from '@angular/core';
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {forkJoin, from, Observable, of, throwError} from 'rxjs';
 import {catchError, map, switchMap, tap} from 'rxjs/operators';
@@ -37,6 +37,7 @@ import {RelocateProgressData} from './state/progress.service';
 import {WakeLockService} from '../../../shared/service/wake-lock.service';
 import {ViewEvent} from './core/view-manager.service';
 import {PageTitleService} from '../../../shared/service/page-title.service';
+import {isTouchScreen, setupReaderEdges} from '../shared/reader-edges.util';
 
 interface PendingInitialChapterRestore {
   href: string;
@@ -122,6 +123,9 @@ export class EbookReaderComponent implements OnInit {
   private pendingInitialChapterRestore: PendingInitialChapterRestore | null = null;
   private pendingInitialChapterRestoreTimeout?: ReturnType<typeof setTimeout>;
 
+  @ViewChild(TextSelectionPopupComponent, {static: true})
+  private selectionPopup!: TextSelectionPopupComponent;
+
   isLoading = signal(true);
   showQuickSettings = signal(false);
   showControls = signal(false);
@@ -137,6 +141,7 @@ export class EbookReaderComponent implements OnInit {
   protected progressData = signal<RelocateProgressData | null>(null);
 
   readonly readerState = this.stateService.state;
+  private readonly requestAutoFullscreen = setupReaderEdges(() => this.readerState().theme.bg ?? '');
   readonly selectionState = this.selectionService.state;
   readonly noteDialogState = this.noteService.dialogState;
   readonly isCurrentCfiBookmarked = this.headerService.isCurrentCfiBookmarked;
@@ -174,17 +179,14 @@ export class EbookReaderComponent implements OnInit {
       this.applyStyles();
     });
 
-    effect(
-      () => {
-        this.sidebarService.bookmarks();
-        this.updateBookmarkIndicator();
-      },
-      {allowSignalWrites: true}
-    );
+    effect(() => {
+      this.sidebarService.bookmarks();
+      this.updateBookmarkIndicator();
+    });
   }
 
   ngOnInit() {
-    this.visibilityManager = new ReaderHeaderFooterVisibilityManager(window.innerHeight);
+    this.visibilityManager = new ReaderHeaderFooterVisibilityManager(window.innerHeight, !isTouchScreen());
     this.visibilityManager.onStateChange((state) => {
       this.headerVisible.set(state.headerVisible);
       this.headerService.setForceVisible(state.headerVisible);
@@ -334,6 +336,7 @@ export class EbookReaderComponent implements OnInit {
             this.updateSectionFractions();
             break;
           case 'relocate':
+            this.requestAutoFullscreen();
             if (this.handlePendingInitialChapterRestore(event.detail)) {
               break;
             }
@@ -372,6 +375,7 @@ export class EbookReaderComponent implements OnInit {
             this.readalongService.nextPhrase();
             break;
           case 'middle-single-tap':
+            this.requestAutoFullscreen();
             if (this.immersiveMode()) {
               this.immersiveTemporaryShow();
             } else {
@@ -380,6 +384,9 @@ export class EbookReaderComponent implements OnInit {
             break;
           case 'text-selected':
             this.selectionService.handleTextSelected(event.detail, event.popupPosition);
+            break;
+          case 'text-deselected':
+            this.selectionPopup.onDismiss();
             break;
           case 'toggle-fullscreen':
             this.toggleFullscreen();
@@ -612,6 +619,7 @@ export class EbookReaderComponent implements OnInit {
   }
 
   @HostListener('document:mousemove', ['$event'])
+  @HostListener('document:mouseover', ['$event'])
   onMouseMove(event: MouseEvent): void {
     this.visibilityManager.handleMouseMove(event.clientY);
   }

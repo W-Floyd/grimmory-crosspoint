@@ -1,20 +1,19 @@
 FROM --platform=$BUILDPLATFORM node:24-alpine AS frontend-build
 
 ENV PNPM_HOME="/pnpm"
-ENV PATH="${PNPM_HOME}:${PATH}"
+ENV PATH="${PNPM_HOME}/bin:${PATH}"
 
 WORKDIR /workspace
 
-RUN npm install --ignore-scripts -g pnpm@11.18.0
+COPY package.json ./
+RUN PNPM_VERSION="$(node -p "require('./package.json').packageManager.split('@')[1]")" && \
+    ENV="/root/.shrc" SHELL="/bin/sh" npx --yes get-pnpm "$PNPM_VERSION"
 
 COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN --mount=type=cache,target=/pnpm/store \
-    pnpm config set store-dir /pnpm/store && \
     pnpm fetch
 
-COPY package.json ./
 COPY frontend/package.json ./frontend/
-COPY tools/release/package.json ./tools/release/
 RUN --mount=type=cache,target=/pnpm/store \
     pnpm install --offline --frozen-lockfile --ignore-scripts
 
@@ -37,6 +36,7 @@ RUN chmod +x ./gradlew
 RUN --mount=type=cache,target=/home/gradle/.gradle \
     ./gradlew --no-daemon dependencies
 
+COPY LICENSE NOTICE /workspace/
 COPY backend/ ./
 COPY --from=frontend-build /workspace/frontend/dist/grimmory/browser /tmp/frontend-dist
 

@@ -87,7 +87,7 @@ public class KoreaderService {
         UserBookProgressEntity userProgress = getOrCreateUserProgress(user, book);
         Float previousProgressPercent = userProgress.getKoreaderProgressPercent();
         ReadStatus previousReadStatus = userProgress.getReadStatus();
-        updateProgressData(userProgress, koProgress, authDetails.isSyncWithWebReader(), book);
+        updateProgressData(userProgress, koProgress, book);
 
         progressRepository.save(userProgress);
 
@@ -110,7 +110,6 @@ public class KoreaderService {
         try {
             koreaderUserRepository.findByBookLoreUserId(userId)
                     .filter(KoreaderUserEntity::isSyncEnabled)
-                    .filter(KoreaderUserEntity::isSyncWithWebReader)
                     .ifPresent(koreaderUser -> {
                         BookEntity book = bookRepository.findById(bookId).orElse(null);
                         BookLoreUserEntity user = userRepository.findById(userId).orElse(null);
@@ -125,6 +124,9 @@ public class KoreaderService {
                         progress.setKoreaderProgressPercent(koreaderPercent);
                         progress.setKoreaderLastSyncTime(Instant.now());
                         progress.setKoreaderProgress(null);
+
+                        progress.setKoreaderDevice(DEFAULT_DEVICE_NAME);
+                        progress.setKoreaderDeviceId(DEFAULT_DEVICE_ID);
 
                         BookFileEntity primaryFile = book.getPrimaryBookFile();
                         if (primaryFile != null && primaryFile.getBookType() == BookFileType.EPUB
@@ -182,14 +184,14 @@ public class KoreaderService {
         }
     }
 
-    private void updateProgressData(UserBookProgressEntity userProgress, KoreaderProgress koProgress, boolean syncWithWebReader, BookEntity book) {
+    private void updateProgressData(UserBookProgressEntity userProgress, KoreaderProgress koProgress, BookEntity book) {
         userProgress.setKoreaderProgress(koProgress.getProgress());
         userProgress.setKoreaderProgressPercent(koProgress.getPercentage());
         userProgress.setKoreaderDevice(koProgress.getDevice());
         userProgress.setKoreaderDeviceId(koProgress.getDevice_id());
         userProgress.setKoreaderLastSyncTime(Instant.now());
         userProgress.setLastReadTime(Instant.now());
-        if (syncWithWebReader && koProgress.getProgress() != null) {
+        if (koProgress.getProgress() != null) {
             try {
                 String cfi = epubCfiService.convertXPointerToCfi(book.getFullFilePath(), koProgress.getProgress());
 

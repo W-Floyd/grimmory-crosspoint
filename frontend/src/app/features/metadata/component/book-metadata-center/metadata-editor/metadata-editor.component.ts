@@ -1,4 +1,5 @@
-import {Component, computed, DestroyRef, effect, EffectRef, EventEmitter, inject, Input, OnInit, Output,} from "@angular/core";
+import {HttpErrorResponse} from '@angular/common/http';
+import {Component, computed, DestroyRef, EventEmitter, inject, Input, OnInit, Output} from "@angular/core";
 import {InputText} from "@openng/optimus-ui/inputtext";
 import {Button} from "@openng/optimus-ui/button";
 import {Divider} from "@openng/optimus-ui/divider";
@@ -8,7 +9,7 @@ import {MessageService} from "@openng/optimus-ui/api";
 import {Book, BookMetadata, ComicMetadata, MetadataClearFlags, MetadataUpdateWrapper,} from "../../../../book/model/book.model";
 import {UrlHelperService} from "../../../../../shared/service/url-helper.service";
 import {CoverComponent} from "../../../../../shared/components/cover/cover.component";
-import {ALL_COMIC_METADATA_FIELDS, AUDIOBOOK_METADATA_FIELDS, COMIC_FORM_TO_MODEL_LOCK, COMIC_TEXT_METADATA_FIELDS, COMIC_ARRAY_METADATA_FIELDS, COMIC_TEXTAREA_METADATA_FIELDS, isFieldEmbeddable, hasMetadataWriter} from '../../../../../shared/metadata';
+import {ALL_COMIC_METADATA_FIELDS, AUDIOBOOK_METADATA_FIELDS, COMIC_FORM_TO_MODEL_LOCK, COMIC_TEXT_METADATA_FIELDS, COMIC_ARRAY_METADATA_FIELDS, COMIC_TEXTAREA_METADATA_FIELDS, isFieldEmbeddable, hasMetadataWriter, MetadataProviderFieldsService, providerFieldRecord} from '../../../../../shared/metadata';
 import {FileUpload, FileUploadErrorEvent, FileUploadEvent,} from "@openng/optimus-ui/fileupload";
 import {HttpResponse} from "@angular/common/http";
 import {BookService} from "../../../../book/service/book.service";
@@ -23,7 +24,7 @@ import {DatePicker} from "@openng/optimus-ui/datepicker";
 import {Textarea} from "@openng/optimus-ui/textarea";
 import {Select} from "@openng/optimus-ui/select";
 import {TaskHelperService} from '../../../../settings/task-management/task-helper.service';
-import {BookDialogHelperService} from "../../../../book/components/book-browser/book-dialog-helper.service";
+import {BookDialogHelperService} from "../../../../book/service/book-dialog-helper.service";
 import {BookNavigationService} from '../../../../book/service/book-navigation.service';
 import {BookMetadataHostService} from '../../../../../shared/service/book-metadata-host.service';
 import {Router} from '@angular/router';
@@ -32,6 +33,9 @@ import {AppSettingsService} from '../../../../../shared/service/app-settings.ser
 import {MetadataProviderSpecificFields} from '../../../../../shared/model/app-settings.model';
 import {TranslocoDirective, TranslocoService} from '@jsverse/transloco';
 import {CdkDragDrop, CdkDropList, CdkDrag, moveItemInArray} from '@angular/cdk/drag-drop';
+
+import {QueryClient} from '@tanstack/angular-query-experimental';
+import {MetadataSourceQueryService} from '../../../sources/metadata-source-query.service';
 
 @Component({
   selector: "app-metadata-editor",
@@ -102,6 +106,9 @@ export class MetadataEditorComponent implements OnInit {
   private destroyRef = inject(DestroyRef);
   private appSettingsService = inject(AppSettingsService);
   private readonly t = inject(TranslocoService);
+  private readonly queryClient = inject(QueryClient);
+  private readonly sources = inject(MetadataSourceQueryService);
+  protected readonly providerFields = inject(MetadataProviderFieldsService);
   private readonly uniqueMetadata = computed(() => this.bookService.uniqueMetadata());
 
   metadataForm: FormGroup;
@@ -147,29 +154,13 @@ export class MetadataEditorComponent implements OnInit {
   comicTextareaFields = COMIC_TEXTAREA_METADATA_FIELDS;
   audiobookMetadataFields = AUDIOBOOK_METADATA_FIELDS;
 
-  providerSpecificFields: MetadataProviderSpecificFields = {
-    asin: true,
-    amazonRating: true,
-    amazonReviewCount: true,
-    googleId: true,
-    goodreadsId: true,
-    goodreadsRating: true,
-    goodreadsReviewCount: true,
-    hardcoverId: true,
-    hardcoverBookId: true,
-    hardcoverRating: true,
-    hardcoverReviewCount: true,
-    comicvineId: true,
-    lubimyczytacId: true,
-    lubimyczytacRating: true,
-    ranobedbId: true,
-    ranobedbRating: true,
-    audibleId: true,
-    audibleRating: true,
-    audibleReviewCount: true,
-  };
+  private readonly providerSpecificFields = computed<MetadataProviderSpecificFields>(
+    () => this.appSettingsService.appSettings()?.metadataProviderSpecificFields
+      ?? providerFieldRecord(this.providerFields.fields(), () => true),
+  );
 
-  private syncProviderFieldsEffect!: EffectRef;
+  private readonly providerFieldNames = computed(() => new Set(this.providerFields.fields().map(field => field.name)));
+
   readonly navigationState = this.bookNavigationService.navigationState;
   readonly canNavigatePrevious = this.bookNavigationService.canNavigatePrevious;
   readonly canNavigateNext = this.bookNavigationService.canNavigateNext;
@@ -275,25 +266,6 @@ export class MetadataEditorComponent implements OnInit {
       description: new FormControl(""),
       pageCount: new FormControl(""),
       language: new FormControl(""),
-      asin: new FormControl(""),
-      amazonRating: new FormControl(""),
-      amazonReviewCount: new FormControl(""),
-      goodreadsId: new FormControl(""),
-      comicvineId: new FormControl(""),
-      goodreadsRating: new FormControl(""),
-      goodreadsReviewCount: new FormControl(""),
-      hardcoverId: new FormControl(""),
-      hardcoverBookId: new FormControl(""),
-      hardcoverRating: new FormControl(""),
-      hardcoverReviewCount: new FormControl(""),
-      lubimyczytacId: new FormControl(""),
-      lubimyczytacRating: new FormControl(""),
-      ranobedbId: new FormControl(""),
-      ranobedbRating: new FormControl(""),
-      googleId: new FormControl(""),
-      audibleId: new FormControl(""),
-      audibleRating: new FormControl(""),
-      audibleReviewCount: new FormControl(""),
       seriesName: new FormControl(""),
       seriesNumber: new FormControl(""),
       seriesTotal: new FormControl(""),
@@ -313,25 +285,6 @@ export class MetadataEditorComponent implements OnInit {
       descriptionLocked: new FormControl(false),
       pageCountLocked: new FormControl(false),
       languageLocked: new FormControl(false),
-      asinLocked: new FormControl(false),
-      amazonRatingLocked: new FormControl(false),
-      amazonReviewCountLocked: new FormControl(false),
-      goodreadsIdLocked: new FormControl(""),
-      comicvineIdLocked: new FormControl(false),
-      goodreadsRatingLocked: new FormControl(false),
-      goodreadsReviewCountLocked: new FormControl(false),
-      hardcoverIdLocked: new FormControl(false),
-      hardcoverBookIdLocked: new FormControl(false),
-      hardcoverRatingLocked: new FormControl(false),
-      hardcoverReviewCountLocked: new FormControl(false),
-      lubimyczytacIdLocked: new FormControl(false),
-      lubimyczytacRatingLocked: new FormControl(false),
-      ranobedbIdLocked: new FormControl(""),
-      ranobedbRatingLocked: new FormControl(false),
-      googleIdLocked: new FormControl(false),
-      audibleIdLocked: new FormControl(false),
-      audibleRatingLocked: new FormControl(false),
-      audibleReviewCountLocked: new FormControl(false),
       seriesNameLocked: new FormControl(false),
       seriesNumberLocked: new FormControl(false),
       seriesTotalLocked: new FormControl(false),
@@ -368,6 +321,11 @@ export class MetadataEditorComponent implements OnInit {
       {label: '21+', value: 21}
     ];
 
+    for (const field of this.providerFields.fields()) {
+      this.metadataForm.addControl(field.name, new FormControl(''));
+      this.metadataForm.addControl(field.lockName, new FormControl(false));
+    }
+
     // Add audiobook metadata form controls
     for (const field of AUDIOBOOK_METADATA_FIELDS) {
       const defaultValue = field.type === 'boolean' ? null : '';
@@ -381,13 +339,6 @@ export class MetadataEditorComponent implements OnInit {
       this.metadataForm.addControl(field.controlName, new FormControl(defaultValue));
       this.metadataForm.addControl(field.lockedKey, new FormControl(false));
     }
-
-    this.syncProviderFieldsEffect = effect(() => {
-      const settings = this.appSettingsService.appSettings();
-      if (settings?.metadataProviderSpecificFields) {
-        this.providerSpecificFields = settings.metadataProviderSpecificFields;
-      }
-    });
   }
 
   ngOnInit(): void {
@@ -415,25 +366,6 @@ export class MetadataEditorComponent implements OnInit {
       language: metadata.language ?? null,
       rating: metadata.rating ?? null,
       reviewCount: metadata.reviewCount ?? null,
-      asin: metadata.asin ?? null,
-      amazonRating: metadata.amazonRating ?? null,
-      amazonReviewCount: metadata.amazonReviewCount ?? null,
-      goodreadsId: metadata.goodreadsId ?? null,
-      comicvineId: metadata.comicvineId ?? null,
-      goodreadsRating: metadata.goodreadsRating ?? null,
-      goodreadsReviewCount: metadata.goodreadsReviewCount ?? null,
-      hardcoverId: metadata.hardcoverId ?? null,
-      hardcoverBookId: metadata.hardcoverBookId ?? null,
-      hardcoverRating: metadata.hardcoverRating ?? null,
-      hardcoverReviewCount: metadata.hardcoverReviewCount ?? null,
-      lubimyczytacId: metadata.lubimyczytacId ?? null,
-      lubimyczytacRating: metadata.lubimyczytacRating ?? null,
-      ranobedbId: metadata.ranobedbId ?? null,
-      ranobedbRating: metadata.ranobedbRating ?? null,
-      googleId: metadata.googleId ?? null,
-      audibleId: metadata.audibleId ?? null,
-      audibleRating: metadata.audibleRating ?? null,
-      audibleReviewCount: metadata.audibleReviewCount ?? null,
       seriesName: metadata.seriesName ?? null,
       seriesNumber: metadata.seriesNumber ?? null,
       seriesTotal: metadata.seriesTotal ?? null,
@@ -450,25 +382,6 @@ export class MetadataEditorComponent implements OnInit {
       descriptionLocked: metadata.descriptionLocked ?? false,
       pageCountLocked: metadata.pageCountLocked ?? false,
       languageLocked: metadata.languageLocked ?? false,
-      asinLocked: metadata.asinLocked ?? false,
-      amazonRatingLocked: metadata.amazonRatingLocked ?? false,
-      amazonReviewCountLocked: metadata.amazonReviewCountLocked ?? false,
-      goodreadsIdLocked: metadata.goodreadsIdLocked ?? false,
-      comicvineIdLocked: metadata.comicvineIdLocked ?? false,
-      goodreadsRatingLocked: metadata.goodreadsRatingLocked ?? false,
-      goodreadsReviewCountLocked: metadata.goodreadsReviewCountLocked ?? false,
-      hardcoverIdLocked: metadata.hardcoverIdLocked ?? false,
-      hardcoverBookIdLocked: metadata.hardcoverBookIdLocked ?? false,
-      hardcoverRatingLocked: metadata.hardcoverRatingLocked ?? false,
-      hardcoverReviewCountLocked: metadata.hardcoverReviewCountLocked ?? false,
-      lubimyczytacIdLocked: metadata.lubimyczytacIdLocked ?? false,
-      lubimyczytacRatingLocked: metadata.lubimyczytacRatingLocked ?? false,
-      ranobedbIdLocked: metadata.ranobedbIdLocked ?? false,
-      ranobedbRatingLocked: metadata.ranobedbRatingLocked ?? false,
-      googleIdLocked: metadata.googleIdLocked ?? false,
-      audibleIdLocked: metadata.audibleIdLocked ?? false,
-      audibleRatingLocked: metadata.audibleRatingLocked ?? false,
-      audibleReviewCountLocked: metadata.audibleReviewCountLocked ?? false,
       seriesNameLocked: metadata.seriesNameLocked ?? false,
       seriesNumberLocked: metadata.seriesNumberLocked ?? false,
       seriesTotalLocked: metadata.seriesTotalLocked ?? false,
@@ -480,6 +393,13 @@ export class MetadataEditorComponent implements OnInit {
       ageRatingLocked: metadata.ageRatingLocked ?? false,
       contentRatingLocked: metadata.contentRatingLocked ?? false,
     });
+
+    const providerPatch: Record<string, string | number | boolean | null> = {};
+    for (const field of this.providerFields.fields()) {
+      providerPatch[field.name] = metadata[field.name] ?? null;
+      providerPatch[field.lockName] = metadata[field.lockName] ?? false;
+    }
+    this.metadataForm.patchValue(providerPatch);
 
     // Patch audiobook metadata
     const audiobookPatch: Record<string, unknown> = {};
@@ -520,26 +440,7 @@ export class MetadataEditorComponent implements OnInit {
       {key: "languageLocked", control: "language"},
       {key: "isbn10Locked", control: "isbn10"},
       {key: "isbn13Locked", control: "isbn13"},
-      {key: "asinLocked", control: "asin"},
-      {key: "amazonReviewCountLocked", control: "amazonReviewCount"},
-      {key: "amazonRatingLocked", control: "amazonRating"},
-      {key: "goodreadsIdLocked", control: "goodreadsId"},
-      {key: "comicvineIdLocked", control: "comicvineId"},
-      {key: "goodreadsReviewCountLocked", control: "goodreadsReviewCount"},
-      {key: "goodreadsRatingLocked", control: "goodreadsRating"},
-      {key: "hardcoverIdLocked", control: "hardcoverId"},
-      {key: "hardcoverBookIdLocked", control: "hardcoverBookId"},
-      {key: "hardcoverReviewCountLocked", control: "hardcoverReviewCount"},
-      {key: "hardcoverRatingLocked", control: "hardcoverRating"},
-      {key: "lubimyczytacIdLocked", control: "lubimyczytacId"},
-      {key: "lubimyczytacRatingLocked", control: "lubimyczytacRating"},
-      {key: "ranobedbReviewCountLocked", control: "ranobedbReviewCount"},
-      {key: "ranobedbIdLocked", control: "ranobedbId"},
-      {key: "ranobedbRatingLocked", control: "ranobedbRating"},
-      {key: "googleIdLocked", control: "googleId"},
-      {key: "audibleIdLocked", control: "audibleId"},
-      {key: "audibleRatingLocked", control: "audibleRating"},
-      {key: "audibleReviewCountLocked", control: "audibleReviewCount"},
+      ...this.providerFields.fields().map(field => ({key: field.lockName, control: field.name})),
       {key: "pageCountLocked", control: "pageCount"},
       {key: "descriptionLocked", control: "description"},
       {key: "seriesNameLocked", control: "seriesName"},
@@ -711,25 +612,6 @@ export class MetadataEditorComponent implements OnInit {
       pageCount: form.get("pageCount")?.value,
       rating: form.get("rating")?.value,
       reviewCount: form.get("reviewCount")?.value,
-      asin: form.get("asin")?.value,
-      amazonRating: form.get("amazonRating")?.value,
-      amazonReviewCount: form.get("amazonReviewCount")?.value,
-      goodreadsId: form.get("goodreadsId")?.value,
-      comicvineId: form.get("comicvineId")?.value,
-      goodreadsRating: form.get("goodreadsRating")?.value,
-      goodreadsReviewCount: form.get("goodreadsReviewCount")?.value,
-      hardcoverId: form.get("hardcoverId")?.value,
-      hardcoverBookId: form.get("hardcoverBookId")?.value,
-      hardcoverRating: form.get("hardcoverRating")?.value,
-      hardcoverReviewCount: form.get("hardcoverReviewCount")?.value,
-      lubimyczytacId: form.get("lubimyczytacId")?.value,
-      lubimyczytacRating: form.get("lubimyczytacRating")?.value,
-      ranobedbId: form.get("ranobedbId")?.value,
-      ranobedbRating: form.get("ranobedbRating")?.value,
-      googleId: form.get("googleId")?.value,
-      audibleId: form.get("audibleId")?.value,
-      audibleRating: form.get("audibleRating")?.value,
-      audibleReviewCount: form.get("audibleReviewCount")?.value,
       language: form.get("language")?.value,
       seriesName: form.get("seriesName")?.value,
       seriesNumber: form.get("seriesNumber")?.value,
@@ -757,25 +639,6 @@ export class MetadataEditorComponent implements OnInit {
       descriptionLocked: form.get("descriptionLocked")?.value,
       pageCountLocked: form.get("pageCountLocked")?.value,
       languageLocked: form.get("languageLocked")?.value,
-      asinLocked: form.get("asinLocked")?.value,
-      amazonRatingLocked: form.get("amazonRatingLocked")?.value,
-      amazonReviewCountLocked: form.get("amazonReviewCountLocked")?.value,
-      goodreadsIdLocked: form.get("goodreadsIdLocked")?.value,
-      comicvineIdLocked: form.get("comicvineIdLocked")?.value,
-      goodreadsRatingLocked: form.get("goodreadsRatingLocked")?.value,
-      goodreadsReviewCountLocked: form.get("goodreadsReviewCountLocked")?.value,
-      hardcoverIdLocked: form.get("hardcoverIdLocked")?.value,
-      hardcoverBookIdLocked: form.get("hardcoverBookIdLocked")?.value,
-      hardcoverRatingLocked: form.get("hardcoverRatingLocked")?.value,
-      hardcoverReviewCountLocked: form.get("hardcoverReviewCountLocked")?.value,
-      lubimyczytacIdLocked: form.get("lubimyczytacIdLocked")?.value,
-      lubimyczytacRatingLocked: form.get("lubimyczytacRatingLocked")?.value,
-      ranobedbIdLocked: form.get("ranobedbIdLocked")?.value,
-      ranobedbRatingLocked: form.get("ranobedbRatingLocked")?.value,
-      googleIdLocked: form.get("googleIdLocked")?.value,
-      audibleIdLocked: form.get("audibleIdLocked")?.value,
-      audibleRatingLocked: form.get("audibleRatingLocked")?.value,
-      audibleReviewCountLocked: form.get("audibleReviewCountLocked")?.value,
       seriesNameLocked: form.get("seriesNameLocked")?.value,
       seriesNumberLocked: form.get("seriesNumberLocked")?.value,
       seriesTotalLocked: form.get("seriesTotalLocked")?.value,
@@ -791,6 +654,11 @@ export class MetadataEditorComponent implements OnInit {
         allFieldsLocked: shouldLockAllFields,
       }),
     };
+
+    for (const field of this.providerFields.fields()) {
+      metadata[field.name] = form.get(field.name)?.value;
+      metadata[field.lockName] = form.get(field.lockName)?.value;
+    }
 
     // Build comic metadata from form controls
     const comicMetadata: Record<string, unknown> = {};
@@ -847,25 +715,6 @@ export class MetadataEditorComponent implements OnInit {
       description: wasCleared("description"),
       pageCount: wasCleared("pageCount"),
       language: wasCleared("language"),
-      asin: wasCleared("asin"),
-      amazonRating: wasCleared("amazonRating"),
-      amazonReviewCount: wasCleared("amazonReviewCount"),
-      goodreadsId: wasCleared("goodreadsId"),
-      comicvineId: wasCleared("comicvineId"),
-      goodreadsRating: wasCleared("goodreadsRating"),
-      goodreadsReviewCount: wasCleared("goodreadsReviewCount"),
-      hardcoverId: wasCleared("hardcoverId"),
-      hardcoverRating: wasCleared("hardcoverRating"),
-      hardcoverReviewCount: wasCleared("hardcoverReviewCount"),
-      hardcoverBookId: wasCleared("hardcoverBookId"),
-      lubimyczytacId: wasCleared("lubimyczytacId"),
-      lubimyczytacRating: wasCleared("lubimyczytacRating"),
-      ranobedbId: wasCleared("ranobedbId"),
-      ranobedbRating: wasCleared("ranobedbRating"),
-      googleId: wasCleared("googleId"),
-      audibleId: wasCleared("audibleId"),
-      audibleRating: wasCleared("audibleRating"),
-      audibleReviewCount: wasCleared("audibleReviewCount"),
       seriesName: wasCleared("seriesName"),
       seriesNumber: wasCleared("seriesNumber"),
       seriesTotal: wasCleared("seriesTotal"),
@@ -876,6 +725,10 @@ export class MetadataEditorComponent implements OnInit {
       ageRating: wasCleared("ageRating"),
       contentRating: wasCleared("contentRating"),
     };
+
+    for (const field of this.providerFields.fields()) {
+      clearFlags[field.name] = wasCleared(field.name);
+    }
 
     return {metadata, clearFlags};
   }
@@ -1065,29 +918,26 @@ export class MetadataEditorComponent implements OnInit {
     }, 15000);
   }
 
-  fetchFromFile(bookId: number) {
+  async fetchFromFile(bookId: number): Promise<void> {
     this.isFetchingFromFile = true;
-    this.bookMetadataManageService.getFileMetadata(bookId).pipe(
-      finalize(() => this.isFetchingFromFile = false),
-      takeUntilDestroyed(this.destroyRef)
-    ).subscribe({
-      next: (metadata) => {
-        this.populateFormFromMetadata(metadata);
-        this.metadataForm.markAsDirty();
-        this.messageService.add({
-          severity: 'info',
-          summary: this.t.translate('metadata.editor.toast.successSummary'),
-          detail: this.t.translate('metadata.editor.toast.fileMetadataLoaded'),
-        });
-      },
-      error: (err) => {
-        this.messageService.add({
-          severity: 'error',
-          summary: this.t.translate('metadata.editor.toast.errorSummary'),
-          detail: err?.error?.message || this.t.translate('metadata.editor.toast.fileMetadataFailed'),
-        });
-      }
-    });
+    try {
+      this.populateFormFromMetadata(await this.queryClient.query(this.sources.fileMetadata(bookId)));
+      this.metadataForm.markAsDirty();
+      this.messageService.add({
+        severity: 'info',
+        summary: this.t.translate('metadata.editor.toast.successSummary'),
+        detail: this.t.translate('metadata.editor.toast.fileMetadataLoaded'),
+      });
+    } catch (err) {
+      const message: unknown = err instanceof HttpErrorResponse ? err.error?.message : null;
+      this.messageService.add({
+        severity: 'error',
+        summary: this.t.translate('metadata.editor.toast.errorSummary'),
+        detail: typeof message === 'string' ? message : this.t.translate('metadata.editor.toast.fileMetadataFailed'),
+      });
+    } finally {
+      this.isFetchingFromFile = false;
+    }
   }
 
   onNext() {
@@ -1153,7 +1003,7 @@ export class MetadataEditorComponent implements OnInit {
   }
 
   isFieldVisible(field: keyof MetadataProviderSpecificFields): boolean {
-    return this.providerSpecificFields[field] ?? false;
+    return this.providerSpecificFields()[field];
   }
 
   protected readonly sample = sample;
@@ -1189,7 +1039,7 @@ export class MetadataEditorComponent implements OnInit {
   }
 
   isEmbeddable(controlName: string, book: Book): boolean {
-    return isFieldEmbeddable(book.primaryFile?.bookType, controlName);
+    return isFieldEmbeddable(book.primaryFile?.bookType, controlName, this.providerFieldNames());
   }
 
   hasWriter(book: Book): boolean {

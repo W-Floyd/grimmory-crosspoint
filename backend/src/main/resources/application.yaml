@@ -74,7 +74,6 @@ app:
     header-groups: ${REMOTE_AUTH_HEADER_GROUPS:Remote-Groups}
     admin-group: ${REMOTE_AUTH_ADMIN_GROUP}
     groups-delimiter: ${REMOTE_AUTH_GROUPS_DELIMITER:\\s+}
-  force-disable-oidc: ${FORCE_DISABLE_OIDC:false}
   disk-type: ${DISK_TYPE:LOCAL}
 
   # OPDS device-optimization presets. Clients request an optimized file with
@@ -443,6 +442,10 @@ app:
         model: "Likebook Alita"
         max-width: 1404
         max-height: 1872
+  oidc:
+    force-disable: ${FORCE_DISABLE_OIDC:false}
+    allow-unsafe-hosts: ${OIDC_ALLOW_UNSAFE_HOSTS:false} # If enabled, turn off outbound SSRF filtering
+
   outbound:
     connect-timeout: 15
     read-timeout: 15
@@ -482,7 +485,7 @@ server:
   port: ${SERVER_PORT:${BOOKLORE_PORT:6060}}
   compression:
     enabled: true
-    mime-types: text/html,text/css,application/javascript,application/json,image/svg+xml,application/xml,application/atom+xml
+    mime-types: text/html,text/css,text/javascript,application/javascript,application/json,image/svg+xml,application/xml,application/atom+xml
     min-response-size: 1024
   tomcat:
     relaxed-query-chars: '[,],%,{,},|'

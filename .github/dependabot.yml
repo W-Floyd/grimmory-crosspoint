@@ -14,10 +14,6 @@ updates:
       - "backend"
     commit-message:
       prefix: "chore(deps)"
-    groups:
-      gradle-dependencies:
-        patterns:
-          - "*"
 
   # JavaScript – pnpm workspace (frontend + release tooling)
   - package-ecosystem: "npm"
@@ -41,55 +37,19 @@ updates:
           - "semantic-release"
           - "@semantic-release/*"
           - "conventional-changelog*"
-      frontend:
+      angular:
         patterns:
-          - "*"
-    ignore:
-      - dependency-name: "typescript"
-      - dependency-name: "@types/node"
-        versions: [">=25.0.0"]
-      - dependency-name: "@angular/animations"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular-devkit/architect"
-        versions: [">=0.2200.0"]
-      - dependency-name: "@angular-devkit/schematics"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/aria"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/build"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/cdk"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/cli"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/common"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/compiler"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/compiler-cli"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/core"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/forms"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/platform-browser"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/platform-browser-dynamic"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/router"
-        versions: [">=22.0.0"]
-      - dependency-name: "@angular/service-worker"
-        versions: [">=22.0.0"]
-      - dependency-name: "angular-eslint"
-        versions: [">=22.0.0"]
-      - dependency-name: "ngx-infinite-scroll"
-        versions: [">=22.0.0"]
+          - "@angular/*"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "monthly"
+    groups:
+      codeql:
+        patterns:
+          - "github/codeql-action/*"
     labels:
       - "dependencies"
       - "ci"

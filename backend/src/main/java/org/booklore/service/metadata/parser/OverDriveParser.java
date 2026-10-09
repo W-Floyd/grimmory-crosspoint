@@ -75,6 +75,16 @@ public class OverDriveParser implements BookParser {
     }
 
     @Override
+    public boolean isEnabled() {
+        var appSettings = appSettingService.getAppSettings();
+        if (appSettings == null || appSettings.getMetadataProviderSettings() == null) {
+            return false;
+        }
+        var overdrive = appSettings.getMetadataProviderSettings().getOverdrive();
+        return overdrive != null && overdrive.isEnabled();
+    }
+
+    @Override
     public BookMetadata fetchTopMetadata(Book book, FetchMetadataRequest request) {
         List<BookMetadata> results = fetchMetadata(book, request);
         return results.isEmpty() ? null : results.getFirst();

@@ -4,11 +4,16 @@ import { MagicShelf } from '../../../features/magic-shelf/service/magic-shelf.se
 import { LibraryHealthService } from '../../../features/book/service/library-health.service';
 import { SortPref } from '../sidebar-sort-preferences';
 
+import {
+  libraryBrowseScope,
+  magicShelfBrowseScope,
+  shelfBrowseScope,
+  UNSHELVED_BROWSE_SCOPE,
+} from '../../../features/book/browse/book-browse-scope';
 import { SidebarLeaf, SidebarSection } from '../navigation/nav-item.model';
 import { buildHomeNavItems, findPageNavItem, ShellNavPermissions } from '../navigation/nav-catalog';
 
 export interface HomeCounts {
-  allBooks: number;
   series: number;
   authors: number;
 }
@@ -45,6 +50,7 @@ export function buildHomeSection(translate: TranslateFn, counts: HomeCounts): Si
     expandable: true,
     items: buildHomeNavItems(translate).map((item) => ({
       ...item,
+      bookScope: item.id === 'allBooks' ? null : undefined,
       bookCount: homeItemBookCount(item.id, counts),
     })),
   }];
@@ -74,7 +80,6 @@ export function buildToolsSection(
 
 function homeItemBookCount(itemId: string, counts: HomeCounts): number | undefined {
   switch (itemId) {
-    case 'allBooks': return counts.allBooks;
     case 'series': return counts.series;
     case 'authors': return counts.authors;
     default: return undefined;
@@ -83,7 +88,6 @@ function homeItemBookCount(itemId: string, counts: HomeCounts): number | undefin
 
 export function buildLibrarySection(
   libraries: Library[],
-  bookCounts: ReadonlyMap<number, number>,
   sort: SortPref,
   translate: TranslateFn,
   deps: LibrarySectionDeps,
@@ -105,7 +109,7 @@ export function buildLibrarySection(
       icon: library.icon || undefined,
       iconType: library.iconType ?? undefined,
       routerLink: [`/library/${library.id}/books`],
-      bookCount: bookCounts.get(library.id) ?? 0,
+      bookScope: libraryBrowseScope(library.id),
       unhealthy: deps.health.isUnhealthy(library.id),
     })),
   }];
@@ -113,8 +117,6 @@ export function buildLibrarySection(
 
 export function buildShelfSection(
   shelves: Shelf[],
-  bookCounts: ReadonlyMap<number, number>,
-  unshelvedCount: number,
   sort: SortPref,
   translate: TranslateFn,
 ): SidebarSection[] {
@@ -128,15 +130,15 @@ export function buildShelfSection(
     type: 'shelf',
     icon: 'inbox',
     routerLink: ['/unshelved-books'],
-    bookCount: unshelvedCount,
+    bookScope: UNSHELVED_BROWSE_SCOPE,
   }];
 
   if (pinned) {
-    items.push(toShelfNavItem(pinned, bookCounts));
+    items.push(toShelfNavItem(pinned));
   }
 
   for (const shelf of sorted) {
-    items.push(toShelfNavItem(shelf, bookCounts));
+    items.push(toShelfNavItem(shelf));
   }
 
   return [{
@@ -149,10 +151,7 @@ export function buildShelfSection(
   }];
 }
 
-function toShelfNavItem(
-  shelf: WithId<Shelf>,
-  bookCounts: ReadonlyMap<number, number>,
-): SidebarLeaf {
+function toShelfNavItem(shelf: WithId<Shelf>): SidebarLeaf {
   return {
     id: `shelf:${shelf.id}`,
     label: shelf.name,
@@ -161,13 +160,12 @@ function toShelfNavItem(
     icon: shelf.icon || undefined,
     iconType: shelf.iconType ?? undefined,
     routerLink: [`/shelf/${shelf.id}/books`],
-    bookCount: bookCounts.get(shelf.id) ?? 0,
+    bookScope: shelfBrowseScope(shelf.id),
   };
 }
 
 export function buildMagicShelfSection(
   shelves: MagicShelf[],
-  bookCounts: ReadonlyMap<number, number>,
   sort: SortPref,
   translate: TranslateFn,
 ): SidebarSection[] {
@@ -188,7 +186,7 @@ export function buildMagicShelfSection(
       icon: shelf.icon || undefined,
       iconType: shelf.iconType ?? undefined,
       routerLink: [`/magic-shelf/${shelf.id}/books`],
-      bookCount: bookCounts.get(shelf.id) ?? 0,
+      bookScope: magicShelfBrowseScope(shelf.id),
     })),
   }];
 }

@@ -12,6 +12,7 @@ public record SortContext<E>(
         CriteriaQuery<?> query,
         CriteriaBuilder cb,
         boolean descending,
-        Long userId
+        Long userId,
+        Integer randomSeed
 ) {
 }

@@ -52,6 +52,7 @@ interface IframeClickMessage {
 }
 
 interface EventServiceView extends HTMLElement {
+  isFixedLayout: boolean;
   addAnnotation(annotation: { value: string }): void;
 }
 
@@ -68,6 +69,7 @@ export type ViewEvent =
   | { type: 'draw-annotation'; detail: DrawAnnotationEventDetail }
   | { type: 'show-annotation'; detail?: unknown }
   | { type: 'text-selected'; detail: TextSelection; popupPosition: PopupPosition }
+  | { type: 'text-deselected' }
   | { type: 'toggle-fullscreen' }
   | { type: 'toggle-shortcuts-help' }
   | { type: 'escape-pressed' }
@@ -83,6 +85,7 @@ interface ViewCallbacks {
   next: () => void;
   getCFI: (index: number, range: Range) => string | null;
   getContents: () => { index: number; doc: Document }[] | null;
+  isTapToTurnEnabled?: () => boolean;
 }
 
 @Injectable({
@@ -378,6 +381,7 @@ export class ReaderEventService {
     this.selectionChangeTimeout = setTimeout(() => {
       const selection = doc.defaultView?.getSelection();
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        this.eventSubject.next({type: 'text-deselected'});
         return;
       }
 
@@ -451,7 +455,6 @@ export class ReaderEventService {
 
     if (hasSelection) {
       this.isTextSelectionInProgress = false;
-      event.preventDefault();
 
       setTimeout(() => {
         this.handleSelectionEnd(doc);
@@ -464,7 +467,7 @@ export class ReaderEventService {
       const deltaX = touch.clientX - this.touchStartX;
       const deltaY = Math.abs(touch.clientY - this.touchStartY);
 
-      if (Math.abs(deltaX) >= this.SWIPE_THRESHOLD_PX && Math.abs(deltaX) > deltaY) {
+      if (this.view?.isFixedLayout && Math.abs(deltaX) >= this.SWIPE_THRESHOLD_PX && Math.abs(deltaX) > deltaY) {
         if (this.isNavigating) return;
 
         this.isNavigating = true;
@@ -478,6 +481,8 @@ export class ReaderEventService {
       }
 
       if (touchDuration < this.LONG_HOLD_THRESHOLD_MS && Math.abs(deltaX) < 10 && deltaY < 10) {
+        const target = event.target as Element | null;
+        if (target?.closest('a[href]')) return;
         const iframe = doc.defaultView?.frameElement as HTMLIFrameElement | null;
         if (!iframe) return;
 
@@ -650,13 +655,13 @@ export class ReaderEventService {
     const leftThreshold = width * this.LEFT_ZONE_PERCENT;
     const rightThreshold = width * this.RIGHT_ZONE_PERCENT;
 
-    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    const tapToTurnEnabled = this.viewCallbacks?.isTapToTurnEnabled?.() ?? true;
 
-    if (x < leftThreshold && !isMobile) {
+    if (x < leftThreshold && tapToTurnEnabled) {
       this.isNavigating = true;
       this.viewCallbacks?.prev();
       setTimeout(() => this.isNavigating = false, 300);
-    } else if (x > rightThreshold && !isMobile) {
+    } else if (x > rightThreshold && tapToTurnEnabled) {
       this.isNavigating = true;
       this.viewCallbacks?.next();
       setTimeout(() => this.isNavigating = false, 300);

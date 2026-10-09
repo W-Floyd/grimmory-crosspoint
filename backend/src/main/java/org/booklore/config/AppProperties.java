@@ -15,7 +15,7 @@ public class AppProperties {
     private String version;
     private RemoteAuth remoteAuth;
     private OutboundRequests outbound;
-    private Boolean forceDisableOidc = false;
+    private OIDC oidc;
 
     /**
      * Type of disk storage where library files are stored.
@@ -48,5 +48,12 @@ public class AppProperties {
         private int connectTimeout = 15;
         private int readTimeout = 15;
         private List<String> restrictedRanges = List.of();
+    }
+
+    @Getter
+    @Setter
+    public static class OIDC {
+        private Boolean forceDisable = false;
+        private Boolean allowUnsafeHosts = false;
     }
 }

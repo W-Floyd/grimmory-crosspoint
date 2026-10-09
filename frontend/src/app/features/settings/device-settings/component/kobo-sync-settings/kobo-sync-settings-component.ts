@@ -47,6 +47,12 @@ export class KoboSyncSettingsComponent implements OnInit {
   isAdmin = false;
   credentialsSaved = false;
   showToken = false;
+  readonly koboApiBase = `${window.location.origin}/api/kobo`;
+
+  get koboApiPath(): string {
+    const token = this.syncForm.controls.token.value;
+    return token ? `${this.koboApiBase}/${token}` : '';
+  }
 
   readonly syncForm = this.fb.nonNullable.group({
     token: [''],
@@ -54,7 +60,6 @@ export class KoboSyncSettingsComponent implements OnInit {
     progressMarkAsReadingThreshold: [1],
     progressMarkAsFinishedThreshold: [99],
     autoAddToShelf: [true],
-    twoWayProgressSync: [false],
   });
 
   koboSettings: KoboSettings = {
@@ -151,7 +156,6 @@ export class KoboSyncSettingsComponent implements OnInit {
       progressMarkAsReadingThreshold: settings.progressMarkAsReadingThreshold ?? 1,
       progressMarkAsFinishedThreshold: settings.progressMarkAsFinishedThreshold ?? 99,
       autoAddToShelf: settings.autoAddToShelf ?? true,
-      twoWayProgressSync: settings.twoWayProgressSync ?? false,
     };
 
     for (const [key, value] of Object.entries(next)) {
@@ -258,13 +262,6 @@ export class KoboSyncSettingsComponent implements OnInit {
     const message = checked
       ? this.t.translate('settingsDevice.kobo.autoAddEnabled')
       : this.t.translate('settingsDevice.kobo.autoAddDisabled');
-    this.updateKoboSettings(message);
-  }
-
-  onTwoWaySyncToggle(checked: boolean) {
-    const message = checked
-      ? this.t.translate('settingsDevice.kobo.twoWaySyncEnabled')
-      : this.t.translate('settingsDevice.kobo.twoWaySyncDisabled');
     this.updateKoboSettings(message);
   }
 

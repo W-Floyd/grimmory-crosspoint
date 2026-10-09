@@ -4,6 +4,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.booklore.BookloreApplication;
 import org.booklore.browse.BrowsePage;
+import org.booklore.browse.CursorCodec;
 import org.booklore.browse.Link;
 import org.booklore.exception.APIException;
 import org.booklore.config.security.service.AuthenticationService;
@@ -16,7 +17,10 @@ import org.booklore.model.entity.BookMetadataEntity;
 import org.booklore.model.entity.CategoryEntity;
 import org.booklore.model.entity.LibraryEntity;
 import org.booklore.model.entity.LibraryPathEntity;
+import org.booklore.model.entity.UserContentRestrictionEntity;
 import org.booklore.model.enums.BookFileType;
+import org.booklore.model.enums.ContentRestrictionMode;
+import org.booklore.model.enums.ContentRestrictionType;
 import org.booklore.repository.BookRepository;
 import org.booklore.service.task.TaskCronService;
 import org.flywaydb.core.Flyway;
@@ -52,7 +56,7 @@ import static org.mockito.Mockito.when;
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "spring.jpa.database-platform=org.hibernate.dialect.H2Dialect",
         "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
-        "spring.datasource.url=jdbc:h2:mem:browseservicetest;DB_CLOSE_DELAY=-1;NON_KEYWORDS=VALUE",
+        "spring.datasource.url=jdbc:h2:mem:browseservicetest;DB_CLOSE_DELAY=-1;NON_KEYWORDS=VALUE;MODE=MYSQL",
         "spring.datasource.driver-class-name=org.h2.Driver",
         "spring.datasource.username=sa",
         "spring.datasource.password=",
@@ -206,6 +210,17 @@ class BookBrowseServiceTest {
     }
 
     @Test
+    void generatesRandomSeedForCursor() {
+        var page = browse("random", null, null, null, 0, 2);
+        String cursor = page.page().cursor();
+
+        var codec = new CursorCodec();
+        var values = codec.decode(cursor);
+
+        assertThat(values.randomSeed()).isNotNull();
+    }
+
+    @Test
     void cursorWithConflictingFacetsIsRejected() {
         book("Alpha", List.of("Horror"));
         em.flush();
@@ -216,12 +231,27 @@ class BookBrowseServiceTest {
     }
 
     @Test
+    void randomSortIsSameWithSameCursor() {
+        for (int i = 0; i < 5; i++) {
+            book(String.format("Book%02d", i), List.of());
+        }
+        em.flush();
+
+        var response = browse("random", null, null, null, 0, 20);
+
+        var ids = response.content().stream().map(Book::getId).toList();
+
+        assertThat(browse("random", null, null, response.page().cursor(), 0, 20)
+                .content().stream().map(Book::getId).toList()).isEqualTo(ids);
+
+        assertThat(browse("random", null, null, response.page().cursor(), 0, 20)
+                .content().stream().map(Book::getId).toList()).isEqualTo(ids);
+    }
+
+    @Test
     void deferredSortKeyIsRejected() {
         book("Alpha", List.of());
         em.flush();
-        assertThatThrownBy(() -> browse("random", null, null, null, 0, 20))
-                .isInstanceOfSatisfying(APIException.class, e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST))
-                .hasMessageContaining("Unknown sort key");
         assertThatThrownBy(() -> browse("fileSizeKb", null, null, null, 0, 20))
                 .isInstanceOfSatisfying(APIException.class, e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST))
                 .hasMessageContaining("Unknown sort key");
@@ -297,5 +327,44 @@ class BookBrowseServiceTest {
         BrowsePage<Book> result = browse(null, null, null, null, 0, 20);
         assertThat(result.content()).hasSize(1);
         assertThat(result.content().get(0).getId()).isNotEqualTo(outside.getId());
+    }
+
+    @Test
+    void nonAdminWithNoLibrariesSeesNothing() {
+        book("Alpha", List.of());
+        em.flush();
+        when(authenticationService.getAuthenticatedUser()).thenReturn(noLibrariesUser());
+
+        BrowsePage<Book> result = browse(null, null, null, null, 0, 20);
+        assertThat(result.content()).isEmpty();
+        assertThat(result.page().totalElements()).isZero();
+        assertThat(browseService.findAllIds(null, null, null, null)).isEmpty();
+    }
+
+    @Test
+    void contentRestrictionsExcludeBooks() {
+        em.persist(UserContentRestrictionEntity.builder()
+                .user(userEntity)
+                .restrictionType(ContentRestrictionType.CATEGORY)
+                .mode(ContentRestrictionMode.EXCLUDE)
+                .value("Horror")
+                .build());
+        Long romance = book("R", List.of("Romance")).getId();
+        book("H", List.of("Horror"));
+        em.flush();
+
+        assertThat(browse(null, null, null, null, 0, 20).content().stream().map(Book::getId))
+                .containsExactly(romance);
+        assertThat(browseService.findAllIds(null, null, null, null)).containsExactly(romance);
+    }
+
+    private BookLoreUser noLibrariesUser() {
+        BookLoreUser.UserPermissions permissions = new BookLoreUser.UserPermissions();
+        permissions.setAdmin(false);
+        return BookLoreUser.builder()
+                .id(userEntity.getId())
+                .assignedLibraries(List.of())
+                .permissions(permissions)
+                .build();
     }
 }

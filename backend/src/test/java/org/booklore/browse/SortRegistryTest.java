@@ -7,6 +7,8 @@ import jakarta.persistence.criteria.Root;
 import org.booklore.exception.APIException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -18,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -29,6 +32,12 @@ class SortRegistryTest {
     private CriteriaQuery<?> query;
     @Mock
     private CriteriaBuilder cb;
+
+    @Mock
+    SortOrderBuilder<Object> mockSortOrderBuilder;
+
+    @Captor
+    ArgumentCaptor<SortContext<Object>> sortContextCaptor;
 
     @Test
     void registersAndExposesKeysInOrder() {
@@ -49,32 +58,44 @@ class SortRegistryTest {
                 .register("id", ctx -> List.of(idOrder));
 
         List<Order> orders = registry.toOrders(
-                List.of(new SortTerm("title", false), new SortTerm("id", false)), root, query, cb, 7L);
+                List.of(new SortTerm("title", false), new SortTerm("id", false)),
+                root,
+                query,
+                cb,
+                7L,
+                null
+        );
 
         assertEquals(List.of(titleOrder, idOrder), orders);
     }
 
     @Test
-    void passesDirectionAndUserIdToBuilder() {
-        boolean[] sawDescending = {false};
-        Long[] sawUser = {null};
-        SortRegistry<Object> registry = new SortRegistry<>().register("title", ctx -> {
-            sawDescending[0] = ctx.descending();
-            sawUser[0] = ctx.userId();
-            return List.of(mock(Order.class));
-        });
+    void passesParametersToBuilder() {
+        SortRegistry<Object> registry = new SortRegistry<>().register("title", mockSortOrderBuilder);
 
-        registry.toOrders(List.of(new SortTerm("title", true)), root, query, cb, 42L);
+        registry.toOrders(List.of(new SortTerm("title", true)), root, query, cb, 42L, 123);
 
-        assertTrue(sawDescending[0]);
-        assertEquals(42L, sawUser[0]);
+        verify(mockSortOrderBuilder).toOrders(sortContextCaptor.capture());
+
+        var context = sortContextCaptor.getValue();
+
+        assertTrue(context.descending());
+        assertEquals(42L, context.userId());
+        assertEquals(123, context.randomSeed());
     }
 
     @Test
     void unknownKeyThrows() {
         SortRegistry<Object> registry = new SortRegistry<>().register("id", ascOn("id"));
         assertThrows(APIException.class,
-                () -> registry.toOrders(List.of(new SortTerm("bogus", false)), root, query, cb, null));
+                () -> registry.toOrders(
+                        List.of(new SortTerm("bogus", false)),
+                        root,
+                        query,
+                        cb,
+                        null,
+                        null
+                ));
     }
 
     private SortOrderBuilder<Object> ascOn(String attribute) {

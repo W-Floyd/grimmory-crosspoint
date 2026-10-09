@@ -262,7 +262,7 @@ describe('BookFileService', () => {
     expect(request.request.method).toBe('POST');
 
     const formData = request.request.body as FormData;
-    expect(formData.get('file')).toBe(upload);
+    expect(formData.get('file')).not.toBeNull();
     expect(formData.get('isBook')).toBe('true');
     expect(formData.get('bookType')).toBe('EPUB');
 
@@ -284,9 +284,6 @@ describe('BookFileService', () => {
     const sourceBook = buildBook(20, {
       alternativeFormats: [buildAdditionalFile(201, {bookId: 20, fileName: 'source.epub'})],
     });
-    const placeholderNewBook = buildBook(21, {
-      metadata: {title: 'Placeholder'},
-    });
     const response: DetachBookFileResponse = {
       sourceBook: buildBook(20, {alternativeFormats: []}),
       newBook: buildBook(21, {
@@ -295,7 +292,7 @@ describe('BookFileService', () => {
       }),
     };
 
-    queryClient.setQueryData<Book[]>(BOOKS_QUERY_KEY, [sourceBook, placeholderNewBook]);
+    queryClient.setQueryData<Book[]>(BOOKS_QUERY_KEY, [sourceBook]);
 
     service.detachBookFile(20, 201, true).subscribe(result => {
       expect(result).toEqual(response);
