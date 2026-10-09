@@ -97,7 +97,10 @@ September failures. That step is our most non-standard behaviour on this path an
 `User-Agent` a normal desktop Firefox, `Accept: application/json`, `Origin: https://libbyapp.com`,
 and `Accept-Language: en-US,en` on **every** call.
 
-- **Ours:** `libbyHeaders()`, `apiRequest()`, `USER_AGENT`, `ACCEPT_LANGUAGE`.
+- **Ours:** `libbyHeaders()`, `apiRequest()`, `ACCEPT_LANGUAGE`; the user agent from `FirefoxVersion`,
+  which since 2026-10-09 picks the newest Firefox major released at least a week ago from Mozilla's
+  `firefox_history_major_releases.json`, refreshed in the daily version check. Firefox ships every
+  two weeks from September 2026, so a fixed version went stale twice a month.
 - **Confirmed:** every HAR, without exception — 79 audiobook reads, 11 syncs, 16 fulfillments, all
   `en-US,en`. The only requests carrying anything else are the chip mints (see the shibboleth above).
 - **History:** we sent **no** `Accept-Language` at all, on any request, until 2026-09-23. A browser

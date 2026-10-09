@@ -745,12 +745,10 @@ public class OverDriveService {
     // fulfillment outright — see fetchFulfillment for what that turned out to mean and why it now
     // freezes the card instead of retrying.
     //
-    // These strings go stale, and stale is itself a signature: a client claiming a browser that no
-    // longer exists is trivially separable from real traffic. The user agent was last checked against a
-    // live capture on 2026-09-22 (Firefox 156). The Libby build is not fixed here: LibbyClientVersionGuard
-    // reads the live one daily and speaks as its LibbyClientProfile, or stops if it has none.
-    static final String USER_AGENT =
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0";
+    // These go stale, and stale is itself a signature: a client claiming a browser or a Libby build
+    // that no longer exists is trivially separable from real traffic. Neither is fixed here. The user
+    // agent comes from FirefoxVersion, kept current from Mozilla's release history; the Libby build
+    // comes from LibbyClientVersionGuard, which stops traffic when it has no profile for the live one.
     /**
      * What the web client sends on every call but the chip mint.
      *
@@ -916,7 +914,7 @@ public class OverDriveService {
     /** Standard Libby headers (browser UA + referer), with optional bearer auth. */
     private HttpHeaders libbyHeaders(String bearerToken) {
         HttpHeaders headers = new HttpHeaders();
-        headers.set(HttpHeaders.USER_AGENT, USER_AGENT);
+        headers.set(HttpHeaders.USER_AGENT, libbyClientVersionGuard.userAgent());
         headers.set(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
         headers.set(HttpHeaders.ACCEPT_LANGUAGE, ACCEPT_LANGUAGE);
         headers.set(HttpHeaders.ORIGIN, ORIGIN);
@@ -3959,9 +3957,9 @@ public class OverDriveService {
       }
 
       /** Browser-like Libby API request (Accept: application/json + Origin), optional bearer. */
-      private static HttpRequest.Builder apiRequest(String url, String bearerToken) {
+      private HttpRequest.Builder apiRequest(String url, String bearerToken) {
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
-                .header("User-Agent", USER_AGENT)
+                .header("User-Agent", libbyClientVersionGuard.userAgent())
                 .header("Origin", ORIGIN)
                 .header("Accept", "application/json")
                 .header("Accept-Language", ACCEPT_LANGUAGE)
@@ -4113,7 +4111,7 @@ public class OverDriveService {
       private byte[] downloadContent(String href, String loanId) throws IOException, InterruptedException {
         libbyClient();
         HttpRequest req = HttpRequest.newBuilder(URI.create(href))
-                .header("User-Agent", USER_AGENT)
+                .header("User-Agent", libbyClientVersionGuard.userAgent())
                 .header("Accept", "*/*")
                 .GET()
                 .build();

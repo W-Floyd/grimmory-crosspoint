@@ -300,6 +300,8 @@ export interface OverDriveLibbyClientStatus {
   checkedAt: string | null;
   /** Set while every OverDrive action is stopped; says why. */
   blockedReason: string | null;
+  /** The Firefox major version the user agent claims. */
+  firefoxVersion: number;
 }
 
 /** Result of validating/resolving an OverDrive library key against the Thunder directory. */

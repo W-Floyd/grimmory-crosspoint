@@ -11,7 +11,16 @@ LIBBY_ASSETS=(
   "css/main.css"
 )
 
-# What a browser looks like. Kept beside the rest so one edit updates fetching and the notes on it.
-LIBBY_UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0"
+# What a browser looks like: the same rule as FirefoxVersion on the server — the newest Firefox major
+# released at least 7 days ago, per Mozilla's release history, never below the built-in version.
+LIBBY_FIREFOX_BUILT_IN=157
+LIBBY_FIREFOX="$(curl -fsS --max-time 20 https://product-details.mozilla.org/1.0/firefox_history_major_releases.json 2>/dev/null \
+  | jq -r --arg cutoff "$(date -u -v-7d +%F 2>/dev/null || date -u -d '7 days ago' +%F)" \
+      '[to_entries[] | select(.key | test("^[0-9]+\\.0$")) | select(.value <= $cutoff) | .key | rtrimstr(".0") | tonumber] | max // empty' \
+      2>/dev/null || true)"
+if [[ -z "$LIBBY_FIREFOX" || "$LIBBY_FIREFOX" -lt "$LIBBY_FIREFOX_BUILT_IN" ]]; then
+  LIBBY_FIREFOX="$LIBBY_FIREFOX_BUILT_IN"
+fi
+LIBBY_UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:${LIBBY_FIREFOX}.0) Gecko/20100101 Firefox/${LIBBY_FIREFOX}.0"
 
 LIBBY_BASE="https://libbyapp.com"

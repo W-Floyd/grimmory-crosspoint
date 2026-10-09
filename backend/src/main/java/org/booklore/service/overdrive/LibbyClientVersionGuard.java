@@ -42,6 +42,7 @@ public class LibbyClientVersionGuard {
     private static final Pattern VERSION_PATTERN = Pattern.compile("dewey-(\\d+\\.\\d+\\.\\d+)");
 
     private final HttpClient httpClient;
+    private final FirefoxVersion firefoxVersion;
 
     @Value("${app.overdrive.waking-hours.zone:#{T(java.time.ZoneId).systemDefault().getId()}}")
     String wakingHoursZone = ZoneId.systemDefault().getId(); // package-private for testing
@@ -55,16 +56,18 @@ public class LibbyClientVersionGuard {
     private String liveVersion;
     private String blockedReason = "The live Libby version has not been checked yet.";
     private LocalDate checkedOn;
+    private LocalDate firefoxCheckedOn;
     private Instant checkedAt;
     private Instant failedAt;
 
-    public LibbyClientVersionGuard(HttpClient httpClient) {
+    public LibbyClientVersionGuard(HttpClient httpClient, FirefoxVersion firefoxVersion) {
         this.httpClient = httpClient;
+        this.firefoxVersion = firefoxVersion;
     }
 
     /** A guard that never fetches and always speaks as {@code profile}. For tests. */
     static LibbyClientVersionGuard pinned(LibbyClientProfile profile) {
-        LibbyClientVersionGuard guard = new LibbyClientVersionGuard(null) {
+        LibbyClientVersionGuard guard = new LibbyClientVersionGuard(null, FirefoxVersion.builtIn()) {
             @Override
             synchronized void refreshIfDue() {
             }
@@ -88,14 +91,19 @@ public class LibbyClientVersionGuard {
         return blockedReason;
     }
 
+    /** The browser user agent every Libby request carries. Kept current by the same daily check. */
+    public String userAgent() {
+        return firefoxVersion.userAgent();
+    }
+
     /** The last verdict, without fetching. For display. */
     public synchronized Status status() {
         return new Status(liveVersion, profile != null ? profile.version() : null,
-                LibbyClientProfiles.supportedVersions(), checkedAt, blockedReason);
+                LibbyClientProfiles.supportedVersions(), checkedAt, blockedReason, firefoxVersion.major());
     }
 
     public record Status(String liveVersion, String speakingAs, List<String> supportedVersions,
-                         Instant checkedAt, String blockedReason) {
+                         Instant checkedAt, String blockedReason, int firefoxVersion) {
     }
 
     synchronized void refreshIfDue() {
@@ -104,6 +112,11 @@ public class LibbyClientVersionGuard {
                 || (checkedOn.isBefore(now.toLocalDate()) && now.getHour() >= wakingHourFrom);
         if (!due) {
             return;
+        }
+        // Before the page load below, so it already carries the current version.
+        if (!now.toLocalDate().equals(firefoxCheckedOn)) {
+            firefoxCheckedOn = now.toLocalDate();
+            firefoxVersion.refresh();
         }
         if (failedAt != null && Duration.between(failedAt, clock.instant()).compareTo(RETRY_AFTER_FAILURE) < 0) {
             return;
@@ -154,7 +167,7 @@ public class LibbyClientVersionGuard {
     /** Load the index page the way a browser opening the app does, and read the build out of it. */
     String fetchLiveVersion() throws Exception { // package-private for testing
         HttpRequest request = HttpRequest.newBuilder(URI.create(LIBBY_INDEX_URL))
-                .header("User-Agent", OverDriveService.USER_AGENT)
+                .header("User-Agent", firefoxVersion.userAgent())
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", OverDriveService.ACCEPT_LANGUAGE)
                 .timeout(Duration.ofSeconds(30))

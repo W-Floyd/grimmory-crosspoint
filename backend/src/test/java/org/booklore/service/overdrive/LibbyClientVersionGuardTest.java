@@ -22,7 +22,7 @@ class LibbyClientVersionGuardTest {
         int fetches;
 
         ScriptedGuard() {
-            super(null);
+            super(null, FirefoxVersion.builtIn());
             wakingHoursZone = ZONE.getId();
             wakingHourFrom = 8;
         }
@@ -114,6 +114,30 @@ class LibbyClientVersionGuardTest {
 
         assertThat(guard.blockedReason()).isNull();
         assertThat(guard.fetches).isEqualTo(1);
+    }
+
+    @Test
+    void refreshesTheFirefoxVersionOnceADayBeforeTheLibbyPageLoad() {
+        int[] refreshes = {0};
+        LibbyClientVersionGuard guard = new LibbyClientVersionGuard(null, new FirefoxVersion(null, null) {
+            @Override
+            synchronized void refresh() {
+                refreshes[0]++;
+            }
+        }) {
+            @Override
+            String fetchLiveVersion() {
+                assertThat(refreshes[0]).as("Firefox refreshed before the page load").isEqualTo(1);
+                throw new IllegalStateException("connection reset");
+            }
+        };
+        guard.wakingHoursZone = ZONE.getId();
+        guard.clock = Clock.fixed(ZonedDateTime.of(2026, 10, 9, 9, 0, 0, 0, ZONE).toInstant(), ZONE);
+        guard.blockedReason();
+        guard.clock = Clock.fixed(ZonedDateTime.of(2026, 10, 9, 9, 40, 0, 0, ZONE).toInstant(), ZONE);
+        guard.blockedReason();
+
+        assertThat(refreshes[0]).as("a Libby retry the same day does not re-read Firefox releases").isEqualTo(1);
     }
 
     @Test
