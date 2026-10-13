@@ -135,7 +135,7 @@ public class LibbyClientVersionGuard {
         try {
             live = fetchLiveVersion();
         } catch (Exception e) {
-            reject(null, "Could not read the live Libby version from " + LIBBY_INDEX_URL + " (" + e.getMessage()
+            reject(null, "Could not read the live Libby version from " + LIBBY_INDEX_URL + " (" + e
                     + "), so nothing is sent to OverDrive until it can be confirmed. Retrying within "
                     + RETRY_AFTER_FAILURE.toMinutes() + " minutes.");
             failedAt = clock.instant();
