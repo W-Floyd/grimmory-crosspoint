@@ -3891,6 +3891,33 @@ public class OverDriveService {
       }
 
       /**
+       * The {period, units} to borrow with: the card's preference for this title, from
+       * {@code GET card/{card}/loan/{title}/periods}, which the web client asks before a borrow
+       * (browser captures: {@code {"options":[[7,"days"],[14,"days"],[21,"days"]],"preference":[21,"days"]}}).
+       * A title can offer different options than the card's default, and the preference is what the
+       * patron chose in Libby. Falls back to {@link #LOAN_PERIOD_DAYS} when the call fails or names none:
+       * the borrow itself will surface any real problem.
+       */
+      private Object[] lendingPeriodPreference(String cardId, String authToken, String titleId) {
+        try {
+            Map<?, ?> resp = restClient.get()
+                    .uri(sentryBaseUrl + "/card/" + cardId + "/loan/" + titleId + "/periods")
+                    .headers(h -> h.addAll(libbyHeaders(authToken)))
+                    .retrieve()
+                    .toEntity(Map.class)
+                    .getBody();
+            if (resp != null && resp.get("preference") instanceof List<?> pref && pref.size() == 2
+                    && pref.get(0) instanceof Number n && pref.get(1) instanceof String unit && !unit.isBlank()) {
+                return new Object[]{n.intValue(), unit};
+            }
+        } catch (Exception e) {
+            log.debug("OverDrive: could not read lending periods for title {} on card {} ({})",
+                    titleId, cardId, e.getMessage());
+        }
+        return new Object[]{LOAN_PERIOD_DAYS, "days"};
+      }
+
+      /**
        * Borrow a title and return the raw loan object (which includes the available {@code formats}).
        * {@code titleFormatHint} is a media type or format id used to set the borrow's {@code title_format}
        * (audiobooks must borrow as "audiobook", not "ebook").
@@ -3899,8 +3926,9 @@ public class OverDriveService {
         libbyClient();
         String url = sentryBaseUrl + "/card/" + cardId + "/loan/" + titleId;
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("period", LOAN_PERIOD_DAYS);
-        body.put("units", "days");
+        Object[] period = lendingPeriodPreference(cardId, authToken, titleId);
+        body.put("period", period[0]);
+        body.put("units", period[1]);
         body.put("lucky_day", null); // the client sends the key on every borrow: 1 for a Lucky Day loan, else null
         body.put("title_format", normalizeTitleFormat(titleFormatHint));
 
