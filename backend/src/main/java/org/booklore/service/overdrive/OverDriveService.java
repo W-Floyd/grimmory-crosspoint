@@ -3100,6 +3100,7 @@ public class OverDriveService {
       private void freezeIfSuspended(String identity, Throwable e) {
         String body = suspensionBody(e);
         if (body != null) {
+            log.warn("OverDrive card_suspended on card {}; body={}", identity, body);
             freezeCard(identity, suspensionReason(body));
         }
       }
@@ -4130,6 +4131,13 @@ public class OverDriveService {
 
             if ("card_suspended".equals(result)) {
                 String reason = suspensionReason(body);
+                // Nothing is known yet about what trips this, so keep everything the response carries.
+                log.warn("OverDrive card_suspended on card {} — loan {}, format {}, status {}; "
+                        + "retry-after={}, x-request-id={}, date={}; body={}; headers={}",
+                        cardId, loanId, formatId, resp.statusCode(),
+                        resp.headers().firstValue("retry-after").orElse(null),
+                        resp.headers().firstValue("x-request-id").orElse(null),
+                        resp.headers().firstValue("date").orElse(null), body, resp.headers().map());
                 freezeCard(cardId, reason);
                 throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(
                         "OverDrive suspended this card (\"card_suspended\"), so it is now frozen. " + reason);
