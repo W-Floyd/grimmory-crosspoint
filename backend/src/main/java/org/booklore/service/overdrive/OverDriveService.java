@@ -3058,6 +3058,36 @@ public class OverDriveService {
       }
 
       /**
+       * Whether a failure is OverDrive suspending the library card ({@code result: "card_suspended"}),
+       * the Libby client's cue to route the patron to its card-review screen. Walks the cause chain and
+       * message text for the same reason {@link #isChurningLimit} does.
+       */
+      static boolean isCardSuspended(Throwable e) { // package-private for testing
+        for (Throwable t = e; t != null && t != t.getCause(); t = t.getCause()) {
+            if (t instanceof org.springframework.web.client.RestClientResponseException r
+                    && "card_suspended".equals(firstMatch(RESULT_PATTERN, r.getResponseBodyAsString()))) {
+                return true;
+            }
+            if (t.getMessage() != null && t.getMessage().contains("card_suspended")) {
+                return true;
+            }
+        }
+        return false;
+      }
+
+      /**
+       * Freeze the card at once if the failure is a suspension. Clearing it takes the patron
+       * acknowledging OverDrive's terms in Libby, which this client never does on anyone's behalf, so
+       * the freeze waits for a person to unfreeze it.
+       */
+      private void freezeIfSuspended(String identity, Throwable e) {
+        if (isCardSuspended(e)) {
+            freezeCard(identity, "OverDrive suspended this library card. Review and acknowledge its terms "
+                    + "in the Libby app, then unfreeze the card here.");
+        }
+      }
+
+      /**
        * Stand a card down completely, and indefinitely, after OverDrive refused a fulfillment on it.
        *
        * <p>No end date, unlike {@link #beginChurnCooldown}. A churn cooldown serves a period OverDrive
@@ -3334,6 +3364,15 @@ public class OverDriveService {
        * writes the owner's row, which is the row the share points at.
        */
       private <T> T withChipRecovery(String identity, java.util.function.Function<String, T> call) {
+        try {
+            return recoverChip(identity, call);
+        } catch (RuntimeException e) {
+            freezeIfSuspended(identity, e);
+            throw e;
+        }
+      }
+
+      private <T> T recoverChip(String identity, java.util.function.Function<String, T> call) {
         // Every card-scoped Libby call passes through here — sync and the audiobook reads as much as
         // borrow, hold and return — so this is what makes a freeze mean no traffic at all rather than
         // no writes. Reading costs the account nothing by itself, but a frozen card is one OverDrive
@@ -3882,6 +3921,7 @@ public class OverDriveService {
             // Thunder refusing the account for churning is not a transient failure to retry — it is a
             // request to stop. Stand the card down before the error propagates, so the rest of this
             // pass and every pass until the cooldown lifts leaves it alone.
+            freezeIfSuspended(cardId, e);
             if (isChurningLimit(e)) {
                 // Measure before resting the card: the point is to learn what rate tripped it.
                 recordBorrowRateAtLimit(cardId);
@@ -4069,6 +4109,14 @@ public class OverDriveService {
                     log.info("OverDrive fulfill {} loan {} (post-relink): status {}{}", formatId, loanId,
                             resp.statusCode(), result != null ? " result=" + result : "");
                 }
+            }
+
+            if ("card_suspended".equals(result)) {
+                freezeCard(cardId, "OverDrive suspended this library card. Review and acknowledge its terms "
+                        + "in the Libby app, then unfreeze the card here.");
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive has suspended this card "
+                        + "(\"card_suspended\"). It is now frozen: acknowledge OverDrive's terms in the Libby app, "
+                        + "then unfreeze it.");
             }
 
             // "whoa" = OverDrive refused to fulfill on this card, and by the time we get here every

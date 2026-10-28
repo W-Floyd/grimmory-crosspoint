@@ -2253,6 +2253,16 @@ class OverDriveServiceTest {
         assertThat(OverDriveService.isChurningLimit(null)).isFalse();
     }
 
+    @Test
+    void aSuspendedCardIsRecognisedThroughAWrappedFailure() {
+        String body = "403 Forbidden: \"{\"result\":\"card_suspended\",\"response\":{\"acknowledgeable\":true}}\"";
+        assertThat(OverDriveService.isCardSuspended(new RuntimeException(body))).isTrue();
+        assertThat(OverDriveService.isCardSuspended(
+                new IllegalStateException("borrow failed", new RuntimeException(body)))).isTrue();
+        assertThat(OverDriveService.isCardSuspended(new RuntimeException("missing_chip"))).isFalse();
+        assertThat(OverDriveService.isCardSuspended(null)).isFalse();
+    }
+
     /** Stub this card's borrow counts; the same number is reported for every window. */
     private void borrowCounts(String identity, long perWindow) {
         when(auditRepository.countActionsPerWindow(org.mockito.ArgumentMatchers.eq(identity),
