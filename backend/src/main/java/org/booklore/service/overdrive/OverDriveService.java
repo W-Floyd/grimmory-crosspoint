@@ -3901,6 +3901,7 @@ public class OverDriveService {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("period", LOAN_PERIOD_DAYS);
         body.put("units", "days");
+        body.put("lucky_day", null); // the client sends the key on every borrow: 1 for a Lucky Day loan, else null
         body.put("title_format", normalizeTitleFormat(titleFormatHint));
 
         HttpHeaders headers = libbyHeaders(authToken);
@@ -6879,9 +6880,17 @@ public class OverDriveService {
         String url = sentryBaseUrl + "/card/" + identity + "/hold/" + titleId;
 
         try {
+            // The web client's hold body, as it sends it with no email notification and no suspension.
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("email_address", "");
+            body.put("days_to_suspend", 0);
             withChipRecovery(identity, authToken -> restClient.post()
                     .uri(url)
-                    .headers(h -> h.addAll(libbyHeaders(authToken)))
+                    .headers(h -> {
+                        h.addAll(libbyHeaders(authToken));
+                        h.setContentType(MediaType.APPLICATION_JSON);
+                    })
+                    .body(body)
                     .retrieve()
                     .toBodilessEntity());
 
