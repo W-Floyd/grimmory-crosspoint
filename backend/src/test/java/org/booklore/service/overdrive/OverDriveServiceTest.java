@@ -2263,6 +2263,17 @@ class OverDriveServiceTest {
         assertThat(OverDriveService.isCardSuspended(null)).isFalse();
     }
 
+    @Test
+    void onlyAnExplicitAcknowledgeableFlagPointsToLibby() {
+        assertThat(OverDriveService.suspensionReason("{\"result\":\"card_suspended\",\"acknowledgeable\":true}"))
+                .contains("Acknowledge");
+        assertThat(OverDriveService.suspensionReason("\\\"acknowledgeable\\\":true")).contains("Acknowledge");
+        assertThat(OverDriveService.suspensionReason("{\"result\":\"card_suspended\",\"acknowledgeable\":false}"))
+                .contains("permanently");
+        assertThat(OverDriveService.suspensionReason("{\"result\":\"card_suspended\"}")).contains("permanently");
+        assertThat(OverDriveService.suspensionReason(null)).contains("permanently");
+    }
+
     /** Stub this card's borrow counts; the same number is reported for every window. */
     private void borrowCounts(String identity, long perWindow) {
         when(auditRepository.countActionsPerWindow(org.mockito.ArgumentMatchers.eq(identity),

@@ -3058,32 +3058,49 @@ public class OverDriveService {
       }
 
       /**
-       * Whether a failure is OverDrive suspending the library card ({@code result: "card_suspended"}),
-       * the Libby client's cue to route the patron to its card-review screen. Walks the cause chain and
-       * message text for the same reason {@link #isChurningLimit} does.
+       * The response text of a {@code card_suspended} failure, or null when the failure is anything
+       * else. Walks the cause chain and message text for the same reason {@link #isChurningLimit} does.
        */
-      static boolean isCardSuspended(Throwable e) { // package-private for testing
+      private static String suspensionBody(Throwable e) {
         for (Throwable t = e; t != null && t != t.getCause(); t = t.getCause()) {
             if (t instanceof org.springframework.web.client.RestClientResponseException r
                     && "card_suspended".equals(firstMatch(RESULT_PATTERN, r.getResponseBodyAsString()))) {
-                return true;
+                return r.getResponseBodyAsString();
             }
             if (t.getMessage() != null && t.getMessage().contains("card_suspended")) {
-                return true;
+                return t.getMessage();
             }
         }
-        return false;
+        return null;
+      }
+
+      static boolean isCardSuspended(Throwable e) { // package-private for testing
+        return suspensionBody(e) != null;
       }
 
       /**
-       * Freeze the card at once if the failure is a suspension. Clearing it takes the patron
+       * What to tell whoever finds the card frozen. Only an explicit {@code acknowledgeable: true}
+       * counts, as in the Libby client, where an absent flag is the permanent case: it offers no way
+       * back, so neither should we.
+       */
+      static String suspensionReason(String body) { // package-private for testing
+        boolean acknowledgeable = body != null && body.matches("(?s).*acknowledgeable\\W+true\\b.*");
+        return acknowledgeable
+                ? "OverDrive suspended this library card over unusual activity. Acknowledge its terms in the "
+                        + "Libby app, then unfreeze the card here."
+                : "OverDrive has permanently restricted this library card over repeated unusual activity. "
+                        + "Libby offers no way to lift it, so unfreezing will not help.";
+      }
+
+      /**
+       * Freeze the card at once if the failure is a suspension. Clearing one takes the patron
        * acknowledging OverDrive's terms in Libby, which this client never does on anyone's behalf, so
        * the freeze waits for a person to unfreeze it.
        */
       private void freezeIfSuspended(String identity, Throwable e) {
-        if (isCardSuspended(e)) {
-            freezeCard(identity, "OverDrive suspended this library card. Review and acknowledge its terms "
-                    + "in the Libby app, then unfreeze the card here.");
+        String body = suspensionBody(e);
+        if (body != null) {
+            freezeCard(identity, suspensionReason(body));
         }
       }
 
@@ -4112,11 +4129,10 @@ public class OverDriveService {
             }
 
             if ("card_suspended".equals(result)) {
-                freezeCard(cardId, "OverDrive suspended this library card. Review and acknowledge its terms "
-                        + "in the Libby app, then unfreeze the card here.");
-                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive has suspended this card "
-                        + "(\"card_suspended\"). It is now frozen: acknowledge OverDrive's terms in the Libby app, "
-                        + "then unfreeze it.");
+                String reason = suspensionReason(body);
+                freezeCard(cardId, reason);
+                throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(
+                        "OverDrive suspended this card (\"card_suspended\"), so it is now frozen. " + reason);
             }
 
             // "whoa" = OverDrive refused to fulfill on this card, and by the time we get here every
