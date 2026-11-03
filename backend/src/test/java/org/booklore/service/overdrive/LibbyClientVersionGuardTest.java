@@ -62,12 +62,12 @@ class LibbyClientVersionGuardTest {
     void anUnknownLiveVersionStopsEverything() {
         ScriptedGuard guard = new ScriptedGuard();
         guard.at(9, 9, 0);
-        guard.pages.add("22.2.0");
+        guard.pages.add("22.9.0");
 
         assertThatThrownBy(guard::requireProfile)
                 .isInstanceOf(APIException.class)
-                .hasMessageContaining("Libby 22.2.0 is live");
-        assertThat(guard.status().liveVersion()).isEqualTo("22.2.0");
+                .hasMessageContaining("Libby 22.9.0 is live");
+        assertThat(guard.status().liveVersion()).isEqualTo("22.9.0");
         assertThat(guard.status().speakingAs()).isNull();
     }
 
@@ -100,9 +100,9 @@ class LibbyClientVersionGuardTest {
         guard.requireProfile();
         assertThat(guard.fetches).as("same day, then the small hours: yesterday's verdict stands").isEqualTo(1);
 
-        guard.pages.add("22.2.0");
+        guard.pages.add("22.9.0");
         guard.at(10, 8, 5);
-        assertThat(guard.blockedReason()).contains("22.2.0");
+        assertThat(guard.blockedReason()).contains("22.9.0");
         assertThat(guard.fetches).isEqualTo(2);
     }
 

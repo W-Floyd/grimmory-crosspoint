@@ -28,6 +28,10 @@ public final class LibbyClientProfiles {
         add(new LibbyClientProfile("22.1.1", REVERSED_ALPHA_AT_PATH_LENGTH));
         // Bundle only, no capture: nothing on the wire changed from 22.1.1 (2026-10-09).
         add(new LibbyClientProfile("22.1.2", REVERSED_ALPHA_AT_PATH_LENGTH));
+        // Bundle only, no capture: the /chip shape and shibboleth algorithm are unchanged from 22.1.2
+        // (2026-10-27, 2026-11-03).
+        add(new LibbyClientProfile("22.2.0", REVERSED_ALPHA_AT_PATH_LENGTH));
+        add(new LibbyClientProfile("22.2.1", REVERSED_ALPHA_AT_PATH_LENGTH));
     }
 
     private LibbyClientProfiles() {
