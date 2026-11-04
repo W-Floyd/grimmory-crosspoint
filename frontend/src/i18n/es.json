@@ -3971,16 +3971,16 @@
       "notesShortcut": "Notas",
       "display": "Pantalla",
       "toggleFullscreen": "Alternar pantalla completa",
-      "exitFullscreenCloseDialogs": "Salir de pantalla completa / Cerrar diálogos",
-      "other": "Otros",
-      "showHelpDialog": "Mostrar este diálogo de ayuda",
-      "swipeRight": "Deslizar a la derecha",
-      "swipeLeft": "Deslizar a la izquierda",
       "toggleImmersive": "",
       "readalong": "",
       "toggleReadalong": "",
       "previousPhrase": "",
-      "nextPhrase": ""
+      "nextPhrase": "",
+      "exitFullscreenCloseDialogs": "Salir de pantalla completa / Cerrar diálogos",
+      "other": "Otros",
+      "showHelpDialog": "Mostrar este diálogo de ayuda",
+      "swipeRight": "Deslizar a la derecha",
+      "swipeLeft": "Deslizar a la izquierda"
     },
     "headerFooterUtil": {
       "timeRemainingInSection": "Tiempo restante en la sección: {{ time }}"

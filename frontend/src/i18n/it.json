@@ -3971,16 +3971,16 @@
       "notesShortcut": "Note",
       "display": "Visualizzazione",
       "toggleFullscreen": "Attiva/disattiva schermo intero",
-      "exitFullscreenCloseDialogs": "Esci da schermo intero / Chiudi finestre",
-      "other": "Altro",
-      "showHelpDialog": "Mostra questa finestra di aiuto",
-      "swipeRight": "Scorri a destra",
-      "swipeLeft": "Scorri a sinistra",
       "toggleImmersive": "",
       "readalong": "",
       "toggleReadalong": "",
       "previousPhrase": "",
-      "nextPhrase": ""
+      "nextPhrase": "",
+      "exitFullscreenCloseDialogs": "Esci da schermo intero / Chiudi finestre",
+      "other": "Altro",
+      "showHelpDialog": "Mostra questa finestra di aiuto",
+      "swipeRight": "Scorri a destra",
+      "swipeLeft": "Scorri a sinistra"
     },
     "headerFooterUtil": {
       "timeRemainingInSection": "Tempo rimanente nella sezione: {{ time }}"
