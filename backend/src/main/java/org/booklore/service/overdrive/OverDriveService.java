@@ -6025,7 +6025,7 @@ public class OverDriveService {
                 throw e;
             }
             if (result == null || isEmptyFile(result.file())) {
-                recordAuditFailure(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, "Audiobook handler produced no file");
+                // Recorded by the catch below, like any other failure here.
                 throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("The audiobook handler did not produce a file for loan " + loanId + ".");
             }
             recordAudit(OverDriveAuditAction.DOWNLOAD, identity, null, loanId, null, null, null);
