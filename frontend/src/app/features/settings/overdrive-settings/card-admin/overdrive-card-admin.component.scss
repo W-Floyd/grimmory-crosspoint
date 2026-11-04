@@ -99,7 +99,7 @@
       font-weight: 600;
       padding: 0.1rem 0.45rem;
       border-radius: 1rem;
-      background: var(--surface-200, rgb(255 255 255 / 8%));
+      background: var(--color-surface-hover);
       color: var(--text-color-secondary);
 
       i {
@@ -107,14 +107,14 @@
       }
 
       &.good {
-        color: var(--green-500, #22c55e);
-        background: color-mix(in srgb, var(--green-500, #22c55e) 15%, transparent);
+        color: var(--color-green-500);
+        background: color-mix(in srgb, var(--color-green-500) 15%, transparent);
       }
 
       // An expired token is the one state an admin is usually here to fix.
       &.bad {
-        color: var(--red-500, #ef4444);
-        background: color-mix(in srgb, var(--red-500, #ef4444) 15%, transparent);
+        color: var(--color-red-500);
+        background: color-mix(in srgb, var(--color-red-500) 15%, transparent);
       }
 
       &.muted {
@@ -160,7 +160,7 @@
       gap: 0.25rem;
       font-size: 0.75rem;
       font-weight: 600;
-      color: var(--orange-500, #f97316);
+      color: var(--color-orange-500);
 
       i {
         font-size: 0.7rem;
@@ -203,11 +203,11 @@
   font-weight: 600;
 
   &.valid {
-    color: var(--green-500, #22c55e);
+    color: var(--color-green-500);
   }
 
   &.invalid {
-    color: var(--red-500, #ef4444);
+    color: var(--color-red-500);
   }
 }
 
@@ -232,7 +232,7 @@
 .limits-section {
   margin-top: 1.5rem;
   padding-top: 1rem;
-  border-top: 1px solid var(--surface-border, rgb(255 255 255 / 10%));
+  border-top: 1px solid var(--color-border);
 }
 
 .limits-title {
@@ -276,8 +276,8 @@
     min-width: 3.5rem;
     padding: 0.25rem 0.4rem;
     border-radius: 0.25rem;
-    border: 1px solid var(--surface-border, rgb(255 255 255 / 15%));
-    background: var(--surface-ground, transparent);
+    border: 1px solid var(--color-border);
+    background: transparent;
     color: var(--text-color);
     font-size: 0.85rem;
 
@@ -316,5 +316,5 @@
 
 .limits-default-cell {
   padding-bottom: 0.55rem;
-  border-bottom: 1px solid var(--surface-border, rgb(255 255 255 / 15%));
+  border-bottom: 1px solid var(--color-border);
 }

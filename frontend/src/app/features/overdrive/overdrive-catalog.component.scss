@@ -120,7 +120,7 @@
     cursor: pointer;
 
     &:hover {
-      background: var(--surface-200, rgb(255 255 255 / 8%));
+      background: var(--color-surface-hover);
       color: var(--text-color);
     }
   }
@@ -196,7 +196,7 @@
       gap: 0.3rem;
       font-size: 0.75rem;
       font-weight: 600;
-      color: var(--orange-500, #f97316);
+      color: var(--color-orange-500);
 
       i {
         font-size: 0.7rem;
@@ -229,7 +229,7 @@
       width: 6rem;
       height: 0.5rem;
       border-radius: 0.25rem;
-      background: var(--surface-200, rgb(255 255 255 / 12%));
+      background: var(--color-surface-hover);
       overflow: hidden;
     }
 
@@ -237,11 +237,11 @@
       display: block;
       height: 100%;
       border-radius: inherit;
-      background: var(--green-500, #22c55e);
+      background: var(--color-green-500);
       transition: width 0.2s ease;
 
       &.full {
-        background: var(--orange-500, #f97316);
+        background: var(--color-orange-500);
       }
     }
 
@@ -250,7 +250,7 @@
       white-space: nowrap;
 
       &.full {
-        color: var(--orange-500, #f97316);
+        color: var(--color-orange-500);
         font-weight: 500;
       }
     }
@@ -264,17 +264,17 @@
     font-size: 0.75rem;
     font-weight: 600;
     white-space: nowrap;
-    background: var(--surface-200, rgb(255 255 255 / 10%));
+    background: var(--color-surface-hover);
     color: var(--text-color-secondary);
 
     &.borrow {
-      background: color-mix(in srgb, var(--green-500, #22c55e) 20%, transparent);
-      color: var(--green-500, #22c55e);
+      background: color-mix(in srgb, var(--color-green-500) 20%, transparent);
+      color: var(--color-green-500);
     }
 
     &.return {
-      background: color-mix(in srgb, var(--red-500, #ef4444) 18%, transparent);
-      color: var(--red-400, #f87171);
+      background: color-mix(in srgb, var(--color-red-500) 18%, transparent);
+      color: var(--color-red-400);
     }
 
     &.neutral {
@@ -290,10 +290,10 @@
     white-space: nowrap;
     font-size: 0.8rem;
     font-weight: 600;
-    color: var(--green-500, #22c55e);
+    color: var(--color-green-500);
 
     &.is-failed {
-      color: var(--red-400, #f87171);
+      color: var(--color-red-400);
     }
 
     i {
@@ -302,7 +302,7 @@
   }
 
   .history-row-failed .history-detail {
-    color: var(--red-400, #f87171);
+    color: var(--color-red-400);
   }
 
   .history-when {
@@ -338,10 +338,10 @@
     margin-left: 0.5rem;
     font-size: 0.85rem;
     white-space: nowrap;
-    color: var(--green-500, #22c55e);
+    color: var(--color-green-500);
 
     &.error {
-      color: var(--red-500, #ef4444);
+      color: var(--color-red-500);
     }
   }
 
@@ -463,7 +463,7 @@
       width: 1px;
       align-self: stretch;
       margin: 0.1rem;
-      background: var(--surface-border, rgb(255 255 255 / 15%));
+      background: var(--color-border);
     }
 
     // .format-filter is a styleClass on the p-select, so it lands on the child component's host —
@@ -496,7 +496,7 @@
     font-size: 0.85rem;
 
     &.available {
-      color: var(--green-500, #22c55e);
+      color: var(--color-green-500);
       font-weight: 500;
     }
 
@@ -505,7 +505,7 @@
     }
 
     &.pre-release {
-      color: var(--orange-500, #f97316);
+      color: var(--color-orange-500);
     }
 
     &.on-hold {
@@ -515,7 +515,7 @@
 
     // "Lucky Day" skip-the-line copy — distinct from the regular available green.
     &.lucky-day {
-      color: var(--purple-400, #c084fc);
+      color: var(--color-purple-400);
       font-weight: 600;
     }
   }
@@ -527,7 +527,7 @@
     gap: 0.2rem;
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--orange-500, #f97316);
+    color: var(--color-orange-500);
 
     i {
       font-size: 0.7rem;
@@ -559,7 +559,7 @@
 
     &.is-abridged {
       font-weight: 600;
-      color: var(--orange-500, #f97316);
+      color: var(--color-orange-500);
     }
 
     i {
@@ -669,7 +669,7 @@
     gap: 0.25rem;
     margin-right: 0.4rem;
     font-weight: 600;
-    color: var(--orange-500, #f97316);
+    color: var(--color-orange-500);
 
     i {
       font-size: 0.7rem;
@@ -725,7 +725,7 @@
 
     // Holdable here, but blocked by your own hold limit.
     &.limit {
-      color: var(--orange-500, #f97316);
+      color: var(--color-orange-500);
       font-weight: 500;
     }
   }
@@ -893,7 +893,7 @@
 
     // Available/holdable here, but blocked by your own loan/hold limit.
     &.limit {
-      color: var(--orange-500, #f97316);
+      color: var(--color-orange-500);
       font-weight: 500;
     }
   }
@@ -910,14 +910,14 @@
     font-size: 0.8rem;
     font-weight: 500;
     white-space: nowrap;
-    color: var(--green-500, #22c55e);
+    color: var(--color-green-500);
   }
 
   // Warning that the chosen format won't be kept by the destination library (→ Bookdrop).
   .format-warning {
     font-size: 0.8rem;
     font-weight: 500;
-    color: var(--orange-500, #f97316);
+    color: var(--color-orange-500);
   }
 }
 
@@ -957,7 +957,7 @@
 
   .facet-divider {
     height: 1px;
-    background: var(--surface-border, rgb(255 255 255 / 15%));
+    background: var(--color-border);
   }
 
   .facet-hint {

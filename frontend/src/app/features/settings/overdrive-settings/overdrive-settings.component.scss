@@ -52,7 +52,7 @@
 }
 
 .cred-note {
-  color: var(--orange-600, #ea580c);
+  color: var(--color-orange-600);
   margin-top: 0.35rem;
 }
 
@@ -96,7 +96,7 @@
       font-weight: 600;
       padding: 0.1rem 0.45rem;
       border-radius: 1rem;
-      background: var(--surface-200, rgb(255 255 255 / 8%));
+      background: var(--color-surface-hover);
       color: var(--text-color-secondary);
 
       i {
@@ -104,8 +104,8 @@
       }
 
       &.good {
-        color: var(--green-500, #22c55e);
-        background: color-mix(in srgb, var(--green-500, #22c55e) 15%, transparent);
+        color: var(--color-green-500);
+        background: color-mix(in srgb, var(--color-green-500) 15%, transparent);
       }
 
       &.muted {
@@ -114,8 +114,8 @@
 
       // A card OverDrive has flagged for churning: not broken, but deliberately not acting.
       &.warn {
-        color: var(--orange-500, #f97316);
-        background: color-mix(in srgb, var(--orange-500, #f97316) 15%, transparent);
+        color: var(--color-orange-500);
+        background: color-mix(in srgb, var(--color-orange-500) 15%, transparent);
       }
     }
 
@@ -168,7 +168,7 @@
       gap: 0.25rem;
       font-size: 0.75rem;
       font-weight: 600;
-      color: var(--orange-500, #f97316);
+      color: var(--color-orange-500);
 
       i {
         font-size: 0.7rem;
@@ -280,7 +280,7 @@
     border-radius: 6px;
     background: var(--surface-card);
     color: var(--text-color);
-    border: 1px solid var(--surface-border);
+    border: 1px solid var(--color-border);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.8rem;
     white-space: pre;
@@ -300,16 +300,16 @@
   gap: 0.4rem;
   padding: 0.25rem 0.35rem 0.25rem 0.6rem;
   border-radius: 1rem;
-  background: var(--surface-100, rgb(255 255 255 / 8%));
-  border: 1px solid var(--surface-border);
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border);
   font-size: 0.85rem;
 
   &.valid {
-    border-color: var(--green-500, #22c55e);
+    border-color: var(--color-green-500);
   }
 
   &.invalid {
-    border-color: var(--red-500, #ef4444);
+    border-color: var(--color-red-500);
   }
 
   .key-chip-name {
@@ -320,7 +320,7 @@
     font-size: 0.75rem;
 
     &.pi-exclamation-triangle {
-      color: var(--red-500, #ef4444);
+      color: var(--color-red-500);
     }
   }
 
@@ -338,7 +338,7 @@
     cursor: pointer;
 
     &:hover {
-      background: var(--surface-200, rgb(255 255 255 / 12%));
+      background: var(--color-surface-hover);
       color: var(--text-color);
     }
 
@@ -379,7 +379,7 @@
   gap: 0.5rem;
   padding-bottom: 0.5rem;
   margin-bottom: 0.25rem;
-  border-bottom: 1px solid var(--surface-border, rgb(255 255 255 / 10%));
+  border-bottom: 1px solid var(--color-border);
 
   .bulk-select-label {
     font-size: 0.85rem;
