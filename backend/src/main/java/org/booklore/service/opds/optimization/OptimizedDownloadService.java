@@ -283,15 +283,17 @@ public class OptimizedDownloadService {
             }
 
             if (result.equals(source)) {
-                // No transform actually happened (e.g. cover replacement failed, no preset);
-                // cache a copy so subsequent requests hit the cache instead of retrying.
-                Files.copy(source, cached, StandardCopyOption.REPLACE_EXISTING);
-            } else {
-                try {
-                    Files.move(result, cached, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-                } catch (Exception atomicFailed) {
-                    Files.move(result, cached, StandardCopyOption.REPLACE_EXISTING);
-                }
+                // No transform actually happened (e.g. cover replacement failed, no preset); cache a
+                // copy so subsequent requests hit the cache instead of retrying. Copied beside the
+                // target first: a concurrent request treats any non-empty file as complete.
+                optTemp = Files.createTempFile(cacheDir, "copy-", ".epub.tmp");
+                Files.copy(source, optTemp, StandardCopyOption.REPLACE_EXISTING);
+                result = optTemp;
+            }
+            try {
+                Files.move(result, cached, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception atomicFailed) {
+                Files.move(result, cached, StandardCopyOption.REPLACE_EXISTING);
             }
             // Map this variant's partial-MD5 to the book so KOReader sync can match the copy the
             // reader downloaded (its bytes differ from the library original).
