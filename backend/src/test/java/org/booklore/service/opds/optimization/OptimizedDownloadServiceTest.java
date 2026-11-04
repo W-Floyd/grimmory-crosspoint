@@ -15,11 +15,18 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.mock;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -111,6 +118,39 @@ class OptimizedDownloadServiceTest {
                     .satisfies(p -> assertThat(p.getFileName().toString()).endsWith(".epub"))
                     .satisfies(p -> assertThat(Files.mismatch(p, source)).isEqualTo(-1L));
         }
+    }
+
+    @Test
+    void atMostTwoPrewarmsBuildAtOnce() throws Exception {
+        Path source = Files.write(libraryRoot.resolve("book.epub"), new byte[64]);
+        Path cover = Files.write(libraryRoot.resolve("cover.jpg"), new byte[16]);
+        when(fileService.getCoverFile(1L)).thenReturn(cover.toString());
+        AppSettings settings = new AppSettings();
+        settings.setOpdsReplaceCover(true);
+        when(appSettingService.getAppSettings()).thenReturn(settings);
+        when(bookFileRepository.findByIdWithBookAndLibraryPath(any())).thenAnswer(inv -> {
+            BookFileEntity file = epubFile(source);
+            file.setId(inv.getArgument(0));
+            return Optional.of(file);
+        });
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger building = new AtomicInteger();
+        when(coverReplacer.replaceCover(any(), any(), anyString(), any())).thenAnswer(inv -> {
+            building.incrementAndGet();
+            release.await(5, TimeUnit.SECONDS);
+            return false;
+        });
+
+        List<Thread> warmers = LongStream.rangeClosed(2, 4)
+                .mapToObj(fileId -> Thread.startVirtualThread(() -> service.prewarm(1L, fileId, null, null)))
+                .toList();
+        await().atMost(Duration.ofSeconds(5)).until(() -> building.get() == 2);
+        // The third found no permit and returned without building.
+        warmers.get(2).join(Duration.ofSeconds(5));
+        await().during(Duration.ofMillis(200)).atMost(Duration.ofSeconds(1)).until(() -> building.get() == 2);
+
+        release.countDown();
+        for (Thread t : warmers) t.join(Duration.ofSeconds(5));
     }
 
     private BookFileEntity epubFile(Path source) {

@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.regex.Pattern;
 
 /**
@@ -60,6 +61,13 @@ public class OptimizedDownloadService {
 
     /** Variant keys currently being warmed, so concurrent feed loads don't optimize the same file twice. */
     private final Set<String> inFlightPrewarms = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Builds hold a whole unzipped EPUB in memory and run on the shared async executor, and one feed
+     * page queues one per uncached book. A prewarm that finds no permit is skipped; nothing was cached,
+     * so the next feed load asks again.
+     */
+    private final Semaphore prewarmPermits = new Semaphore(2);
 
     /**
      * Serve {@code fileId} for OPDS. When {@code preset} is non-null the EPUB is device-optimized;
@@ -180,7 +188,14 @@ public class OptimizedDownloadService {
             return; // an identical variant is already being warmed
         }
         try {
-            servedSize(bookId, fileId, preset, presetId);
+            if (!prewarmPermits.tryAcquire()) {
+                return;
+            }
+            try {
+                servedSize(bookId, fileId, preset, presetId);
+            } finally {
+                prewarmPermits.release();
+            }
         } finally {
             inFlightPrewarms.remove(key);
         }
