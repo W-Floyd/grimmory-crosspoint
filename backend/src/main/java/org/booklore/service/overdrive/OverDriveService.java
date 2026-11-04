@@ -22,6 +22,8 @@ import org.booklore.model.enums.OverDriveLoanState;
 import org.booklore.model.enums.BookFileType;
 import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.exception.APIException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 import org.booklore.exception.ApiError;
 import org.booklore.model.dto.BookLoreUser;
 import org.booklore.model.dto.settings.MetadataProviderSettings;
@@ -353,10 +355,8 @@ public class OverDriveService {
         }
     }
 
-    /** Lenient reader for handler progress events; unknown fields are tolerated (forward-compat). */
-    private static final com.fasterxml.jackson.databind.ObjectMapper TOOL_EVENT_MAPPER =
-            new com.fasterxml.jackson.databind.ObjectMapper()
-                    .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    /** Reader for handler progress events, read as a plain map so unknown fields are kept rather than refused. */
+    private static final JsonMapper TOOL_EVENT_MAPPER = new JsonMapper();
 
     /**
      * Build the websocket payload for one handler stdout line. If the line is a structured
@@ -388,7 +388,7 @@ public class OverDriveService {
         }
         try {
             Map<String, Object> map = TOOL_EVENT_MAPPER.readValue(trimmed,
-                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+                    new TypeReference<Map<String, Object>>() {});
             Object type = map.get("type");
             if (type instanceof String t && (t.equals("progress") || t.equals("log") || t.equals("result"))) {
                 return map;

@@ -1,6 +1,6 @@
 package org.booklore.service.audiobook;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.booklore.exception.ApiError;
@@ -68,7 +68,7 @@ import java.util.stream.Stream;
 @Service
 public class AudiobookHandler {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final JsonMapper JSON = new JsonMapper();
 
     private final AudiobookHandlerConfig config;
 
