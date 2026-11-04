@@ -24,9 +24,10 @@ import org.booklore.service.fileprocessor.BookFileProcessorRegistry;
 import org.booklore.service.metadata.MetadataRefreshService;
 import org.booklore.service.monitoring.MonitoringRegistrationService;
 import org.booklore.util.FileUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.io.File;
 import java.io.IOException;
@@ -58,6 +59,7 @@ public class OverDriveImportService {
     private final ApplicationEventPublisher eventPublisher;
     private final org.booklore.mapper.BookMapper bookMapper;
     private final AppProperties appProperties;
+    private final PlatformTransactionManager transactionManager;
 
     /**
      * Whether a library would keep a file of the given type. A library with no explicit allowed-formats
@@ -90,11 +92,10 @@ public class OverDriveImportService {
      * @param fileType          the book file type (EPUB, PDF, AUDIOBOOK, …)
      * @return the persisted {@link Book}
      */
-    // Transactional so the persistence session stays open while the metadata overlay and re-fetch touch
-    // lazily-loaded metadata.authors. With OSIV disabled (spring.jpa.open-in-view: false) that access
-    // would otherwise throw LazyInitializationException after the book was already written — and the
-    // catch below would then delete the imported file, leaving an orphaned library row with no file.
-    @Transactional
+    // Not @Transactional as a whole: a cross-filesystem move of a 200+ MB audiobook would hold a pooled
+    // connection for the whole copy. Only creating the book and overlaying its metadata share a
+    // transaction (the overlay touches lazily-loaded metadata.authors, and OSIV is off), opened after
+    // the move.
     public Book importBook(Path sourceFile, String suggestedFileName, long libraryId, long pathId,
                            BookMetadata metadata, BookFileType fileType) {
         requireNonEmpty(sourceFile);
@@ -135,11 +136,21 @@ public class OverDriveImportService {
             Files.move(sourceFile, target);
             log.info("OverDrive import: moved {} bytes to {}", size, target);
 
-            Book book = processFileInLibrary(targetFile.getName(), library, path, targetFile, fileType);
-            applyOverDriveMetadata(book, metadata);
+            // A failed commit throws here, inside the try, so the moved file is cleaned up with it.
+            Book book = new TransactionTemplate(transactionManager).execute(status -> {
+                LibraryEntity managed = libraryRepository.findByIdWithPaths(libraryId)
+                        .orElseThrow(() -> ApiError.LIBRARY_NOT_FOUND.createException(libraryId));
+                LibraryPathEntity managedPath = managed.getLibraryPaths().stream()
+                        .filter(p -> p.getId().equals(pathId))
+                        .findFirst()
+                        .orElseThrow(() -> ApiError.INVALID_LIBRARY_PATH.createException(libraryId));
+                Book created = processFileInLibrary(targetFile.getName(), managed, managedPath, targetFile, fileType);
+                applyOverDriveMetadata(created, metadata);
+                return created;
+            });
             log.info("OverDrive import: created book id={}", book.getId());
 
-            // The import is done at this point (file written, book + metadata persisted). Re-fetching the
+            // Committed: the import is done (file written, book + metadata persisted). Re-fetching the
             // complete book and sending the live "book added" push is a best-effort nicety — its failure
             // must NOT abort the import and delete the just-written file (which would leave an orphaned
             // library row with no file). Without the push, the book simply appears on the next reload.

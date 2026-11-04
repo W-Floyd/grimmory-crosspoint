@@ -21,6 +21,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.nio.file.Files;
@@ -32,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -49,6 +52,7 @@ class OverDriveImportServiceTest {
     @Mock private BookFileProcessor processor;
     @Mock private org.booklore.mapper.BookMapper bookMapper;
     @Mock private org.booklore.config.AppProperties appProperties;
+    @Mock private PlatformTransactionManager transactionManager;
 
     private OverDriveImportService service;
 
@@ -68,7 +72,7 @@ class OverDriveImportServiceTest {
     void setUp() {
         service = new OverDriveImportService(libraryRepository, bookRepository, fileMovingHelper,
                 processorRegistry, monitoringRegistrationService, metadataRefreshService, eventPublisher, bookMapper,
-                appProperties);
+                appProperties, transactionManager);
     }
 
     private LibraryEntity libraryWithPath() {
@@ -98,6 +102,47 @@ class OverDriveImportServiceTest {
         verify(eventPublisher).publishEvent(any(BookAddedEvent.class));
         // No metadata supplied → no enrichment call.
         verify(metadataRefreshService, never()).updateBookMetadata(any());
+    }
+
+    @Test
+    void importEpub_opensTheTransactionOnlyAfterTheFileHasMoved() throws Exception {
+        Path target = libraryRoot.resolve("Dune.epub");
+        Path source = stubImportOf(target);
+        // A cross-filesystem move of a large audiobook must not hold a pooled connection.
+        when(transactionManager.getTransaction(any())).thenAnswer(inv -> {
+            assertThat(Files.exists(target)).isTrue();
+            assertThat(Files.exists(source)).isFalse();
+            return null;
+        });
+
+        service.importBook(source, "Dune.epub", 1L, 1L, null, BookFileType.EPUB);
+
+        verify(transactionManager).commit(any());
+    }
+
+    @Test
+    void importEpub_removesTheMovedFileWhenTheCommitFails() throws Exception {
+        Path target = libraryRoot.resolve("Dune.epub");
+        Path source = stubImportOf(target);
+        doThrow(new UnexpectedRollbackException("rolled back")).when(transactionManager).commit(any());
+
+        assertThatThrownBy(() -> service.importBook(source, "Dune.epub", 1L, 1L, null, BookFileType.EPUB))
+                .isInstanceOf(UnexpectedRollbackException.class);
+
+        // The book rows rolled back, so a file left behind would be an orphan in the library.
+        assertThat(Files.exists(target)).isFalse();
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    private Path stubImportOf(Path target) throws Exception {
+        LibraryEntity library = libraryWithPath();
+        when(libraryRepository.findByIdWithPaths(1L)).thenReturn(Optional.of(library));
+        when(fileMovingHelper.getFileNamingPattern(library)).thenReturn("{title}");
+        when(fileMovingHelper.generateNewFilePath(eq(libraryRoot.toString()), any(), any(), any())).thenReturn(target);
+        when(processorRegistry.getProcessorOrThrow(BookFileType.EPUB)).thenReturn(processor);
+        when(processor.processFile(any())).thenReturn(FileProcessResult.builder()
+                .book(Book.builder().id(42L).build()).build());
+        return fulfilled("data");
     }
 
     @Test
