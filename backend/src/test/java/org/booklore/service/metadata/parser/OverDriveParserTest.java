@@ -65,7 +65,11 @@ class OverDriveParserTest {
         HttpResponse<String> response = mock(HttpResponse.class);
         when(response.statusCode()).thenReturn(200);
         when(response.body()).thenReturn(body);
-        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
+        // Every request bounds its own wait: the shared client only times out connecting.
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenAnswer(inv -> {
+            assertThat(inv.<HttpRequest>getArgument(0).timeout()).isPresent();
+            return response;
+        });
     }
 
     @Test

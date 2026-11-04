@@ -32,6 +32,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 
@@ -61,6 +62,8 @@ public class OverDriveParser implements BookParser {
     /** Hard cap on total search results collected across pages (bounds how far a broad query paginates). */
     private static final int MAX_TOTAL_RESULTS = 200;
     private static final long MIN_REQUEST_INTERVAL_MS = 1000;
+    /** The shared client only bounds connecting; a stalled response would otherwise hang the caller. */
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Pattern SPECIAL_CHARACTERS_PATTERN = Pattern.compile("[.,\\-\\[\\]{}()!@#$%^&*_=+|~`<>?/\";:]");
 
     private final ObjectMapper objectMapper;
@@ -215,6 +218,7 @@ public class OverDriveParser implements BookParser {
                     .toUri();
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(uri)
+                    .timeout(REQUEST_TIMEOUT)
                     .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
                     .header("Accept", "application/json")
                     .GET()
@@ -252,6 +256,7 @@ public class OverDriveParser implements BookParser {
                     .toUri();
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(uri)
+                    .timeout(REQUEST_TIMEOUT)
                     .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
                     .header("Accept", "application/json")
                     .GET()
@@ -291,6 +296,7 @@ public class OverDriveParser implements BookParser {
                     .toUri();
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(uri)
+                    .timeout(REQUEST_TIMEOUT)
                     .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
                     .header("Accept", "application/json")
                     .GET()
@@ -331,6 +337,7 @@ public class OverDriveParser implements BookParser {
                     .toUri();
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(uri)
+                    .timeout(REQUEST_TIMEOUT)
                     .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
                     .header("Accept", "application/json")
                     .GET()
@@ -379,6 +386,7 @@ public class OverDriveParser implements BookParser {
                     .toUri();
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(uri)
+                    .timeout(REQUEST_TIMEOUT)
                     .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
                     .header("Accept", "application/json")
                     .GET()
@@ -468,6 +476,7 @@ public class OverDriveParser implements BookParser {
 
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(uri)
+                    .timeout(REQUEST_TIMEOUT)
                     // Thunder rejects requests without a browser-like UA.
                     .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
                     .header("Accept", "application/json")
@@ -551,6 +560,7 @@ public class OverDriveParser implements BookParser {
                     .toUri();
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(uri)
+                    .timeout(REQUEST_TIMEOUT)
                     .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
                     .header("Accept", "application/json")
                     .header("Content-Type", "application/json")
