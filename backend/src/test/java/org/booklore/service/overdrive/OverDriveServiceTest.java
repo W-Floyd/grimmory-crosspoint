@@ -2268,6 +2268,21 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void aSuspensionOnBorrowFreezesTheCardOnce() {
+        authAs(7L);
+        stubCard(7L, "card-1", "chip-1");
+        OverDriveTokenEntity row = OverDriveTokenEntity.builder().userId(7L).identity("card-1").token("chip-1").build();
+        when(tokenRepository.findByIdentity("card-1")).thenReturn(List.of(row));
+        when(restClient.post()).thenThrow(new RuntimeException(
+                "403 Forbidden: \"{\"result\":\"card_suspended\",\"acknowledgeable\":true}\""));
+
+        assertThatThrownBy(() -> service.borrow("card-1", "title-1", null)).isInstanceOf(APIException.class);
+
+        assertThat(row.getFrozenAt()).isNotNull();
+        verify(tokenRepository, org.mockito.Mockito.times(1)).saveAll(any());
+    }
+
+    @Test
     void onlyAnExplicitAcknowledgeableFlagPointsToLibby() {
         assertThat(OverDriveService.suspensionReason("{\"result\":\"card_suspended\",\"acknowledgeable\":true}"))
                 .contains("Acknowledge");

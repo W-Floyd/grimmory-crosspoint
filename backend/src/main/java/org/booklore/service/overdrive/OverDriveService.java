@@ -3964,8 +3964,8 @@ public class OverDriveService {
             log.error("OverDrive borrow failed: {}", e.getMessage());
             // Thunder refusing the account for churning is not a transient failure to retry — it is a
             // request to stop. Stand the card down before the error propagates, so the rest of this
-            // pass and every pass until the cooldown lifts leaves it alone.
-            freezeIfSuspended(cardId, e);
+            // pass and every pass until the cooldown lifts leaves it alone. (A suspension is frozen by
+            // withChipRecovery, which every caller goes through.)
             if (isChurningLimit(e)) {
                 // Measure before resting the card: the point is to learn what rate tripped it.
                 recordBorrowRateAtLimit(cardId);
