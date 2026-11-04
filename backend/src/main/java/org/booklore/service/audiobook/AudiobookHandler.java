@@ -56,8 +56,8 @@ import java.util.stream.Stream;
  * app:
  *   audiobook:
  *     enabled: true
- *     tool-path: "/opt/audiobook/go-od-audiobook"
- *     # go-od is a subcommand CLI: lead with "download". Pin a stable --account-dir so its chip cache
+ *     tool-path: "/opt/audiobook/audiobook-tool"
+ *     # The reference tool is a subcommand CLI: lead with "download". Pin a stable --account-dir so its chip cache
  *     # and Adobe activation persist across runs (see the deploy compose notes).
  *     tool-args: "download --manifest {input} --out-dir {output} --account-dir /opt/audiobook/account"
  *     timeout-seconds: 1800

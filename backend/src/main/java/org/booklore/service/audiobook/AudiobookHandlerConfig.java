@@ -23,7 +23,7 @@ public class AudiobookHandlerConfig {
     /**
      * Arguments passed to the tool. Placeholders: {@code {input}} (a JSON manifest carrying the card
      * credentials + loan/card/format ids), {@code {output}} (an empty directory into which the tool
-     * writes the single assembled file). The reference tool (go-od) is a subcommand CLI, so the default
+     * writes the single assembled file). The reference tool is a subcommand CLI, so the default
      * leads with its {@code download} verb: {@code "download --manifest {input} --out-dir {output}"}.
      * Operators should also pin a stable {@code --account-dir} (see the deploy compose notes).
      */

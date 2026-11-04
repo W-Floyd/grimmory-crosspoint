@@ -360,7 +360,7 @@ public class OverDriveService {
 
     /**
      * Build the websocket payload for one handler stdout line. If the line is a structured
-     * progress event (go-od progress protocol, docs/progress-protocol.md) it is forwarded as
+     * progress event (the handler progress protocol, docs/progress-protocol.md in the handler repo) it is forwarded as
      * {@code {titleId, event}}; otherwise it is forwarded verbatim as {@code {titleId, line}}.
      */
     private static Map<String, Object> toolLogPayload(String label, String line) {

@@ -254,7 +254,7 @@ export interface OverDriveFulfillResult {
 }
 
 /**
- * A structured progress event streamed from an external handler (go-od progress protocol).
+ * A structured progress event streamed from an external handler (the handler progress protocol).
  * See docs/progress-protocol.md in the handler repo.
  */
 export interface OverDriveToolEvent {
