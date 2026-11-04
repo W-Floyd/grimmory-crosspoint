@@ -23,6 +23,4 @@ public interface OverDriveLoanRepository extends JpaRepository<OverDriveLoanEnti
      Optional<OverDriveLoanEntity> findByUserIdAndOverdriveLoanId(Long userId, String overdriveLoanId);
 
      List<OverDriveLoanEntity> findByUserId(Long userId);
-
-     List<OverDriveLoanEntity> findByUserIdAndStateIn(Long userId, List<String> states);
 }

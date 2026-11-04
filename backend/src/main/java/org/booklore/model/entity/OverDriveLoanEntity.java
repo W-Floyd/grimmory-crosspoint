@@ -1,5 +1,6 @@
 package org.booklore.model.entity;
 
+import org.booklore.model.enums.OverDriveLoanState;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -50,10 +51,10 @@ public class OverDriveLoanEntity {
     @Column(name = "expire_date")
     private Instant expireDate;
 
-      /** Loan state: BORROWED, ACTIVE, RETURNED, EXPIRED. */
+    @Enumerated(EnumType.STRING)
     @Column(name = "state", length = 32, nullable = false)
     @Builder.Default
-    private String state = "BORROWED";
+    private OverDriveLoanState state = OverDriveLoanState.BORROWED;
 
       /** ISBN-13 of the book (for matching to a BookEntity). */
     @Column(name = "isbn", length = 13)

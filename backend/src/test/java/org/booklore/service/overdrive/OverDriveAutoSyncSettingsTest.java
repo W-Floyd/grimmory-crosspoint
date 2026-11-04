@@ -1,5 +1,6 @@
 package org.booklore.service.overdrive;
 
+import org.booklore.model.enums.OverDriveLoanState;
 import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.model.dto.BookLoreUser;
 import org.booklore.model.dto.overdrive.OverDriveAutoSyncSettings;
@@ -231,7 +232,7 @@ class OverDriveAutoSyncSettingsTest {
         loan.setIdentity("card-1");
         loan.setTitle("A Book");
         loan.setFulfilled(true);
-        loan.setState("ACTIVE");
+        loan.setState(OverDriveLoanState.BORROWED);
         loan.setCreatedAt(Instant.now().minus(daysAgo, ChronoUnit.DAYS));
         return loan;
     }
@@ -336,7 +337,7 @@ class OverDriveAutoSyncSettingsTest {
     @Test
     void anAlreadyReturnedLoanIsNotReturnedAgain() {
         OverDriveLoanEntity loan = fulfilledLoan(30);
-        loan.setState("RETURNED");
+        loan.setState(OverDriveLoanState.RETURNED);
 
         assertThat(service.autoReturnDue(loan, returnSettings(14, 0, true), 0, Instant.now())).isFalse();
     }
@@ -455,7 +456,7 @@ class OverDriveAutoSyncSettingsTest {
         // silently take the title out again — this is what re-borrowed a batch of titles.
         OverDriveLoanEntity loan = fulfilledLoan(1);
         loan.setFulfilled(false);
-        loan.setState("RETURNED");
+        loan.setState(OverDriveLoanState.RETURNED);
 
         assertThat(service.pendingAutoImportForTest(loan)).isFalse();
     }
@@ -464,7 +465,7 @@ class OverDriveAutoSyncSettingsTest {
     void anExpiredRowIsNotTreatedAsPendingImport() {
         OverDriveLoanEntity loan = fulfilledLoan(1);
         loan.setFulfilled(false);
-        loan.setState("EXPIRED");
+        loan.setState(OverDriveLoanState.EXPIRED);
 
         assertThat(service.pendingAutoImportForTest(loan)).isFalse();
     }
@@ -473,7 +474,7 @@ class OverDriveAutoSyncSettingsTest {
     void aLiveUnfulfilledLoanIsStillPendingImport() {
         OverDriveLoanEntity loan = fulfilledLoan(1);
         loan.setFulfilled(false);
-        loan.setState("BORROWED");
+        loan.setState(OverDriveLoanState.BORROWED);
 
         assertThat(service.pendingAutoImportForTest(loan)).isTrue();
     }

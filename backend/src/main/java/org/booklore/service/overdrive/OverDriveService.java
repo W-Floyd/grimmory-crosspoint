@@ -18,6 +18,7 @@ import org.booklore.model.entity.OverDriveImportDestinationEntity;
 import org.booklore.model.entity.OverDriveLoanEntity;
 import org.booklore.model.entity.OverDriveTokenEntity;
 import org.booklore.model.enums.OverDriveAuditAction;
+import org.booklore.model.enums.OverDriveLoanState;
 import org.booklore.model.enums.BookFileType;
 import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.exception.APIException;
@@ -3674,7 +3675,7 @@ public class OverDriveService {
         // seen returned or expired, this is a new loan wearing an old row: the import and auto-return
         // state left over from the previous checkout describes a book we no longer hold, and leaving it
         // in place would make a freshly borrowed title look instantly due for return.
-        boolean reborrowed = isTerminalLoanState(entity.getState());
+        boolean reborrowed = entity.getState().isTerminal();
         if (reborrowed) {
             entity.setFulfilled(false);
             entity.setAutoImportFailures(0);
@@ -3698,7 +3699,7 @@ public class OverDriveService {
         }
         entity.setExpireDate(parseTimestamp(loan.getExpireDate(), "expireDate"));
         entity.setFormatId(loan.getFormat() != null ? loan.getFormat().getId() : null);
-        entity.setState("BORROWED");
+        entity.setState(OverDriveLoanState.BORROWED);
         entity.setLastSync(Instant.now());
 
         loanRepository.save(entity);
@@ -3714,12 +3715,12 @@ public class OverDriveService {
       private void retireLoansForUnlinkedCard(Long ownerId, String identity) {
         List<OverDriveLoanEntity> orphaned = loanRepository.findByUserId(ownerId).stream()
                 .filter(loan -> identity.equals(loan.getIdentity()))
-                .filter(loan -> !isTerminalLoanState(loan.getState()))
+                .filter(loan -> !loan.getState().isTerminal())
                 .toList();
         if (orphaned.isEmpty()) {
             return;
         }
-        orphaned.forEach(loan -> loan.setState("EXPIRED"));
+        orphaned.forEach(loan -> loan.setState(OverDriveLoanState.EXPIRED));
         loanRepository.saveAll(orphaned);
         log.info("OverDrive: card {} unlinked from user {}; retired {} loan row(s) nothing can sync any more",
                 identity, ownerId, orphaned.size());
@@ -3730,10 +3731,6 @@ public class OverDriveService {
         return loan.getExpireDate() != null && loan.getExpireDate().isBefore(Instant.now());
       }
 
-      /** States meaning "we no longer hold this loan"; the row is history, not a live checkout. */
-      private static boolean isTerminalLoanState(String state) {
-        return "RETURNED".equals(state) || "EXPIRED".equals(state);
-      }
 
       /**
        * Bring the loan cache back in line with what the user actually holds.
@@ -3773,14 +3770,14 @@ public class OverDriveService {
         for (OverDriveLoanEntity row : loanRepository.findByUserId(userId)) {
             if (!covered.contains(row.getIdentity())
                     || live.contains(row.getOverdriveLoanId())
-                    || isTerminalLoanState(row.getState())) {
+                    || row.getState().isTerminal()) {
                 continue;
             }
             // Expired vs returned is a guess either way — OverDrive doesn't say which happened, it just
             // stops listing the loan. Its own expiry date is the one piece of evidence available, so a
             // loan that ran past it is recorded as expired and everything else as returned.
             boolean expired = row.getExpireDate() != null && row.getExpireDate().isBefore(now);
-            row.setState(expired ? "EXPIRED" : "RETURNED");
+            row.setState(expired ? OverDriveLoanState.EXPIRED : OverDriveLoanState.RETURNED);
             row.setLastSync(now);
             loanRepository.save(row);
             reconciled++;
@@ -5437,7 +5434,7 @@ public class OverDriveService {
                 && loan.getOverdriveLoanId() != null
                 // Expired counts as gone too, now that reconciliation records it: handing back a loan
                 // that already lapsed is a call that can only fail.
-                && !isTerminalLoanState(loan.getState());
+                && !loan.getState().isTerminal();
       }
 
       /**
@@ -5907,8 +5904,7 @@ public class OverDriveService {
                 // A row marked returned or expired is not a loan any more. borrowAndImport borrows
                 // when it finds no active loan, so importing one of these would silently take the
                 // title out again — the caller must also check the loan is in the live sync.
-                && !"RETURNED".equals(loan.getState())
-                && !"EXPIRED".equals(loan.getState())
+                && !loan.getState().isTerminal()
                 && loan.getIdentity() != null
                 && loan.getOverdriveLoanId() != null
                 && loan.getAutoImportFailures() < MAX_AUTO_IMPORT_FAILURES;
@@ -6272,7 +6268,7 @@ public class OverDriveService {
         entity.setTitle(title);
         entity.setAuthor(author);
         entity.setFormatId(chosenFormat);
-        entity.setState("ACTIVE");
+        entity.setState(OverDriveLoanState.BORROWED);
         entity.setFulfilled(true);
         entity.setBookId(book != null ? book.getId() : null);
         entity.setAutoImportFailures(0);
@@ -6533,7 +6529,7 @@ public class OverDriveService {
             entity.setTitle(title);
             entity.setAuthor(author);
             entity.setFormatId(FORMAT_MAGAZINE);
-            entity.setState("ACTIVE");
+            entity.setState(OverDriveLoanState.BORROWED);
             entity.setFulfilled(true);
             entity.setBookId(book != null ? book.getId() : null);
             entity.setAutoImportFailures(0);
@@ -6882,7 +6878,7 @@ public class OverDriveService {
              // identity-only lookup would match multiple rows.
             loanRepository.findByUserIdAndOverdriveLoanId(currentUserId(), loanId)
                     .ifPresent(entity -> {
-                        entity.setState("RETURNED");
+                        entity.setState(OverDriveLoanState.RETURNED);
                         loanRepository.save(entity);
                      });
 
@@ -7403,10 +7399,6 @@ public class OverDriveService {
         return loanRepository.findByUserId(currentUserId());
       }
 
-      /** Get the current user's active (non-returned/non-expired) loans. */
-      public List<OverDriveLoanEntity> getActiveLoans(String identity) {
-        return loanRepository.findByUserIdAndStateIn(currentUserId(), Arrays.asList("BORROWED", "ACTIVE"));
-      }
 
      // ── Data Classes ─────────────────────────────────────────────────────
 
