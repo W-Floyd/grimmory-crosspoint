@@ -162,6 +162,28 @@ describe('ReaderReadalongService', () => {
     expect(revived.volume()).toBe(0.25);
   });
 
+  it('opens with default rate and volume when the browser blocks storage', () => {
+    const blocked = () => { throw new DOMException('The operation is insecure.', 'SecurityError'); };
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(blocked);
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(blocked);
+    try {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          ReaderReadalongService,
+          {provide: ReaderViewManagerService, useValue: viewManager},
+        ]
+      });
+      const blind = TestBed.inject(ReaderReadalongService);
+
+      expect(blind.rate()).toBe(1);
+      expect(() => blind.setRate(1.5)).not.toThrow();
+    } finally {
+      getItem.mockRestore();
+      setItem.mockRestore();
+    }
+  });
+
   it('starts playback at a clicked phrase when stopped', () => {
     service.detectAvailability();
     viewManager.startMediaOverlayAt.mockReturnValue(of(true));

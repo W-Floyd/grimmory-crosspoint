@@ -2,6 +2,7 @@ import {computed, inject, Injectable, signal} from '@angular/core';
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {catchError, debounceTime, of, tap} from 'rxjs';
 import {ReaderViewManagerService} from '../../core/view-manager.service';
+import {LocalStorageService} from '../../../../../shared/service/local-storage.service';
 
 export type ReadalongState = 'stopped' | 'playing' | 'paused';
 
@@ -24,11 +25,14 @@ const NAVIGATION_SETTLE_MS = 300;
 @Injectable()
 export class ReaderReadalongService {
   private readonly viewManager = inject(ReaderViewManagerService);
+  // Guarded storage: a browser blocking site data throws on access, which in a field initializer
+  // would keep the whole reader from opening.
+  private readonly storage = inject(LocalStorageService);
 
   private readonly _available = signal(false);
   private readonly _state = signal<ReadalongState>('stopped');
-  private readonly _rate = signal(readStoredNumber(RATE_STORAGE_KEY, 1));
-  private readonly _volume = signal(readStoredNumber(VOLUME_STORAGE_KEY, 1));
+  private readonly _rate = signal(this.readStoredNumber(RATE_STORAGE_KEY, 1));
+  private readonly _volume = signal(this.readStoredNumber(VOLUME_STORAGE_KEY, 1));
 
   readonly available = this._available.asReadonly();
   readonly state = this._state.asReadonly();
@@ -171,14 +175,14 @@ export class ReaderReadalongService {
 
   setRate(rate: number): void {
     this._rate.set(rate);
-    writeStoredNumber(RATE_STORAGE_KEY, rate);
+    this.storage.set(RATE_STORAGE_KEY, rate);
     this.viewManager.setMediaOverlayRate(rate);
   }
 
   setVolume(volume: number): void {
     const clamped = Math.min(Math.max(volume, 0), 1);
     this._volume.set(clamped);
-    writeStoredNumber(VOLUME_STORAGE_KEY, clamped);
+    this.storage.set(VOLUME_STORAGE_KEY, clamped);
     this.viewManager.setMediaOverlayVolume(clamped);
   }
 
@@ -194,15 +198,9 @@ export class ReaderReadalongService {
     this.stop();
     this._available.set(false);
   }
-}
 
-function readStoredNumber(key: string, fallback: number): number {
-  const raw = localStorage.getItem(key);
-  if (raw === null) return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function writeStoredNumber(key: string, value: number): void {
-  localStorage.setItem(key, String(value));
+  private readStoredNumber(key: string, fallback: number): number {
+    const stored = this.storage.get<unknown>(key);
+    return typeof stored === 'number' && Number.isFinite(stored) ? stored : fallback;
+  }
 }
