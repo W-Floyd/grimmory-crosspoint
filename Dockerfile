@@ -38,6 +38,11 @@ RUN --mount=type=cache,target=/home/gradle/.gradle \
 
 COPY LICENSE NOTICE /workspace/
 COPY backend/ ./
+
+# Compiled before the frontend arrives, so a frontend-only change only repackages the jar.
+RUN --mount=type=cache,target=/home/gradle/.gradle \
+    TARGETARCH=${TARGETARCH} ./gradlew --no-daemon classes
+
 COPY --from=frontend-build /workspace/frontend/dist/grimmory/browser /tmp/frontend-dist
 
 RUN --mount=type=cache,target=/home/gradle/.gradle \
@@ -73,6 +78,12 @@ FROM kepubify-layer-${TARGETARCH} AS kepubify-layer
 
 FROM eclipse-temurin:25-jre-alpine
 
+RUN apk add --no-cache su-exec libstdc++ libgcc libarchive && \
+    mkdir -p /bookdrop
+
+# Manually link `libarchive.so.13` so java and other libraries can see it
+RUN ln -s /usr/lib/libarchive.so.13 /usr/lib/libarchive.so
+
 ENV JAVA_TOOL_OPTIONS="-XX:+UseShenandoahGC \
     -XX:ShenandoahGCHeuristics=compact \
     -XX:+UseCompactObjectHeaders \
@@ -90,12 +101,6 @@ ENV JAVA_TOOL_OPTIONS="-XX:+UseShenandoahGC \
     -XX:MaxDirectMemorySize=256m \
     --enable-native-access=ALL-UNNAMED \
     --enable-preview"
-
-RUN apk add --no-cache su-exec libstdc++ libgcc libarchive && \
-    mkdir -p /bookdrop
-
-# Manually link `libarchive.so.13` so java and other libraries can see it
-RUN ln -s /usr/lib/libarchive.so.13 /usr/lib/libarchive.so
 
 COPY packaging/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
