@@ -3141,10 +3141,12 @@ public class OverDriveService {
         if (alreadyFrozen) {
             return; // already stopped; no second log line or history row for the same standstill
         }
-        log.warn("OverDrive: card {} refused fulfillment; every action on it is frozen for all {} user(s) "
-                + "holding it until someone re-links it. Reason: {}", identity, rows.size(), reason);
+        // The cause, and what to do about it, is the reason's to say; a suspension is not a refused
+        // fulfillment and is not cleared by re-linking.
+        log.warn("OverDrive: card {} frozen; every action on it is stopped for all {} user(s) holding it "
+                + "until someone unfreezes or re-links it. Reason: {}", identity, rows.size(), reason);
         recordAudit(OverDriveAuditAction.CARD_FROZEN, identity, null, null, null, null,
-                reason + " Nothing will be attempted on this card until it is re-linked.", false);
+                reason + " Nothing will be attempted on this card until someone unfreezes or re-links it.", false);
       }
 
       /**

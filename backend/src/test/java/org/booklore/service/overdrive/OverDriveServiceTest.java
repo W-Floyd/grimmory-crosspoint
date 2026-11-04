@@ -2280,6 +2280,12 @@ class OverDriveServiceTest {
 
         assertThat(row.getFrozenAt()).isNotNull();
         verify(tokenRepository, org.mockito.Mockito.times(1)).saveAll(any());
+        ArgumentCaptor<org.booklore.model.entity.OverDriveAuditEntity> saved =
+                ArgumentCaptor.forClass(org.booklore.model.entity.OverDriveAuditEntity.class);
+        verify(auditRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+        // The suspension's own remedy, not the re-link one a refused fulfillment calls for.
+        assertThat(saved.getAllValues()).filteredOn(a -> "CARD_FROZEN".equals(a.getAction())).singleElement()
+                .satisfies(a -> assertThat(a.getDetail()).contains("Acknowledge its terms").doesNotContain("until it is re-linked"));
     }
 
     @Test
