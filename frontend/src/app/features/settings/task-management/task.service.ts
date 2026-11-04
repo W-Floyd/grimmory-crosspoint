@@ -23,9 +23,10 @@ export const TASK_TYPE_CONFIG: Record<TaskType, { parallel: boolean; async: bool
   [TaskType.UPDATE_BOOK_RECOMMENDATIONS]: {parallel: false, async: true, displayOrder: 4},
   [TaskType.CLEANUP_DELETED_BOOKS]: {parallel: false, async: false, displayOrder: 5},
   [TaskType.CLEANUP_TEMP_METADATA]: {parallel: false, async: false, displayOrder: 6},
-  [TaskType.OVERDRIVE_AUTO_SYNC]: {parallel: false, async: true, displayOrder: 7},
-  [TaskType.REFRESH_METADATA_MANUAL]: {parallel: false, async: false, displayOrder: 8},
-  [TaskType.CLEAR_PDF_CACHE]: {parallel: false, async: false, displayOrder: 9},
+  [TaskType.REFRESH_METADATA_MANUAL]: {parallel: false, async: false, displayOrder: 7},
+  [TaskType.CLEAR_PDF_CACHE]: {parallel: false, async: false, displayOrder: 8},
+  // Fork task: appended after upstream's, so their numbers (shown in the UI) never shift.
+  [TaskType.OVERDRIVE_AUTO_SYNC]: {parallel: false, async: true, displayOrder: 9},
 };
 
 export enum MetadataReplaceMode {
