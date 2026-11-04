@@ -1,5 +1,6 @@
 import { Component, computed, DestroyRef, effect, ElementRef, inject, OnInit, signal, untracked, viewChild, WritableSignal } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpResponse } from '@angular/common/http';
@@ -171,6 +172,12 @@ export class OverdriveCatalogComponent implements OnInit {
   serverSideFilter = signal(false);
   private searched = false;
   private prevServerSideFilter = false;
+  /**
+   * The request each flow is waiting on. A new one cancels it: facet toggles and post-mutation
+   * re-syncs overlap, and whichever response landed last used to win whether or not it was current.
+   */
+  private searchRequest?: Subscription;
+  private syncRequest?: Subscription;
   readonly formatFilterOptions = [
     { label: 'All formats', value: 'all' },
     { label: 'Ebooks', value: 'ebook' },
@@ -897,6 +904,8 @@ export class OverdriveCatalogComponent implements OnInit {
    syncSelectedCards(): void {
      const cards = this.selectedCards();
      if (cards.length === 0) {
+       this.syncRequest?.unsubscribe();
+       this.loading.set(false);
        this.cardSyncs.set(new Map());
        this.loans.set([]);
        this.holds.set([]);
@@ -905,7 +914,8 @@ export class OverdriveCatalogComponent implements OnInit {
      }
      this.loading.set(true);
      this.error.set(null);
-     this.overdriveService.syncAll(cards.map(c => c.cardId)).subscribe({
+     this.syncRequest?.unsubscribe();
+     this.syncRequest = this.overdriveService.syncAll(cards.map(c => c.cardId)).subscribe({
        next: (byCard) => {
          const map = new Map<string, OverDriveSyncResult>();
          for (const card of cards) {
@@ -1010,15 +1020,15 @@ export class OverdriveCatalogComponent implements OnInit {
        this.error.set('Select at least one card to search');
        return;
        }
-     if (isLoadMore) {
-       this.loadingMore.set(true);
-     } else {
-       this.searching.set(true);
-     }
+     // Both set, not just one: the request this replaces may have been the other kind, and its
+     // handlers will not run to clear its flag.
+     this.loadingMore.set(isLoadMore);
+     this.searching.set(!isLoadMore);
      this.error.set(null);
      this.searchLimit.set(limit);
      const filter = this.serverSideFilter() ? this.serverFilter() : undefined;
-     this.overdriveService.search(query, this.selectedCards().map(c => c.cardId), filter, limit).subscribe({
+     this.searchRequest?.unsubscribe();
+     this.searchRequest = this.overdriveService.search(query, this.selectedCards().map(c => c.cardId), filter, limit).subscribe({
        next: (items) => {
          this.results.set(items);
          this.searching.set(false);

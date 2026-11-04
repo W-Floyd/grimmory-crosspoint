@@ -1,11 +1,11 @@
 import {TestBed} from '@angular/core/testing';
 import {beforeEach, afterEach, describe, expect, it, vi} from 'vitest';
-import {of, throwError} from 'rxjs';
+import {of, Subject, throwError} from 'rxjs';
 
 import {ConfirmationService, MessageService} from '@openng/optimus-ui/api';
 import {TaskService} from '../settings/task-management/task.service';
 import {OverdriveCatalogComponent, toolProgressPct} from './overdrive-catalog.component';
-import {OverDriveService, OverDriveAuditEntry, OverDriveBookbagEntry, OverDriveCard, OverDriveCatalogItem, OverDriveSyncResult, OverDriveToolLog} from '../../core/services/overdrive.service';
+import {OverDriveService, OverDriveAuditEntry, OverDriveBookbagEntry, OverDriveCard, OverDriveCatalogItem, OverDriveLoan, OverDriveSyncResult, OverDriveToolLog} from '../../core/services/overdrive.service';
 import {LibraryService} from '../../features/book/service/library.service';
 import {TranslocoService} from '@jsverse/transloco';
 import {RxStompService} from '../../shared/websocket/rx-stomp.service';
@@ -30,6 +30,10 @@ function item(overrides: Partial<OverDriveCatalogItem>): OverDriveCatalogItem {
     availability: [],
     ...overrides,
   };
+}
+
+function loan(id: string): OverDriveLoan {
+  return {id, title: null, expireDate: '2026-12-01T00:00:00Z'};
 }
 
 function sync(overrides: Partial<OverDriveSyncResult>): OverDriveSyncResult {
@@ -648,6 +652,52 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     overdriveService.search.mockReturnValue(of(full.slice(0, 30)));
     component.loadMore();
     expect(component.canLoadMore()).toBe(false);
+  });
+
+  describe('overlapping requests', () => {
+    it('keeps only the latest search when an earlier one answers last', () => {
+      setup();
+      const first = new Subject<OverDriveCatalogItem[]>();
+      const second = new Subject<OverDriveCatalogItem[]>();
+      overdriveService.search.mockReturnValueOnce(first).mockReturnValueOnce(second);
+      component.searchQuery.set('dune');
+      component.onSearch();
+      component.searchQuery.set('emma');
+      component.onSearch();
+
+      second.next([item({titleId: 'emma'})]);
+      first.next([item({titleId: 'dune'})]);
+
+      expect(component.results().map(r => r.titleId)).toEqual(['emma']);
+      expect(first.observed).toBe(false);
+    });
+
+    it('clears the load-more spinner when a fresh search replaces it', () => {
+      setup();
+      overdriveService.search.mockReturnValueOnce(of(Array.from({length: 60}, (_, i) => item({titleId: `t${i}`}))));
+      component.searchQuery.set('dune');
+      component.onSearch();
+      overdriveService.search.mockReturnValueOnce(new Subject()).mockReturnValueOnce(of([]));
+      component.loadMore();
+      component.onSearch();
+
+      expect(component.loadingMore()).toBe(false);
+    });
+
+    it('builds loans from the sync of the current card selection, not an older one', () => {
+      const {c1, c2} = setup();
+      const older = new Subject<Record<string, OverDriveSyncResult>>();
+      const newer = new Subject<Record<string, OverDriveSyncResult>>();
+      overdriveService.syncAll.mockReturnValueOnce(older).mockReturnValueOnce(newer);
+      component.onCardsChange([c1]);
+      component.onCardsChange([c1, c2]);
+
+      newer.next({c1: sync({loans: [loan('a')]}), c2: sync({loans: [loan('b')]})});
+      older.next({c1: sync({loans: [loan('a')]})});
+
+      expect(component.loans().map(l => l.id).sort()).toEqual(['a', 'b']);
+      expect(component.loading()).toBe(false);
+    });
   });
 
   describe('server-side filtering', () => {
