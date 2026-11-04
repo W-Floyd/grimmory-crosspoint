@@ -1,5 +1,6 @@
 package org.booklore.task;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.lang.NonNull;
 import org.springframework.scheduling.Trigger;
 import org.springframework.scheduling.TriggerContext;
@@ -31,6 +32,7 @@ import java.util.function.Consumer;
  * jittered time, so a jitter approaching the interval would push a firing past the following slot and
  * silently skip it. A jitter of a few percent up to a quarter of the interval is a sane range.
  */
+@Slf4j
 public class JitteredCronTrigger implements Trigger {
 
     /**
@@ -77,7 +79,13 @@ public class JitteredCronTrigger implements Trigger {
                     ? base
                     : base.plusSeconds(ThreadLocalRandom.current().nextLong(maxJitterSeconds + 1));
         }
-        onFiringPlanned.accept(planned);
+        // A throw here would escape nextExecution, and the scheduler never reschedules after that: one
+        // failed write would stop the task for good. Losing restart-survival for one firing is cheaper.
+        try {
+            onFiringPlanned.accept(planned);
+        } catch (RuntimeException e) {
+            log.warn("Could not write down the firing planned for {}: {}", planned, e.toString());
+        }
         return planned;
     }
 

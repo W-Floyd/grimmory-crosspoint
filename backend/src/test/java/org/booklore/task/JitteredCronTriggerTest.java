@@ -74,6 +74,17 @@ class JitteredCronTriggerTest {
     }
 
     @Test
+    void aFailedWriteDoesNotStopTheSchedule() {
+        JitteredCronTrigger trigger = new JitteredCronTrigger("0 0 */2 * * *", 0, null,
+                i -> { throw new IllegalStateException("database down"); });
+        Instant basis = Instant.parse("2026-08-19T01:00:00Z");
+
+        // A throw out of nextExecution is never retried by the scheduler, so the task would stop for good.
+        assertThat(trigger.nextExecution(contextAt(basis)))
+                .isEqualTo(new CronTrigger("0 0 */2 * * *").nextExecution(contextAt(basis)));
+    }
+
+    @Test
     void withoutJitterItFiresExactlyOnTheCronSlot() {
         JitteredCronTrigger trigger = new JitteredCronTrigger("0 0 */2 * * *", 0);
         Instant basis = Instant.parse("2026-08-19T01:00:00Z");
