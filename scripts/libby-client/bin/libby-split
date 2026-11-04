@@ -106,7 +106,7 @@ function matchBracket(s, start) {
 // `return /re/.test(x)` is a regex; `count /re/ 2` is not a thing anyone writes, but `a.length /2/ b`
 // is division twice. The character before the slash settles most cases; where it is a letter, only a
 // keyword that takes an expression can legally precede a regex, so the preceding text decides.
-const KEYWORDS_BEFORE_REGEX = /(?:^|[^$\w])(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/;
+const KEYWORDS_BEFORE_REGEX = /(?:^|[^$\w.])(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/;
 
 function regexCanStartHere(prev, preceding) {
   if (prev === '') return true;
