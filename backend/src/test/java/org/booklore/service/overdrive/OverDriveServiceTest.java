@@ -1055,6 +1055,17 @@ class OverDriveServiceTest {
     }
 
     @Test
+    void linkToken_reportsAnUpstreamFailureRatherThanNoCards() {
+        authAs(7L);
+        when(restClient.get()).thenThrow(new org.springframework.web.client.ResourceAccessException("Connection reset"));
+
+        assertThatThrownBy(() -> service.linkToken("eyJhbGciOi.abc.def"))
+                .isInstanceOf(APIException.class)
+                .hasMessageContaining("Connection reset")
+                .hasMessageNotContaining("linked no library cards");
+    }
+
+    @Test
     void redeemSetupCode_forAnotherUser_checksThePermissionBeforeValidatingTheCode() {
         authAsOverdriveUser(5L);
 

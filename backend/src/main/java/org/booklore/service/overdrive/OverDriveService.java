@@ -3487,7 +3487,12 @@ public class OverDriveService {
                 }
             }
          } catch (Exception e) {
+            // Not "no cards": a 401 or an outage read as an empty list told the user to check a code
+            // that was fine.
             log.warn("OverDrive: could not read cards from sync: {}", e.getMessage());
+            if (e instanceof APIException api) throw api;
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(e,
+                    "Could not read the linked cards from OverDrive: " + e.getMessage());
          }
         return cards;
       }
