@@ -146,6 +146,7 @@ public class OverDriveService {
      */
     private final HttpClient httpClient;
     private final UserRepository userRepository;
+    private final org.booklore.repository.OverDriveUserRepository overDriveUserRepository;
     private final AuthenticationService authenticationService;
     private final AppSettingService appSettingService;
     private final OverDriveCredentialCipher credentialCipher;
@@ -7054,7 +7055,7 @@ public class OverDriveService {
             return List.of();
         }
         // Permissions are fetch-joined: the filter below reads them, and this runs outside a session.
-        return userRepository.findAllWithPermissions().stream()
+        return overDriveUserRepository.findAllWithPermissions().stream()
                 .filter(u -> u.getId() != null && !u.getId().equals(owner))
                 .filter(OverDriveService::canUseOverdrive)
                 .map(u -> new OverDriveShareUser(u.getId(), u.getUsername(), u.getName()))

@@ -68,6 +68,7 @@ class OverDriveServiceTest {
     @Mock private org.booklore.repository.OverDriveAutoSyncRepository autoSyncRepository;
     @Mock private java.net.http.HttpClient httpClient;
     @Mock private org.booklore.repository.UserRepository userRepository;
+    @Mock private org.booklore.repository.OverDriveUserRepository overDriveUserRepository;
     @Mock private AuthenticationService authenticationService;
     @Mock private org.booklore.service.appsettings.AppSettingService appSettingService;
     @Mock private org.booklore.service.NotificationService notificationService;
@@ -84,7 +85,7 @@ class OverDriveServiceTest {
         service = new OverDriveService(loanRepository, bookRepository, overDriveBookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
+                cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, overDriveUserRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService, libbyClient);
         unblocked(service);
     }
@@ -778,7 +779,7 @@ class OverDriveServiceTest {
         OverDriveService svc = new OverDriveService(loanRepository, bookRepository, overDriveBookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
+                cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, overDriveUserRepository, authenticationService, appSettingService, cipher,
                 notificationService, bookFileAttachmentService, libbyClient);
         unblocked(svc);
         return svc;
@@ -878,7 +879,7 @@ class OverDriveServiceTest {
         when(tokenRepository.findByUserId(5L)).thenReturn(List.of());
 
         assertThat(service.shareableUsers()).isEmpty();
-        verify(userRepository, never()).findAllWithPermissions();
+        verify(overDriveUserRepository, never()).findAllWithPermissions();
     }
 
     @Test
@@ -986,7 +987,7 @@ class OverDriveServiceTest {
     @Test
     void shareableUsers_scopedToAnotherOwner_excludesThatOwnerRatherThanTheCaller() {
         authAsCardManager(5L);
-        when(userRepository.findAllWithPermissions()).thenReturn(List.of(
+        when(overDriveUserRepository.findAllWithPermissions()).thenReturn(List.of(
                 overdriveUser(4L, "ann", "Ann"),
                 overdriveUser(5L, "me", "Me"),
                 overdriveUser(9L, "bob", "Bob")));
@@ -1001,7 +1002,7 @@ class OverDriveServiceTest {
 
         assertThatThrownBy(() -> service.shareableUsers(4L))
                 .isInstanceOf(org.booklore.exception.APIException.class);
-        verify(userRepository, never()).findAllWithPermissions();
+        verify(overDriveUserRepository, never()).findAllWithPermissions();
     }
 
     @Test
@@ -3550,7 +3551,7 @@ class OverDriveServiceTest {
         // The picker is only available to a user who actually owns a card to share.
         when(tokenRepository.findByUserId(7L)).thenReturn(List.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-1").token("t").build()));
-        when(userRepository.findAllWithPermissions()).thenReturn(List.of(
+        when(overDriveUserRepository.findAllWithPermissions()).thenReturn(List.of(
                 overdriveUser(7L, "me", "Me"),
                 overdriveUser(8L, "bob", "Bob"),
                 overdriveUser(9L, "ann", "Ann"),
@@ -3574,7 +3575,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(tokenRepository.findByUserId(7L)).thenReturn(List.of());
         assertThat(service.shareableUsers()).isEmpty();
-        verify(userRepository, never()).findAllWithPermissions();
+        verify(overDriveUserRepository, never()).findAllWithPermissions();
     }
 
     @Test
@@ -3896,7 +3897,7 @@ class OverDriveServiceTest {
         OverDriveService svc = new OverDriveService(loanRepository, bookRepository, overDriveBookRepository, acsmHandler, audiobookHandler,
                 magazineHandler, ebookHandler, bookService,
                 client, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
+                cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, overDriveUserRepository, authenticationService, appSettingService,
                 new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService, libbyClient);
         unblocked(svc);
         return new SyncHarness(svc, calls);

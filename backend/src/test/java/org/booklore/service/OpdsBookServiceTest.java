@@ -44,6 +44,7 @@ class OpdsBookServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private BookLoreUserTransformer bookLoreUserTransformer;
     @Mock private ShelfRepository shelfRepository;
+    @Mock private org.booklore.repository.OpdsQueryRepository opdsQueryRepository;
     @Mock private LibraryService libraryService;
     @Mock private ContentRestrictionService contentRestrictionService;
 

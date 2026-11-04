@@ -47,6 +47,7 @@ public class OpdsBookService {
     private final LibraryService libraryService;
     private final ContentRestrictionService contentRestrictionService;
     private final UserBookProgressRepository userBookProgressRepository;
+    private final org.booklore.repository.OpdsQueryRepository opdsQueryRepository;
 
     public List<Library> getAccessibleLibraries(Long userId) {
         if (userId == null) {
@@ -147,7 +148,7 @@ public class OpdsBookService {
             return new PageImpl<>(List.of(), pageable, 0);
         }
 
-        Page<Long> idPage = userBookProgressRepository.findContinueReadingBookIds(userId, libraryIds, pageable);
+        Page<Long> idPage = opdsQueryRepository.findContinueReadingBookIds(userId, libraryIds, pageable);
         if (idPage.isEmpty()) {
             return new PageImpl<>(List.of(), pageable, idPage.getTotalElements());
         }
@@ -163,7 +164,7 @@ public class OpdsBookService {
         if (libraryIds.isEmpty()) {
             return List.of();
         }
-        return bookOpdsRepository.findDistinctBookTypesByLibraryIds(libraryIds);
+        return opdsQueryRepository.findDistinctBookTypesByLibraryIds(libraryIds);
     }
 
     /** Books of a single format across the user's accessible libraries (format facet feed). */
@@ -174,7 +175,7 @@ public class OpdsBookService {
             return new PageImpl<>(List.of(), pageable, 0);
         }
 
-        Page<Long> idPage = bookOpdsRepository.findBookIdsByLibraryIdsAndBookType(libraryIds, format, pageable);
+        Page<Long> idPage = opdsQueryRepository.findBookIdsByLibraryIdsAndBookType(libraryIds, format, pageable);
         if (idPage.isEmpty()) {
             return new PageImpl<>(List.of(), pageable, idPage.getTotalElements());
         }
@@ -191,7 +192,7 @@ public class OpdsBookService {
             return new PageImpl<>(List.of(), pageable, 0);
         }
 
-        Page<Long> idPage = userBookProgressRepository.findBookIdsByReadStatus(userId, libraryIds, statuses, pageable);
+        Page<Long> idPage = opdsQueryRepository.findBookIdsByReadStatus(userId, libraryIds, statuses, pageable);
         if (idPage.isEmpty()) {
             return new PageImpl<>(List.of(), pageable, idPage.getTotalElements());
         }

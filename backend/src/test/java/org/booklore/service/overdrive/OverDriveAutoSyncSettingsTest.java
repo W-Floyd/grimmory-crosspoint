@@ -60,6 +60,7 @@ class OverDriveAutoSyncSettingsTest {
     @Mock private OverDriveAutoSyncRepository autoSyncRepository;
     @Mock private java.net.http.HttpClient httpClient;
     @Mock private org.booklore.repository.UserRepository userRepository;
+    @Mock private org.booklore.repository.OverDriveUserRepository overDriveUserRepository;
     @Mock private AuthenticationService authenticationService;
     @Mock private org.booklore.service.appsettings.AppSettingService appSettingService;
     @Mock private org.booklore.service.NotificationService notificationService;
@@ -72,7 +73,7 @@ class OverDriveAutoSyncSettingsTest {
         service = new OverDriveService(loanRepository, bookRepository, overDriveBookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
-                cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,
+                cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, overDriveUserRepository, authenticationService, appSettingService,
                 new OverDriveCredentialCipher(""), notificationService, bookFileAttachmentService,
                 LibbyClientVersionGuard.pinned(LibbyClientProfiles.forVersion("22.1.2").orElseThrow()));
     }

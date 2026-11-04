@@ -80,6 +80,9 @@ class HibernateRegressionTest {
     private UserRepository userRepository;
 
     @Autowired
+    private org.booklore.repository.OverDriveUserRepository overDriveUserRepository;
+
+    @Autowired
     private OpdsVariantHashRepository opdsVariantHashRepository;
 
     @PersistenceContext
@@ -1121,7 +1124,7 @@ class HibernateRegressionTest {
             entityManager.flush();
             entityManager.clear();
 
-            var users = userRepository.findAllWithPermissions();
+            var users = overDriveUserRepository.findAllWithPermissions();
 
             assertThat(users).isNotEmpty();
             // Assert the association is already loaded rather than merely readable — inside this
