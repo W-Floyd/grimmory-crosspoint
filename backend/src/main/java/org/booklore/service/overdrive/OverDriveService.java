@@ -20,6 +20,7 @@ import org.booklore.model.entity.OverDriveTokenEntity;
 import org.booklore.model.enums.OverDriveAuditAction;
 import org.booklore.model.enums.BookFileType;
 import org.booklore.config.security.service.AuthenticationService;
+import org.booklore.exception.APIException;
 import org.booklore.exception.ApiError;
 import org.booklore.model.dto.BookLoreUser;
 import org.booklore.model.dto.settings.MetadataProviderSettings;
@@ -977,7 +978,8 @@ public class OverDriveService {
             return new ChipResult(token, token, body.getAccess_token_expires_in());
          } catch (Exception e) {
             log.error("Failed to obtain OverDrive chip: {}", e.getMessage());
-            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive chip request failed: " + e.getMessage());
+            if (e instanceof APIException api) throw api;
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(e, "OverDrive chip request failed: " + e.getMessage());
          }
       }
 
@@ -3972,6 +3974,7 @@ public class OverDriveService {
                 recordBorrowRateAtLimit(cardId);
                 beginChurnCooldown(cardId);
             }
+            if (e instanceof APIException api) throw api;
             throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(e, "OverDrive borrow failed: " + e.getMessage());
          }
       }
@@ -6888,7 +6891,8 @@ public class OverDriveService {
              } catch (Exception e) {
                log.error("OverDrive return failed for loan {}: {}", loanId, e.getMessage());
                recordAuditFailure(OverDriveAuditAction.RETURN, identity, null, loanId, e.getMessage());
-               throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive return failed: " + e.getMessage());
+               if (e instanceof APIException api) throw api;
+               throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(e, "OverDrive return failed: " + e.getMessage());
              }
            }
 
@@ -6926,7 +6930,8 @@ public class OverDriveService {
             log.error("OverDrive hold failed: {}", e.getMessage());
             recordAuditFailure(OverDriveAuditAction.HOLD_PLACED, identity, titleId, null,
                     titleOf(titleId), e.getMessage());
-            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive hold failed: " + e.getMessage());
+            if (e instanceof APIException api) throw api;
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(e, "OverDrive hold failed: " + e.getMessage());
          }
       }
 
@@ -6951,7 +6956,8 @@ public class OverDriveService {
             log.error("OverDrive cancel hold failed: {}", e.getMessage());
             recordAuditFailure(OverDriveAuditAction.HOLD_CANCELLED, identity, titleId, null,
                     titleOf(titleId), e.getMessage());
-            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException("OverDrive cancel hold failed: " + e.getMessage());
+            if (e instanceof APIException api) throw api;
+            throw ApiError.OVERDRIVE_UPSTREAM_FAILED.createException(e, "OverDrive cancel hold failed: " + e.getMessage());
          }
       }
 

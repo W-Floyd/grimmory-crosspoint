@@ -12,9 +12,12 @@ import org.booklore.repository.OverDriveLoanRepository;
 import org.booklore.repository.OverDriveTokenRepository;
 import org.booklore.service.acsm.AcsmHandler;
 import org.booklore.service.metadata.parser.OverDriveParser;
+import org.booklore.exception.APIException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -2407,6 +2410,25 @@ class OverDriveServiceTest {
                 .userId(7L).identity(identity).token("chip-1").build();
         row.setChurnCooldownUntil(until);
         return row;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"place", "cancel"})
+    void aCardFrozenMidCallStaysAConflictRatherThanAnUpstreamFailure(String action) {
+        OverDriveTokenEntity live = OverDriveTokenEntity.builder().userId(7L).identity("card-a").token("chip-1").build();
+        // Live for the entry check, frozen by the time the call goes out.
+        when(tokenRepository.findByIdentity("card-a"))
+                .thenReturn(List.of(live), List.of(frozenCard("card-a", "Frozen by its owner.", 7L)));
+
+        assertThatThrownBy(() -> {
+            if (action.equals("place")) service.placeHold("card-a", "title-1");
+            else service.cancelHold("card-a", "title-1");
+        })
+                .isInstanceOf(APIException.class)
+                .hasMessageContaining("Frozen by its owner.")
+                .hasMessageNotContaining("hold failed")
+                .extracting(e -> ((APIException) e).getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+        verifyNoInteractions(restClient);
     }
 
     @Test
