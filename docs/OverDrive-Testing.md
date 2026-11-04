@@ -14,7 +14,7 @@ See also [OverDrive-Libby-API.md](OverDrive-Libby-API.md) for the API/endpoint r
   - `ACSM_ENABLED=true`, `ACSM_TOOL_PATH`, `ACSM_TOOL_ARGS` (`-f {acsm} -o {output} -account …`).
   - The account dir must be a **fully activated ADE account** and the mount **read-write** (the tool
     caches the license-service cert into `activation.xml` at fulfill time). See the ACSM notes in
-    `deploy/compose/docker-compose.overdrive.yml`.
+    `deploy/compose/docker-compose.yml`.
 - Optional: `OVERDRIVE_CREDENTIAL_KEY` (base64 16/24/32 bytes) to enable encrypted card-credential
   storage + silent re-link on token expiry, and to encrypt stored tokens (existing ones on next start).
   Unset ⇒ token-only (no auto-relink), tokens stored as-is; everything else works.

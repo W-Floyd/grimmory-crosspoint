@@ -25,7 +25,7 @@ public class AudiobookHandlerConfig {
      * credentials + loan/card/format ids), {@code {output}} (an empty directory into which the tool
      * writes the single assembled file). The reference tool is a subcommand CLI, so the default
      * leads with its {@code download} verb: {@code "download --manifest {input} --out-dir {output}"}.
-     * Operators should also pin a stable {@code --account-dir} (see deploy/compose/docker-compose.overdrive.yml).
+     * Operators should also pin a stable {@code --account-dir} (see the deploy compose notes).
      */
     private String toolArgs = "download --manifest {input} --out-dir {output}";
 
