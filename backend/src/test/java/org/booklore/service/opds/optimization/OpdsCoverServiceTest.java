@@ -71,4 +71,36 @@ class OpdsCoverServiceTest {
         Resource garbage = new ByteArrayResource("not an image".getBytes());
         assertThat(service.reencode(garbage, preset())).isEmpty();
     }
+
+    static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> changesThatNeedANewEncode() {
+        return java.util.stream.Stream.of(
+                org.junit.jupiter.params.provider.Arguments.of("nothing changed", false, false, 1),
+                org.junit.jupiter.params.provider.Arguments.of("cover replaced", true, false, 2),
+                org.junit.jupiter.params.provider.Arguments.of("preset edited", false, true, 2));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "{0}")
+    @org.junit.jupiter.params.provider.MethodSource("changesThatNeedANewEncode")
+    void aRepeatCoverRequestReusesTheEncodeUnlessItsInputsChanged(String label, boolean replaceCover, boolean editPreset,
+                                                                 int expectedEncodes, @org.junit.jupiter.api.io.TempDir java.nio.file.Path dir)
+            throws Exception {
+        EpubImageProcessor processor = org.mockito.Mockito.spy(new EpubImageProcessor());
+        service = new OpdsCoverService(processor);
+        java.nio.file.Path file = dir.resolve("cover.png");
+        java.nio.file.Files.write(file, coverPng(250, 350, Color.RED).getContentAsByteArray());
+        DevicePreset preset = preset();
+
+        service.reencode(new org.springframework.core.io.FileSystemResource(file), preset);
+        if (replaceCover) {
+            java.nio.file.Files.write(file, coverPng(300, 400, Color.BLUE).getContentAsByteArray());
+        }
+        if (editPreset) {
+            preset.setMaxWidth(400);
+        }
+        Optional<Resource> second = service.reencode(new org.springframework.core.io.FileSystemResource(file), preset);
+
+        assertThat(second).isPresent();
+        org.mockito.Mockito.verify(processor, org.mockito.Mockito.times(expectedEncodes))
+                .process(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
 }
