@@ -420,7 +420,7 @@ class OpdsFeedServiceTest {
         // Cover replacement rebuilds the EPUB even without a preset, so the served size differs
         // from the stored fileSizeKb: report the real cover-variant size.
         when(optimizedDownloadService.willReplaceCover(50L)).thenReturn(true);
-        when(optimizedDownloadService.cachedVariantSize(50L, 3L, "cover"))
+        when(optimizedDownloadService.cachedVariantSize(50L, 3L, null, null))
                 .thenReturn(java.util.OptionalLong.of(7777L));
 
         Book book = Book.builder()
@@ -443,7 +443,7 @@ class OpdsFeedServiceTest {
         mockAuthenticatedUser();
         when(request.getParameter("preset")).thenReturn(null);
         when(optimizedDownloadService.willReplaceCover(51L)).thenReturn(true);
-        when(optimizedDownloadService.cachedVariantSize(51L, 4L, "cover"))
+        when(optimizedDownloadService.cachedVariantSize(51L, 4L, null, null))
                 .thenReturn(java.util.OptionalLong.empty());
 
         Book book = Book.builder()
@@ -470,7 +470,7 @@ class OpdsFeedServiceTest {
         org.booklore.model.dto.opds.DevicePreset preset = new org.booklore.model.dto.opds.DevicePreset();
         when(devicePresetService.resolve("X4")).thenReturn(java.util.Optional.of(preset));
         // Optimized variant already cached → report its real bytes, not the stored original size.
-        when(optimizedDownloadService.cachedVariantSize(22L, 9L, "X4"))
+        when(optimizedDownloadService.cachedVariantSize(22L, 9L, preset, "X4"))
                 .thenReturn(java.util.OptionalLong.of(4242L));
 
         Book book = Book.builder()
@@ -499,7 +499,7 @@ class OpdsFeedServiceTest {
         org.booklore.model.dto.opds.DevicePreset preset = new org.booklore.model.dto.opds.DevicePreset();
         when(devicePresetService.resolve("X4")).thenReturn(java.util.Optional.of(preset));
         // Not cached yet → no length is advertised, and the variant is warmed in the background.
-        when(optimizedDownloadService.cachedVariantSize(23L, 10L, "X4"))
+        when(optimizedDownloadService.cachedVariantSize(23L, 10L, preset, "X4"))
                 .thenReturn(java.util.OptionalLong.empty());
 
         Book book = Book.builder()

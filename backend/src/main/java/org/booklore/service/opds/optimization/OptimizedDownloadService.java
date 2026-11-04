@@ -25,7 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.Comparator;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -49,6 +49,7 @@ public class OptimizedDownloadService {
     private static final Pattern UNSAFE_FILENAME = Pattern.compile("[^a-zA-Z0-9._-]");
     /** Cache dir + variant-hash key used for cover-replaced (but not preset-optimized) EPUBs. */
     public static final String COVER_VARIANT = "cover";
+    private static final String NO_HASH = "nohash";
 
     private final BookFileRepository bookFileRepository;
     private final BookDownloadService bookDownloadService;
@@ -132,41 +133,29 @@ public class OptimizedDownloadService {
     }
 
     /**
-     * Real byte size of the already-cached optimized variant for {@code (bookId, fileId, presetId)},
-     * or empty when none has been generated yet. A fast, non-generating disk lookup safe to call
-     * during feed rendering; use {@link #prewarm} to populate the cache off the request thread.
+     * Real byte size of the already-cached variant for {@code (bookId, fileId, preset)}, or empty when
+     * the current one has not been built yet. A non-generating lookup of the exact name a download
+     * would use, so a variant built from an older source, cover or preset setting never counts; use
+     * {@link #prewarm} to populate the cache off the request thread.
      *
-     * <p>{@code presetId} must be the canonical (configured) preset id so the cache key matches
-     * the one used by {@link #downloadOptimized}.
+     * <p>{@code presetId} must be the canonical (configured) preset id; {@code preset} null means the
+     * cover-only variant.
      */
-    public OptionalLong cachedVariantSize(Long bookId, Long fileId, String presetId) {
-        if (bookId == null || fileId == null || presetId == null || presetId.isBlank()) {
+    public OptionalLong cachedVariantSize(Long bookId, Long fileId, DevicePreset preset, String presetId) {
+        if (bookId == null || fileId == null) {
             return OptionalLong.empty();
         }
-        Path cacheDir = Path.of(fileService.getOpdsCachePath(), sanitize(presetId));
-        if (!Files.isDirectory(cacheDir)) {
-            return OptionalLong.empty();
-        }
-        String prefix = bookId + "_" + fileId + "_";
-        try (var stream = Files.list(cacheDir)) {
-            Optional<Path> newest = stream
-                    .filter(p -> {
-                        String name = p.getFileName().toString();
-                        return name.startsWith(prefix) && name.endsWith(".epub");
-                    })
-                    .filter(Files::isRegularFile)
-                    .max(Comparator.comparingLong(OptimizedDownloadService::lastModifiedMillis));
-            if (newest.isPresent()) {
-                long size = Files.size(newest.get());
-                if (size > 0) {
-                    return OptionalLong.of(size);
-                }
-            }
+        try {
+            String hash = variantHashService.sourceHash(fileId).orElse(NO_HASH);
+            Path coverFile = willReplaceCover(bookId) ? Path.of(fileService.getCoverFile(bookId)) : null;
+            Path cached = variantName(bookId, fileId, hash, preset, presetId, coverFile).path();
+            long size = Files.isRegularFile(cached) ? Files.size(cached) : 0;
+            return size > 0 ? OptionalLong.of(size) : OptionalLong.empty();
         } catch (IOException e) {
             log.debug("Failed to inspect OPDS cache for book {} file {} preset {}: {}",
                     bookId, fileId, presetId, e.getMessage());
+            return OptionalLong.empty();
         }
-        return OptionalLong.empty();
     }
 
     /**
@@ -254,18 +243,13 @@ public class OptimizedDownloadService {
                                boolean replaceCover, BookFileEntity bookFile) throws Exception {
         boolean optimize = preset != null;
         String hash = bookFile.getCurrentHash() != null ? bookFile.getCurrentHash()
-                : bookFile.getInitialHash() != null ? bookFile.getInitialHash() : "nohash";
-        String variant = optimize ? presetId : COVER_VARIANT;
-
+                : bookFile.getInitialHash() != null ? bookFile.getInitialHash() : NO_HASH;
         Path coverFile = replaceCover ? Path.of(fileService.getCoverFile(bookId)) : null;
-        String coverSegment = replaceCover ? "_c" + sanitize(coverToken(coverFile)) : "";
-        // The variant-hash key must distinguish cover / non-cover / cover-version variants of the
-        // same (book, file, preset) so KOReader sync can resolve each. Mirrors the cache filename.
-        String variantKey = variant + coverSegment;
-
-        Path cacheDir = Path.of(fileService.getOpdsCachePath(), sanitize(variant));
+        VariantName name = variantName(bookId, fileId, hash, preset, presetId, coverFile);
+        String variantKey = name.variantKey();
+        Path cacheDir = name.path().getParent();
         Files.createDirectories(cacheDir);
-        Path cached = cacheDir.resolve(bookId + "_" + fileId + "_" + sanitize(hash) + coverSegment + ".epub");
+        Path cached = name.path();
 
         if (Files.exists(cached) && Files.size(cached) > 0) {
             // Registration is idempotent and skips work when already up to date, so it is safe
@@ -313,10 +297,61 @@ public class OptimizedDownloadService {
             // Map this variant's partial-MD5 to the book so KOReader sync can match the copy the
             // reader downloaded (its bytes differ from the library original).
             variantHashService.register(bookFile, variantKey, hash, cached);
+            evictSuperseded(cached, bookId, fileId);
             return cached;
         } finally {
             if (coverTemp != null) Files.deleteIfExists(coverTemp);
             if (optTemp != null) Files.deleteIfExists(optTemp);
+        }
+    }
+
+    /**
+     * Where a variant is cached and the key its KOReader hash is registered under. Both carry every
+     * input that changes the bytes — source hash, preset settings, cover version — so a change to any
+     * of them is a new variant rather than a stale hit, and a reader's already-downloaded copy keeps
+     * resolving under its own key.
+     */
+    private VariantName variantName(Long bookId, Long fileId, String hash, DevicePreset preset, String presetId,
+                                    Path coverFile) throws IOException {
+        boolean optimize = preset != null;
+        String variant = optimize ? presetId : COVER_VARIANT;
+        String presetSegment = optimize ? "_p" + presetSettingsTag(preset) : "";
+        String coverSegment = coverFile != null ? "_c" + sanitize(coverToken(coverFile)) : "";
+        Path cacheDir = Path.of(fileService.getOpdsCachePath(), sanitize(variant));
+        String fileName = bookId + "_" + fileId + "_" + sanitize(hash) + presetSegment + coverSegment + ".epub";
+        return new VariantName(cacheDir.resolve(fileName), variant + presetSegment + coverSegment);
+    }
+
+    private record VariantName(Path path, String variantKey) {}
+
+    /** The preset fields the optimizer reads, so editing a preset invalidates what it built. */
+    private static String presetSettingsTag(DevicePreset preset) {
+        return String.format("%08x", Objects.hash(preset.getMaxWidth(), preset.getMaxHeight(),
+                preset.getJpegQuality(), preset.isGrayscale(), preset.isAutoCrop()));
+    }
+
+    /**
+     * Drop this file's other cached variants in the same directory: an older source hash, preset
+     * setting or cover version that nothing will request again. Their KOReader hash rows stay, so
+     * copies readers already downloaded still sync.
+     */
+    private void evictSuperseded(Path current, Long bookId, Long fileId) {
+        String prefix = bookId + "_" + fileId + "_";
+        try (var siblings = Files.list(current.getParent())) {
+            siblings.filter(p -> !p.equals(current))
+                    .filter(p -> {
+                        String n = p.getFileName().toString();
+                        return n.startsWith(prefix) && n.endsWith(".epub");
+                    })
+                    .forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        } catch (IOException e) {
+                            log.debug("Could not evict superseded OPDS variant {}: {}", p, e.getMessage());
+                        }
+                    });
+        } catch (IOException e) {
+            log.debug("Could not list OPDS cache dir {}: {}", current.getParent(), e.getMessage());
         }
     }
 
@@ -357,11 +392,4 @@ public class OptimizedDownloadService {
         return UNSAFE_FILENAME.matcher(value).replaceAll("_");
     }
 
-    private static long lastModifiedMillis(Path path) {
-        try {
-            return Files.getLastModifiedTime(path).toMillis();
-        } catch (IOException e) {
-            return 0L;
-        }
-    }
 }

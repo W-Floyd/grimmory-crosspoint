@@ -1,5 +1,6 @@
 package org.booklore.service.opds.optimization;
 
+import org.booklore.model.dto.opds.DevicePreset;
 import org.booklore.model.dto.settings.AppSettings;
 import org.booklore.model.entity.BookEntity;
 import org.booklore.model.entity.BookFileEntity;
@@ -12,14 +13,17 @@ import org.booklore.util.FileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
+import java.util.function.Consumer;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.LongStream;
@@ -27,6 +31,7 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -39,6 +44,8 @@ class OptimizedDownloadServiceTest {
     private EpubCoverReplacer coverReplacer;
     private DevicePresetService devicePresetService;
     private AppSettingService appSettingService;
+    private EpubDeviceOptimizer optimizer;
+    private OpdsVariantHashService variantHashService;
     private OptimizedDownloadService service;
 
     @TempDir
@@ -56,47 +63,77 @@ class OptimizedDownloadServiceTest {
         devicePresetService = mock(DevicePresetService.class);
         when(devicePresetService.maxSourceFileSizeBytes()).thenReturn(Long.MAX_VALUE);
         appSettingService = mock(AppSettingService.class);
+        optimizer = mock(EpubDeviceOptimizer.class);
+        variantHashService = mock(OpdsVariantHashService.class);
+        when(variantHashService.sourceHash(any())).thenReturn(Optional.of("abc123"));
         when(appSettingService.getAppSettings()).thenReturn(new AppSettings());
         service = new OptimizedDownloadService(
                 bookFileRepository,
                 mock(BookDownloadService.class),
-                mock(EpubDeviceOptimizer.class),
+                optimizer,
                 coverReplacer,
                 devicePresetService,
                 fileService,
-                mock(OpdsVariantHashService.class),
+                variantHashService,
                 appSettingService);
     }
 
     @Test
-    void cachedVariantSize_returnsEmptyWhenPresetDirMissing() {
-        assertThat(service.cachedVariantSize(1L, 2L, "X4")).isEmpty();
+    void cachedVariantSize_isEmptyBeforeAnyBuild() {
+        assertThat(service.cachedVariantSize(1L, 2L, new DevicePreset(), "X4")).isEmpty();
     }
 
     @Test
-    void cachedVariantSize_returnsSizeOfMatchingVariant() throws Exception {
-        Path presetDir = Files.createDirectories(cacheRoot.resolve("X4"));
-        Files.write(presetDir.resolve("1_2_abcdef.epub"), new byte[64]);
+    void cachedVariantSize_reportsTheBuiltVariant() throws Exception {
+        DevicePreset preset = new DevicePreset();
+        buildOptimized(preset, 64);
 
-        assertThat(service.cachedVariantSize(1L, 2L, "X4")).hasValue(64L);
+        assertThat(service.cachedVariantSize(1L, 2L, preset, "X4")).hasValue(64L);
+    }
+
+    static Stream<Arguments> changesThatOutdateABuiltVariant() {
+        return Stream.of(
+                Arguments.of("source file changed", (Consumer<OptimizedDownloadServiceTest>) t ->
+                        when(t.variantHashService.sourceHash(any())).thenReturn(Optional.of("def456"))),
+                Arguments.of("preset edited", (Consumer<OptimizedDownloadServiceTest>) t -> t.preset.setMaxWidth(600)),
+                Arguments.of("other file", (Consumer<OptimizedDownloadServiceTest>) t -> t.lookupFileId = 3L));
+    }
+
+    private DevicePreset preset;
+    private long lookupFileId = 2L;
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("changesThatOutdateABuiltVariant")
+    void cachedVariantSize_ignoresAVariantBuiltFromOtherInputs(String change, Consumer<OptimizedDownloadServiceTest> apply)
+            throws Exception {
+        preset = new DevicePreset();
+        buildOptimized(preset, 64);
+
+        apply.accept(this);
+
+        // Advertising the old variant's length would also stop the current one ever being prewarmed.
+        assertThat(service.cachedVariantSize(1L, lookupFileId, preset, "X4")).isEmpty();
     }
 
     @Test
-    void cachedVariantSize_ignoresOtherBooksAndFiles() throws Exception {
-        Path presetDir = Files.createDirectories(cacheRoot.resolve("X4"));
-        // Same file id but different (prefix-colliding) book id, and a different file id for the book.
-        Files.write(presetDir.resolve("11_2_hash.epub"), new byte[10]);
-        Files.write(presetDir.resolve("1_23_hash.epub"), new byte[20]);
+    void rebuildingEvictsTheVariantItSupersedes() throws Exception {
+        DevicePreset preset = new DevicePreset();
+        buildOptimized(preset, 64);
+        preset.setJpegQuality(60);
+        buildOptimized(preset, 32);
 
-        assertThat(service.cachedVariantSize(1L, 2L, "X4")).isEmpty();
+        try (Stream<Path> cached = Files.list(cacheRoot.resolve("X4"))) {
+            assertThat(cached).singleElement().satisfies(p -> assertThat(Files.size(p)).isEqualTo(32L));
+        }
     }
 
-    @Test
-    void cachedVariantSize_ignoresEmptyVariantFile() throws Exception {
-        Path presetDir = Files.createDirectories(cacheRoot.resolve("X4"));
-        Files.write(presetDir.resolve("1_2_hash.epub"), new byte[0]);
-
-        assertThat(service.cachedVariantSize(1L, 2L, "X4")).isEmpty();
+    private void buildOptimized(DevicePreset preset, int bytes) throws Exception {
+        Path source = libraryRoot.resolve("book.epub");
+        if (!Files.exists(source)) Files.write(source, new byte[128]);
+        when(bookFileRepository.findByIdWithBookAndLibraryPath(2L)).thenReturn(Optional.of(epubFile(source)));
+        doAnswer(inv -> Files.write(inv.<Path>getArgument(2), new byte[bytes]))
+                .when(optimizer).optimize(any(), any(), any());
+        assertThat(service.servedSize(1L, 2L, preset, "X4")).hasValue(bytes);
     }
 
     @Test

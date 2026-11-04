@@ -848,8 +848,7 @@ public class OpdsFeedService {
             // the stored original — report the real variant size rather than fileSizeKb.
             boolean coverOnly = !optimize && optimizedDownloadService.willReplaceCover(bookId);
             if (optimize || coverOnly) {
-                String variant = optimize ? preset : OptimizedDownloadService.COVER_VARIANT;
-                OptionalLong cached = optimizedDownloadService.cachedVariantSize(bookId, bookFile.getId(), variant);
+                OptionalLong cached = optimizedDownloadService.cachedVariantSize(bookId, bookFile.getId(), devicePreset, preset);
                 if (cached.isPresent()) {
                     return cached;
                 }

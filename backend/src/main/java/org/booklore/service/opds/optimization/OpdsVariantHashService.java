@@ -35,6 +35,11 @@ public class OpdsVariantHashService {
         return repository.findBooksByVariantHash(hash).stream().findFirst();
     }
 
+    @Transactional(readOnly = true)
+    public Optional<String> sourceHash(Long bookFileId) {
+        return repository.findSourceHash(bookFileId);
+    }
+
     /**
      * Ensure the variant hash for {@code (bookFile, preset)} is registered against the book.
      * Idempotent: recomputes the hash only when the row is missing or the source file changed.
