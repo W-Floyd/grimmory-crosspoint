@@ -79,7 +79,7 @@ public class TaskService {
     public void initializeScheduledTasks() {
         List<TaskCronConfigurationEntity> enabledConfigs = taskCronService.getAllEnabledCronConfigs();
         log.info("Initializing {} scheduled tasks", enabledConfigs.size());
-        enabledConfigs.forEach(this::scheduleTask);
+        enabledConfigs.forEach(config -> scheduleTask(config, true));
     }
 
     public void rescheduleTask(TaskType taskType) {
@@ -94,18 +94,22 @@ public class TaskService {
                     .enabled(cronConfig.getEnabled())
                     .jitterSeconds(cronConfig.getJitterSeconds() == null ? 0 : cronConfig.getJitterSeconds())
                     .build();
-            scheduleTask(config);
+            // Not the stored firing: it was drawn under the old configuration, and honouring it would run
+            // once on the old schedule, or treat a long-disabled task's last slot as a missed run.
+            scheduleTask(config, false);
         }
     }
 
-    private void scheduleTask(TaskCronConfigurationEntity config) {
+    private void scheduleTask(TaskCronConfigurationEntity config, boolean honourStoredFiring) {
         cancelScheduledTask(config.getTaskType());
 
         try {
             long jitter = config.getJitterSeconds() == null ? 0 : config.getJitterSeconds();
             // The firing this task was already committed to before the last shutdown, if any. Honouring
             // it is what stops a restart inside the jitter window silently skipping a run.
-            Instant pending = taskCronService.pendingRunAt(config.getTaskType()).orElse(null);
+            Instant pending = honourStoredFiring
+                    ? taskCronService.pendingRunAt(config.getTaskType()).orElse(null)
+                    : null;
             JitteredCronTrigger trigger = new JitteredCronTrigger(config.getCronExpression(), jitter,
                     pending, planned -> taskCronService.recordNextRunAt(config.getTaskType(), planned));
             ScheduledFuture<?> scheduledTask = taskScheduler.schedule(

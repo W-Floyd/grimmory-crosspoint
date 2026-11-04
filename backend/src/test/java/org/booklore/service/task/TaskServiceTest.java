@@ -1,5 +1,6 @@
 package org.booklore.service.task;
 
+import org.booklore.model.entity.TaskCronConfigurationEntity;
 import org.booklore.config.security.service.AuthenticationService;
 import org.booklore.exception.APIException;
 import org.booklore.model.dto.BookLoreUser;
@@ -20,9 +21,11 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class TaskServiceTest {
@@ -275,5 +278,18 @@ class TaskServiceTest {
                 .build();
         when(taskCronService.getCronConfigOrDefault(TaskType.CLEANUP_TEMP_METADATA)).thenReturn(cronConfig);
         assertDoesNotThrow(() -> taskService.rescheduleTask(TaskType.CLEANUP_TEMP_METADATA));
+        // The stored firing belongs to the configuration just replaced.
+        verify(taskCronService, never()).pendingRunAt(any());
+    }
+
+    @Test
+    void startupHonoursTheFiringStoredBeforeTheRestart() {
+        when(taskCronService.getAllEnabledCronConfigs()).thenReturn(List.of(TaskCronConfigurationEntity.builder()
+                .taskType(TaskType.CLEANUP_TEMP_METADATA).cronExpression("0 0 0 1 1 0").enabled(true).build()));
+        when(taskCronService.pendingRunAt(TaskType.CLEANUP_TEMP_METADATA)).thenReturn(Optional.empty());
+
+        taskService.initializeScheduledTasks();
+
+        verify(taskCronService).pendingRunAt(TaskType.CLEANUP_TEMP_METADATA);
     }
 }
