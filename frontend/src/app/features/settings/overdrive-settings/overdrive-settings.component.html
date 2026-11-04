@@ -28,26 +28,26 @@
       <div class="import-dest-grid">
         <span class="import-dest-type">Ebooks (EPUB/PDF)</span>
         <p-select [options]="grimmoryLibraries()" optionLabel="name" [ngModel]="ebookLibrary()"
-          (ngModelChange)="onEbookLibraryChange($event)" [ngModelOptions]="{ standalone: true }"
+          (ngModelChange)="onLibraryChange('ebook', $event)" [ngModelOptions]="{ standalone: true }"
           placeholder="Bookdrop (no library)" [showClear]="true" appendTo="body" styleClass="import-dest-select" />
         <p-select [options]="ebookLibrary()?.paths ?? []" optionLabel="path" [ngModel]="ebookPath()"
-          (ngModelChange)="onEbookPathChange($event)" [ngModelOptions]="{ standalone: true }"
+          (ngModelChange)="onPathChange('ebook', $event)" [ngModelOptions]="{ standalone: true }"
           [disabled]="!ebookLibrary()" placeholder="Select a path" appendTo="body" styleClass="import-dest-select" />
 
         <span class="import-dest-type">Audiobooks</span>
         <p-select [options]="grimmoryLibraries()" optionLabel="name" [ngModel]="audiobookLibrary()"
-          (ngModelChange)="onAudiobookLibraryChange($event)" [ngModelOptions]="{ standalone: true }"
+          (ngModelChange)="onLibraryChange('audiobook', $event)" [ngModelOptions]="{ standalone: true }"
           placeholder="Bookdrop (no library)" [showClear]="true" appendTo="body" styleClass="import-dest-select" />
         <p-select [options]="audiobookLibrary()?.paths ?? []" optionLabel="path" [ngModel]="audiobookPath()"
-          (ngModelChange)="onAudiobookPathChange($event)" [ngModelOptions]="{ standalone: true }"
+          (ngModelChange)="onPathChange('audiobook', $event)" [ngModelOptions]="{ standalone: true }"
           [disabled]="!audiobookLibrary()" placeholder="Select a path" appendTo="body" styleClass="import-dest-select" />
 
         <span class="import-dest-type">Magazines</span>
         <p-select [options]="grimmoryLibraries()" optionLabel="name" [ngModel]="magazineLibrary()"
-          (ngModelChange)="onMagazineLibraryChange($event)" [ngModelOptions]="{ standalone: true }"
+          (ngModelChange)="onLibraryChange('magazine', $event)" [ngModelOptions]="{ standalone: true }"
           placeholder="Bookdrop (no library)" [showClear]="true" appendTo="body" styleClass="import-dest-select" />
         <p-select [options]="magazineLibrary()?.paths ?? []" optionLabel="path" [ngModel]="magazinePath()"
-          (ngModelChange)="onMagazinePathChange($event)" [ngModelOptions]="{ standalone: true }"
+          (ngModelChange)="onPathChange('magazine', $event)" [ngModelOptions]="{ standalone: true }"
           [disabled]="!magazineLibrary()" placeholder="Select a path" appendTo="body" styleClass="import-dest-select" />
       </div>
     </div>

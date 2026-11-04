@@ -35,6 +35,8 @@ const AUTO_SYNC_DEFAULTS: OverDriveAutoSyncSettings = {
   holdShoppingEnabled: false
 };
 
+type ImportKind = 'ebook' | 'audiobook' | 'magazine';
+
 @Component({
   selector: 'app-overdrive-settings',
   standalone: true,
@@ -76,12 +78,14 @@ export class OverdriveSettingsComponent {
   // Grimmory libraries (with paths) for the per-type import-destination selectors.
   readonly grimmoryLibraries = this.libraryService.libraries;
   // Per-document-type import destinations: ebooks (EPUB/PDF) vs audiobooks. Null = Bookdrop.
-  ebookLibrary = signal<Library | null>(null);
-  ebookPath = signal<LibraryPath | null>(null);
-  audiobookLibrary = signal<Library | null>(null);
-  audiobookPath = signal<LibraryPath | null>(null);
-  magazineLibrary = signal<Library | null>(null);
-  magazinePath = signal<LibraryPath | null>(null);
+  /** The saved ids are the source of truth: the library list can load after them. */
+  private readonly importDestinations = signal<OverDriveImportDestinations>({});
+  readonly ebookLibrary = computed(() => this.destinationLibrary('ebook'));
+  readonly ebookPath = computed(() => this.destinationPath('ebook'));
+  readonly audiobookLibrary = computed(() => this.destinationLibrary('audiobook'));
+  readonly audiobookPath = computed(() => this.destinationPath('audiobook'));
+  readonly magazineLibrary = computed(() => this.destinationLibrary('magazine'));
+  readonly magazinePath = computed(() => this.destinationPath('magazine'));
 
   // Unattended automation opt-in. Off unless this user turns it on; whether the poller runs at all
   // (and how often) is the operator's OverDrive Auto-Sync task, not something settable from here.
@@ -177,18 +181,7 @@ export class OverdriveSettingsComponent {
   /** Load the per-document-type import destinations and resolve their ids to library/path objects. */
   private loadImportDestinations(): void {
     this.overdriveService.importDestinations().subscribe({
-      next: (d) => {
-        const libs = this.grimmoryLibraries();
-        const eLib = libs.find(l => l.id === d.ebookLibraryId) ?? null;
-        this.ebookLibrary.set(eLib);
-        this.ebookPath.set(eLib?.paths.find(p => p.id === d.ebookPathId) ?? null);
-        const aLib = libs.find(l => l.id === d.audiobookLibraryId) ?? null;
-        this.audiobookLibrary.set(aLib);
-        this.audiobookPath.set(aLib?.paths.find(p => p.id === d.audiobookPathId) ?? null);
-        const mLib = libs.find(l => l.id === d.magazineLibraryId) ?? null;
-        this.magazineLibrary.set(mLib);
-        this.magazinePath.set(mLib?.paths.find(p => p.id === d.magazinePathId) ?? null);
-      },
+      next: (d) => this.importDestinations.set(d),
       error: () => { /* leave unset (Bookdrop) */ }
     });
   }
@@ -278,51 +271,36 @@ export class OverdriveSettingsComponent {
     this.saveAutoSyncSettings();
   }
 
-  onEbookLibraryChange(library: Library | null): void {
-    this.ebookLibrary.set(library);
-    this.ebookPath.set(library?.paths.length === 1 ? library.paths[0] : null);
+  onLibraryChange(kind: ImportKind, library: Library | null): void {
+    // A single-path library needs no second choice.
+    const path = library?.paths.length === 1 ? library.paths[0] : null;
+    this.importDestinations.update(d => ({
+      ...d,
+      [`${kind}LibraryId`]: library?.id ?? null,
+      [`${kind}PathId`]: path?.id ?? null
+    }));
     this.saveImportDestinations();
   }
 
-  onEbookPathChange(path: LibraryPath | null): void {
-    this.ebookPath.set(path);
+  onPathChange(kind: ImportKind, path: LibraryPath | null): void {
+    this.importDestinations.update(d => ({...d, [`${kind}PathId`]: path?.id ?? null}));
     this.saveImportDestinations();
   }
 
-  onAudiobookLibraryChange(library: Library | null): void {
-    this.audiobookLibrary.set(library);
-    this.audiobookPath.set(library?.paths.length === 1 ? library.paths[0] : null);
-    this.saveImportDestinations();
+  private destinationLibrary(kind: ImportKind): Library | null {
+    const id = this.importDestinations()[`${kind}LibraryId` as const];
+    return id == null ? null : this.grimmoryLibraries().find(l => l.id === id) ?? null;
   }
 
-  onAudiobookPathChange(path: LibraryPath | null): void {
-    this.audiobookPath.set(path);
-    this.saveImportDestinations();
-  }
-
-  onMagazineLibraryChange(library: Library | null): void {
-    this.magazineLibrary.set(library);
-    this.magazinePath.set(library?.paths.length === 1 ? library.paths[0] : null);
-    this.saveImportDestinations();
-  }
-
-  onMagazinePathChange(path: LibraryPath | null): void {
-    this.magazinePath.set(path);
-    this.saveImportDestinations();
+  private destinationPath(kind: ImportKind): LibraryPath | null {
+    const id = this.importDestinations()[`${kind}PathId` as const];
+    return id == null ? null : this.destinationLibrary(kind)?.paths.find(p => p.id === id) ?? null;
   }
 
   /** Persist the per-type import destinations (fire-and-forget; a toast confirms). */
   private saveImportDestinations(): void {
-    const payload: OverDriveImportDestinations = {
-      ebookLibraryId: this.ebookLibrary()?.id ?? null,
-      ebookPathId: this.ebookPath()?.id ?? null,
-      audiobookLibraryId: this.audiobookLibrary()?.id ?? null,
-      audiobookPathId: this.audiobookPath()?.id ?? null,
-      magazineLibraryId: this.magazineLibrary()?.id ?? null,
-      magazinePathId: this.magazinePath()?.id ?? null
-    };
     this.setupError.set(null);
-    this.overdriveService.setImportDestinations(payload).subscribe({
+    this.overdriveService.setImportDestinations(this.importDestinations()).subscribe({
       error: (err) => this.setupError.set(errorMessage(err, 'Failed to save import destinations'))
     });
   }

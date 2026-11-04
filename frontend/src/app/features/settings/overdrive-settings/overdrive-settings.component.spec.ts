@@ -7,6 +7,7 @@ import {AppSettings} from '../../../shared/model/app-settings.model';
 import {AppSettingsService} from '../../../shared/service/app-settings.service';
 import {OverDriveService, OverDriveAutoSyncSettings, OverDriveCard, OverDriveImportDestinations, OverDriveShareUser} from '../../../core/services/overdrive.service';
 import {LibraryService} from '../../../features/book/service/library.service';
+import {Library} from '../../../features/book/model/library.model';
 import {ConfirmationService} from '@openng/optimus-ui/api';
 import {UserService} from '../user-management/user.service';
 import {OverdriveSettingsComponent} from './overdrive-settings.component';
@@ -45,6 +46,7 @@ const confirmationService = {
 };
 
 const appSettingsState = signal<AppSettings | null>(null);
+const librariesState = signal<Library[]>([]);
 
 function setup(opts: {admin?: boolean} = {}): OverdriveSettingsComponent {
   TestBed.configureTestingModule({
@@ -52,7 +54,7 @@ function setup(opts: {admin?: boolean} = {}): OverdriveSettingsComponent {
     providers: [
       {provide: OverDriveService, useValue: overdriveService},
       {provide: AppSettingsService, useValue: {appSettings: () => appSettingsState(), saveSettings: () => of(void 0)}},
-      {provide: LibraryService, useValue: {libraries: () => []}},
+      {provide: LibraryService, useValue: {libraries: librariesState}},
       {provide: ConfirmationService, useValue: confirmationService},
       {provide: UserService, useValue: {currentUser: () => ({permissions: {admin: opts.admin ?? false}})}},
     ],
@@ -400,5 +402,31 @@ describe('OverdriveSettingsComponent auto-sync opt-in', () => {
     c.onAutoReturnPromptWhenWaitlistedChange(false);
     expect(overdriveService.setAutoSyncSettings).toHaveBeenCalledWith(
       expect.objectContaining({autoReturnPromptWhenWaitlisted: false}));
+  });
+});
+
+describe('OverdriveSettingsComponent import destinations', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    librariesState.set([]);
+  });
+
+  it('keeps destinations that arrive before the library list, and saves them untouched', () => {
+    overdriveService.importDestinations.mockReturnValueOnce(of({ebookLibraryId: 1, ebookPathId: 11, magazineLibraryId: 2, magazinePathId: 21}));
+    const c = setup();
+    // SAFETY: only id, name and paths are read by the component.
+    const libraries = [
+      {id: 1, name: 'Books', paths: [{id: 11, path: '/books'}, {id: 12, path: '/more'}]},
+      {id: 2, name: 'Mags', paths: [{id: 21, path: '/mags'}]},
+    ] as Library[];
+    librariesState.set(libraries);
+
+    expect(c.ebookPath()?.id).toBe(11);
+    c.onLibraryChange('audiobook', libraries[1]);
+
+    expect(overdriveService.setImportDestinations).toHaveBeenCalledWith({
+      ebookLibraryId: 1, ebookPathId: 11, magazineLibraryId: 2, magazinePathId: 21,
+      audiobookLibraryId: 2, audiobookPathId: 21,
+    });
   });
 });
