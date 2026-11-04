@@ -1,0 +1,473 @@
+diff --git a/epub.js b/epub.js
+--- a/epub.js
++++ b/epub.js
+@@ -398,6 +398,7 @@ class MediaOverlay extends EventTarget {
+     #audioIndex
+     #itemIndex
+     #audio
++    #audioSrc
+     #volume = 1
+     #rate = 1
+     #state
+@@ -444,21 +445,57 @@ class MediaOverlay extends EventTarget {
+         this.dispatchEvent(new CustomEvent('unhighlight', { detail: this.#activeItem }))
+     }
+     async #play(audioIndex, itemIndex) {
+-        this.#stop()
++        // A chapter's audio is shared by many SMIL documents: a reflowable book splits one
++        // chapter mp3 across ~9-13 content documents that each seek into a different slice
++        // of it. Keeping the element alive makes those transitions a seek rather than a
++        // fresh load of the same file.
++        const reused = this.#audio && this.#audioSrc === this.#entries[audioIndex]?.src
++            ? this.#audio : null
++        if (reused) this.#unhighlight()
++        else this.#stop()
++
+         this.#audioIndex = audioIndex
+         this.#itemIndex = itemIndex
+         const src = this.#activeAudio?.src
+-        if (!src || !this.#activeItem) return this.start(this.#sectionIndex + 1)
++        if (!src || !this.#activeItem) {
++            if (reused) this.#stop()
++            return this.start(this.#sectionIndex + 1)
++        }
+ 
+-        const url = URL.createObjectURL(await this.book.loadBlob(src))
+-        const audio = new Audio(url)
++        if (reused) {
++            reused.volume = this.#volume
++            reused.playbackRate = this.#rate
++            reused.currentTime = this.#activeItem.begin ?? 0
++            if (this.#state === 'paused') this.#highlight()
++            else {
++                this.#state = 'playing'
++                reused.play().catch(e => this.#error(e))
++            }
++            return
++        }
++
++        // Prefer a URL the browser can range-request. On the blob path the whole chapter
++        // file has to be fetched before the first word highlights, and it is fetched again
++        // for every document that seeks into it.
++        const directUrl = this.book.getDirectUrl?.(src) ?? null
++        const url = directUrl ?? URL.createObjectURL(await this.book.loadBlob(src))
++        const audio = new Audio()
++        audio.preload = 'metadata'
++        audio.src = url
+         this.#audio = audio
++        this.#audioSrc = src
+         audio.volume = this.#volume
+         audio.playbackRate = this.#rate
+-        audio.addEventListener('timeupdate', () => {
++        // Follow the clock a frame at a time rather than on `timeupdate`, which fires only
++        // about four times a second. A phrase shorter than that gap — "Mr.", "said she" —
++        // would be stepped over by the loop below without ever being highlighted, and
++        // everything else would land up to a quarter second late.
++        let frame = null
++        const advance = () => {
+             if (audio.paused) return
+             const t = audio.currentTime
+-            const { items } = this.#activeAudio
++            const items = this.#activeAudio?.items
++            if (!items) return
+             if (t > this.#activeItem?.end) {
+                 this.#unhighlight()
+                 if (this.#itemIndex === items.length - 1) {
+@@ -469,46 +506,98 @@ class MediaOverlay extends EventTarget {
+             const oldIndex = this.#itemIndex
+             while (items[this.#itemIndex + 1]?.begin <= t) this.#itemIndex++
+             if (this.#itemIndex !== oldIndex) this.#highlight()
++        }
++        const loop = () => {
++            frame = null
++            if (this.#audio !== audio || audio.paused) return
++            advance()
++            // `advance` may have handed off to another element; don't keep this loop alive
++            if (this.#audio === audio) frame = requestAnimationFrame(loop)
++        }
++        const startLoop = () => {
++            if (frame == null) frame = requestAnimationFrame(loop)
++        }
++        const stopLoop = () => {
++            if (frame != null) cancelAnimationFrame(frame)
++            frame = null
++        }
++        audio.addEventListener('play', startLoop)
++        audio.addEventListener('playing', startLoop)
++        audio.addEventListener('pause', stopLoop)
++        // Frame callbacks are suspended in a background tab; `timeupdate` still fires there
++        // and keeps the highlight from being stranded mid-phrase when the tab comes back.
++        audio.addEventListener('timeupdate', () => {
++            if (frame == null) advance()
+         })
+         audio.addEventListener('error', () =>
+             this.#error(new Error(`Failed to load ${src}`)))
+         audio.addEventListener('playing', () => this.#highlight())
+         audio.addEventListener('ended', () => {
++            stopLoop()
+             this.#unhighlight()
+-            URL.revokeObjectURL(url)
++            if (!directUrl) URL.revokeObjectURL(url)
+             this.#audio = null
+-            this.#play(audioIndex + 1, 0).catch(e => this.#error(e))
++            this.#audioSrc = null
++            // Advance from whatever is playing now, not from the index captured when this
++            // element was created: the element outlives a section transition when reused.
++            this.#play(this.#audioIndex + 1, 0).catch(e => this.#error(e))
+         })
+         if (this.#state === 'paused') {
+             this.#highlight()
+             audio.currentTime = this.#activeItem.begin ?? 0
+         }
+-        else audio.addEventListener('canplaythrough', () => {
+-            // for some reason need to seek in `canplaythrough`
+-            // or it won't play when skipping in WebKit
++        // When streaming, waiting for `canplaythrough` would mean waiting on the browser's
++        // estimate that the whole clip can play uninterrupted — which is the buffering this
++        // path exists to avoid. `loadedmetadata` is the earliest point a seek is valid, and
++        // the seek itself issues the range request for the clip's start.
++        // On the blob path this must stay `canplaythrough`: for some reason the seek has to
++        // happen there or it won't play when skipping in WebKit.
++        else audio.addEventListener(directUrl ? 'loadedmetadata' : 'canplaythrough', () => {
+             audio.currentTime = this.#activeItem.begin ?? 0
+             this.#state = 'playing'
+             audio.play().catch(e => this.#error(e))
+         }, { once: true })
+     }
+-    async start(sectionIndex, filter = () => true) {
++    /**
++     * Begins playback in `sectionIndex`, at its first phrase or at the first one `filter`
++     * accepts. A filter narrows the search to a phrase the caller already has in mind — a
++     * clicked word — so a miss means "that isn't narrated", not a broken book: it neither
++     * searches on into the next section nor reports an error. Resolves to whether playback
++     * started.
++     */
++    async start(sectionIndex, filter = null) {
+         this.#audio?.pause()
+         const section = this.book.sections[sectionIndex]
+         const href = section?.id
+-        if (!href) return
++        if (!href) {
++            // Walked off the end of the spine looking for a section with an overlay.
++            if (sectionIndex > 0 && !filter) console.warn(
++                `No media overlay found from section ${this.#sectionIndex ?? 0} onwards`)
++            return false
++        }
+ 
+         const { mediaOverlay } = section
+-        if (!mediaOverlay) return this.start(sectionIndex + 1)
++        if (!mediaOverlay) return filter ? false : this.start(sectionIndex + 1)
+         this.#sectionIndex = sectionIndex
+         await this.#loadSMIL(mediaOverlay)
+ 
+         for (let i = 0; i < this.#entries.length; i++) {
+             const { items } = this.#entries[i]
+             for (let j = 0; j < items.length; j++) {
+-                if (items[j].text.split('#')[0] === href && filter(items[j], j, items))
+-                    return this.#play(i, j).catch(e => this.#error(e))
++                if (items[j].text.split('#')[0] === href
++                    && (!filter || filter(items[j], j, items))) {
++                    await this.#play(i, j).catch(e => this.#error(e))
++                    return true
++                }
+             }
+         }
++
++        // The SMIL parsed, but none of its <text> targets name this section's document.
++        // Silently doing nothing here is indistinguishable from broken playback.
++        if (!filter) this.#error(
++            new Error(`Media overlay ${mediaOverlay.href} has no phrase for ${href}`
++                + ` (${this.#entries.length} audio groups parsed)`))
++        return false
+     }
+     pause() {
+         this.#state = 'paused'
+@@ -521,8 +610,10 @@ class MediaOverlay extends EventTarget {
+     #stop() {
+         if (this.#audio) {
+             this.#audio.pause()
++            // A no-op for the streamed URLs; only blob URLs need reclaiming.
+             URL.revokeObjectURL(this.#audio.src)
+             this.#audio = null
++            this.#audioSrc = null
+             this.#unhighlight()
+         }
+     }
+@@ -1161,6 +1252,11 @@ ${doc.querySelector('parsererror').innerText}`)
+         return doc.getElementById(id)
+             ?? doc.querySelector(`[name="${CSS.escape(id)}"]`)
+     }
++    // A URL the browser can fetch directly, when the book is backed by a streaming loader.
++    // Null for archive-backed books, where callers must fall back to loadBlob.
++    getDirectUrl(href) {
++        return this.#getDirectUrl?.(href) ?? null
++    }
+     isExternal(uri) {
+         return isExternal(uri)
+     }
+diff --git a/fixed-layout.js b/fixed-layout.js
+--- a/fixed-layout.js
++++ b/fixed-layout.js
+@@ -87,14 +87,14 @@ export class FixedLayout extends HTMLElement {
+         iframe.setAttribute('scrolling', 'no')
+         iframe.setAttribute('part', 'filter')
+         this.#root.append(element)
+-        if (!src) return { blank: true, element, iframe }
++        if (!src) return { blank: true, element, iframe, index }
+         return new Promise(resolve => {
+             iframe.addEventListener('load', () => {
+                 const doc = iframe.contentDocument
+                 this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } }))
+                 const { width, height } = getViewport(doc, this.defaultViewport)
+                 resolve({
+-                    element, iframe,
++                    element, iframe, index,
+                     width: parseFloat(width),
+                     height: parseFloat(height),
+                     onZoom,
+@@ -249,6 +249,29 @@ export class FixedLayout extends HTMLElement {
+             ? spread.left ?? spread.right : spread.right ?? spread.left)
+         return this.book.sections.indexOf(section)
+     }
++    // Same shape as the paginator's, so callers that need the rendered document — media
++    // overlay highlighting, text selection — work for fixed-layout books too. A spread
++    // shows two documents at once; the current side comes first.
++    //
++    // The index is derived from the spread rather than read back off the frame: the frame
++    // is bookkeeping that only holds while the spread is untouched, and a wrong index here
++    // fails silently at the call site rather than loudly.
++    getContents() {
++        const spread = this.#spreads?.[this.#index]
++        if (!spread) return []
++        const sides = spread.center
++            ? [[spread.center, this.#center]]
++            : this.#side === 'right'
++                ? [[spread.right, this.#right], [spread.left, this.#left]]
++                : [[spread.left, this.#left], [spread.right, this.#right]]
++        return sides
++            .filter(([section, frame]) =>
++                section && frame && !frame.blank && frame.iframe?.contentDocument)
++            .map(([section, frame]) => ({
++                index: this.book.sections.indexOf(section),
++                doc: frame.iframe.contentDocument,
++            }))
++    }
+     #reportLocation(reason) {
+         this.dispatchEvent(new CustomEvent('relocate', { detail:
+             { reason, range: null, index: this.index, fraction: 0, size: 1 } }))
+@@ -305,12 +328,6 @@ export class FixedLayout extends HTMLElement {
+         const s = this.rtl ? this.#goRight() : this.#goLeft()
+         if (!s) return this.goToSpread(this.#index - 1, this.rtl ? 'left' : 'right', 'page')
+     }
+-    getContents() {
+-        return Array.from(this.#root.querySelectorAll('iframe'), frame => ({
+-            doc: frame.contentDocument,
+-            // TODO: index, overlayer
+-        }))
+-    }
+     destroy() {
+         this.#observer.unobserve(this)
+     }
+diff --git a/streaming-loader.js b/streaming-loader.js
+--- a/streaming-loader.js
++++ b/streaming-loader.js
+@@ -7,9 +7,10 @@
+  * @param {Object} bookInfo - Pre-fetched EPUB metadata from /info endpoint
+  * @param {string} [authToken] - Optional authentication token
+  * @param {string} [bookType] - Optional book type for alternative format (e.g., 'EPUB')
++ * @param {number} [fileId] - Optional exact book-file id; disambiguates two files of the same format
+  * @returns {Object} Loader interface compatible with Foliate's EPUB class
+  */
+-export const makeStreamingLoader = (bookId, baseUrl, bookInfo, authToken = null, bookType = null) => {
++export const makeStreamingLoader = (bookId, baseUrl, bookInfo, authToken = null, bookType = null, fileId = null) => {
+   // Build a map of file paths to their manifest info for quick lookup
+   const manifestMap = new Map(
+     bookInfo.manifest.map(item => [item.href, item])
+@@ -21,7 +22,10 @@ export const makeStreamingLoader = (bookId, baseUrl, bookInfo, authToken = null,
+     // URL encode the path but preserve slashes
+     const encodedPath = name.split('/').map(encodeURIComponent).join('/')
+     let url = `${baseUrl}/${bookId}/file/${encodedPath}`
+-    if (bookType) {
++    // fileId takes precedence server-side; it's the only way to pick one of two same-format files.
++    if (fileId != null) {
++      url += `?fileId=${encodeURIComponent(fileId)}`
++    } else if (bookType) {
+       url += `?bookType=${encodeURIComponent(bookType)}`
+     }
+     return url
+@@ -43,7 +47,9 @@ export const makeStreamingLoader = (bookId, baseUrl, bookInfo, authToken = null,
+     const encodedPath = name.split('/').map(encodeURIComponent).join('/')
+     let url = `${baseUrl}/${bookId}/file/${encodedPath}`
+     const params = []
+-    if (bookType) {
++    if (fileId != null) {
++      params.push(`fileId=${encodeURIComponent(fileId)}`)
++    } else if (bookType) {
+       params.push(`bookType=${encodeURIComponent(bookType)}`)
+     }
+     if (authToken) {
+diff --git a/view.js b/view.js
+--- a/view.js
++++ b/view.js
+@@ -149,14 +149,37 @@ export const makeBook = async file => {
+  * @param {Object} bookInfo - Pre-fetched metadata from /api/v1/epub/{bookId}/info
+  * @param {string} [authToken] - Optional authentication token
+  * @param {string} [bookType] - Optional book type for alternative format (e.g., 'EPUB')
++ * @param {number} [fileId] - Optional exact book-file id; disambiguates two files of the same format
+  * @returns {Promise<EPUB>} Initialized EPUB book object
+  */
+-export const makeStreamingBook = async (bookId, baseUrl, bookInfo, authToken = null, bookType = null) => {
+-  const loader = makeStreamingLoader(bookId, baseUrl, bookInfo, authToken, bookType)
++export const makeStreamingBook = async (bookId, baseUrl, bookInfo, authToken = null, bookType = null, fileId = null) => {
++  const loader = makeStreamingLoader(bookId, baseUrl, bookInfo, authToken, bookType, fileId)
+   const {EPUB} = await import('./epub.js')
+   return new EPUB(loader).init()
+ }
+ 
++const HIGHLIGHT_STYLE_ID = 'foliate-media-overlay-style'
++
++/**
++ * Injects the readalong highlight rule into a rendered document.
++ *
++ * The reader's own stylesheet can't cover this: it reaches paginated documents only, so
++ * fixed-layout books get no styles at all, and it can only guess at the class name — books
++ * are free to declare their own via `media:active-class`.
++ */
++const ensureHighlightStyle = (doc, className) => {
++  if (!doc || doc.getElementById(HIGHLIGHT_STYLE_ID)) return
++  const parent = doc.head ?? doc.documentElement
++  if (!parent) return
++  const style = doc.createElement('style')
++  style.id = HIGHLIGHT_STYLE_ID
++  const selector = `.${CSS.escape(className)}`
++  style.textContent = `${selector}, ${selector} * {`
++    + ' background: color-mix(in srgb, currentColor 18%, transparent);'
++    + ' border-radius: 2px; }'
++  parent.append(style)
++}
++
+ class CursorAutohider {
+   #timeout
+   #el
+@@ -315,34 +338,67 @@ export class View extends HTMLElement {
+     this.#root.append(this.renderer)
+ 
+     if (book.sections.some(section => section.mediaOverlay)) {
+-      const activeClass = book.media.activeClass
+-      const playbackActiveClass = book.media.playbackActiveClass
++      // Books that declare no active class still need one, or the highlight is invisible.
++      // 'media-active' is what the reader stylesheet targets.
++      const activeClass = book.media?.activeClass || 'media-active'
++      const playbackActiveClass = book.media?.playbackActiveClass
+       this.mediaOverlay = book.getMediaOverlay()
+       let lastActive
++      const unhighlight = () => {
++        const el = lastActive?.deref()
++        if (!el) return
++        el.classList.remove(activeClass)
++        if (playbackActiveClass) el.ownerDocument
++          .documentElement.classList.remove(playbackActiveClass)
++        lastActive = null
++      }
++      // Phrases can be a fraction of a second apart, so a `goTo` for an earlier one can
++      // still be in flight when the next arrives. Without this, a late arrival re-adds its
++      // class and overwrites `lastActive`, stranding a highlight that nothing will remove.
++      let highlightSeq = 0
+       this.mediaOverlay.addEventListener('highlight', e => {
++        const seq = ++highlightSeq
+         const resolved = this.resolveNavigation(e.detail.text)
+         this.renderer.goTo(resolved)
+           .then(() => {
+-            const {doc} = this.renderer.getContents()
+-              .find(x => x.index = resolved.index)
+-            const el = resolved.anchor(doc)
++            if (seq !== highlightSeq) return
++            const contents = this.renderer.getContents()
++            const content = contents.find(x => x.index === resolved.index)
++            if (!content?.doc) {
++              console.warn('Media overlay: no rendered document for section'
++                + ` ${resolved.index} (showing ${contents.map(x => x.index).join(', ')})`)
++              return
++            }
++            // The SMIL fragment may not resolve to an element in the rendered
++            // document; skip the highlight rather than breaking playback.
++            const el = resolved.anchor(content.doc)
++            if (!el?.classList) {
++              console.warn(`Media overlay: ${e.detail.text} matched no element`)
++              return
++            }
++            // Defensive: guarantees a single active phrase even if an `unhighlight`
++            // was missed between two closely spaced phrases.
++            if (lastActive?.deref() !== el) unhighlight()
++            ensureHighlightStyle(content.doc, activeClass)
+             el.classList.add(activeClass)
+             if (playbackActiveClass) el.ownerDocument
+               .documentElement.classList.add(playbackActiveClass)
+             lastActive = new WeakRef(el)
+           })
++          .catch(err => console.warn('Failed to highlight media overlay target', err))
+       })
+-      this.mediaOverlay.addEventListener('unhighlight', () => {
+-        const el = lastActive?.deref()
+-        if (el) {
+-          el.classList.remove(activeClass)
+-          if (playbackActiveClass) el.ownerDocument
+-            .documentElement.classList.remove(playbackActiveClass)
+-        }
++      this.mediaOverlay.addEventListener('unhighlight', unhighlight)
++      this.mediaOverlay.addEventListener('error', e => {
++        unhighlight()
++        this.#emit('media-overlay-error', e.detail)
+       })
+     }
+   }
+ 
++  get hasMediaOverlay() {
++    return this.mediaOverlay != null
++  }
++
+   close() {
+     this.renderer?.destroy()
+     this.renderer?.remove()
+@@ -353,6 +409,9 @@ export class View extends HTMLElement {
+     this.lastLocation = null
+     this.history.clear()
+     this.tts = null
++    // The audio element is not in the document, so dropping the reference alone
++    // would leave narration playing.
++    this.mediaOverlay?.stop()
+     this.mediaOverlay = null
+   }
+ 
+@@ -665,9 +724,30 @@ export class View extends HTMLElement {
+   }
+ 
+   startMediaOverlay() {
+-    const {index} = this.renderer.getContents()[0]
++    // A fixed-layout spread can show a blank page, and `index` is the renderer's own idea
++    // of where it is — either way, better than throwing on an empty contents list.
++    const index = this.renderer.getContents()?.[0]?.index ?? this.renderer.index ?? 0
+     return this.mediaOverlay.start(index)
+   }
++
++  /**
++   * Starts playback at the phrase whose SMIL target is one of `ids`, in the given document.
++   * `ids` is the chain of element ids at a clicked point, innermost first, since the
++   * narrated element may be an ancestor of whatever was actually under the cursor.
++   * Resolves to whether a phrase matched — a click on unnarrated text matches nothing.
++   */
++  async startMediaOverlayAt(doc, ids) {
++    const content = this.renderer.getContents().find(x => x.doc === doc)
++    if (!content || !this.mediaOverlay) return false
++    // Strictly innermost first. Matching any id at once would let an ancestor win — a whole
++    // paragraph or page narrated as one phrase — and highlighting that covers the screen.
++    for (const id of ids) {
++      const started = await this.mediaOverlay.start(content.index,
++        item => item.text.split('#')[1] === id)
++      if (started) return true
++    }
++    return false
++  }
+ }
+ 
+ customElements.define('foliate-view', View)

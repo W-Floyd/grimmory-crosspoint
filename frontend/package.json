@@ -21,7 +21,14 @@
     "lint:eslint": "eslint \"src/**/*.ts\" \"src/**/*.html\"",
     "lint:prune": "oxlint src --prune-suppressions && eslint --prune-suppressions \"src/**/*.ts\" \"src/**/*.html\"",
     "lint:styles": "stylelint \"src/**/*.scss\" \"src/*.scss\"",
-    "lint:styles:fix": "pnpm run lint:styles --fix"
+    "lint:styles:fix": "pnpm run lint:styles --fix",
+    "foliate:patch": "node scripts/foliate-patch.mjs",
+    "foliate:save": "node scripts/foliate-patch.mjs save",
+    "predev": "pnpm run foliate:patch",
+    "prestart": "pnpm run foliate:patch",
+    "prebuild": "pnpm run foliate:patch",
+    "prebuild:prod": "pnpm run foliate:patch",
+    "prewatch": "pnpm run foliate:patch"
   },
   "private": true,
   "dependencies": {

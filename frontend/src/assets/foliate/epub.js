@@ -398,7 +398,6 @@ class MediaOverlay extends EventTarget {
     #audioIndex
     #itemIndex
     #audio
-    #audioSrc
     #volume = 1
     #rate = 1
     #state
@@ -445,57 +444,21 @@ class MediaOverlay extends EventTarget {
         this.dispatchEvent(new CustomEvent('unhighlight', { detail: this.#activeItem }))
     }
     async #play(audioIndex, itemIndex) {
-        // A chapter's audio is shared by many SMIL documents: a reflowable book splits one
-        // chapter mp3 across ~9-13 content documents that each seek into a different slice
-        // of it. Keeping the element alive makes those transitions a seek rather than a
-        // fresh load of the same file.
-        const reused = this.#audio && this.#audioSrc === this.#entries[audioIndex]?.src
-            ? this.#audio : null
-        if (reused) this.#unhighlight()
-        else this.#stop()
-
+        this.#stop()
         this.#audioIndex = audioIndex
         this.#itemIndex = itemIndex
         const src = this.#activeAudio?.src
-        if (!src || !this.#activeItem) {
-            if (reused) this.#stop()
-            return this.start(this.#sectionIndex + 1)
-        }
+        if (!src || !this.#activeItem) return this.start(this.#sectionIndex + 1)
 
-        if (reused) {
-            reused.volume = this.#volume
-            reused.playbackRate = this.#rate
-            reused.currentTime = this.#activeItem.begin ?? 0
-            if (this.#state === 'paused') this.#highlight()
-            else {
-                this.#state = 'playing'
-                reused.play().catch(e => this.#error(e))
-            }
-            return
-        }
-
-        // Prefer a URL the browser can range-request. On the blob path the whole chapter
-        // file has to be fetched before the first word highlights, and it is fetched again
-        // for every document that seeks into it.
-        const directUrl = this.book.getDirectUrl?.(src) ?? null
-        const url = directUrl ?? URL.createObjectURL(await this.book.loadBlob(src))
-        const audio = new Audio()
-        audio.preload = 'metadata'
-        audio.src = url
+        const url = URL.createObjectURL(await this.book.loadBlob(src))
+        const audio = new Audio(url)
         this.#audio = audio
-        this.#audioSrc = src
         audio.volume = this.#volume
         audio.playbackRate = this.#rate
-        // Follow the clock a frame at a time rather than on `timeupdate`, which fires only
-        // about four times a second. A phrase shorter than that gap — "Mr.", "said she" —
-        // would be stepped over by the loop below without ever being highlighted, and
-        // everything else would land up to a quarter second late.
-        let frame = null
-        const advance = () => {
+        audio.addEventListener('timeupdate', () => {
             if (audio.paused) return
             const t = audio.currentTime
-            const items = this.#activeAudio?.items
-            if (!items) return
+            const { items } = this.#activeAudio
             if (t > this.#activeItem?.end) {
                 this.#unhighlight()
                 if (this.#itemIndex === items.length - 1) {
@@ -506,98 +469,46 @@ class MediaOverlay extends EventTarget {
             const oldIndex = this.#itemIndex
             while (items[this.#itemIndex + 1]?.begin <= t) this.#itemIndex++
             if (this.#itemIndex !== oldIndex) this.#highlight()
-        }
-        const loop = () => {
-            frame = null
-            if (this.#audio !== audio || audio.paused) return
-            advance()
-            // `advance` may have handed off to another element; don't keep this loop alive
-            if (this.#audio === audio) frame = requestAnimationFrame(loop)
-        }
-        const startLoop = () => {
-            if (frame == null) frame = requestAnimationFrame(loop)
-        }
-        const stopLoop = () => {
-            if (frame != null) cancelAnimationFrame(frame)
-            frame = null
-        }
-        audio.addEventListener('play', startLoop)
-        audio.addEventListener('playing', startLoop)
-        audio.addEventListener('pause', stopLoop)
-        // Frame callbacks are suspended in a background tab; `timeupdate` still fires there
-        // and keeps the highlight from being stranded mid-phrase when the tab comes back.
-        audio.addEventListener('timeupdate', () => {
-            if (frame == null) advance()
         })
         audio.addEventListener('error', () =>
             this.#error(new Error(`Failed to load ${src}`)))
         audio.addEventListener('playing', () => this.#highlight())
         audio.addEventListener('ended', () => {
-            stopLoop()
             this.#unhighlight()
-            if (!directUrl) URL.revokeObjectURL(url)
+            URL.revokeObjectURL(url)
             this.#audio = null
-            this.#audioSrc = null
-            // Advance from whatever is playing now, not from the index captured when this
-            // element was created: the element outlives a section transition when reused.
-            this.#play(this.#audioIndex + 1, 0).catch(e => this.#error(e))
+            this.#play(audioIndex + 1, 0).catch(e => this.#error(e))
         })
         if (this.#state === 'paused') {
             this.#highlight()
             audio.currentTime = this.#activeItem.begin ?? 0
         }
-        // When streaming, waiting for `canplaythrough` would mean waiting on the browser's
-        // estimate that the whole clip can play uninterrupted — which is the buffering this
-        // path exists to avoid. `loadedmetadata` is the earliest point a seek is valid, and
-        // the seek itself issues the range request for the clip's start.
-        // On the blob path this must stay `canplaythrough`: for some reason the seek has to
-        // happen there or it won't play when skipping in WebKit.
-        else audio.addEventListener(directUrl ? 'loadedmetadata' : 'canplaythrough', () => {
+        else audio.addEventListener('canplaythrough', () => {
+            // for some reason need to seek in `canplaythrough`
+            // or it won't play when skipping in WebKit
             audio.currentTime = this.#activeItem.begin ?? 0
             this.#state = 'playing'
             audio.play().catch(e => this.#error(e))
         }, { once: true })
     }
-    /**
-     * Begins playback in `sectionIndex`, at its first phrase or at the first one `filter`
-     * accepts. A filter narrows the search to a phrase the caller already has in mind — a
-     * clicked word — so a miss means "that isn't narrated", not a broken book: it neither
-     * searches on into the next section nor reports an error. Resolves to whether playback
-     * started.
-     */
-    async start(sectionIndex, filter = null) {
+    async start(sectionIndex, filter = () => true) {
         this.#audio?.pause()
         const section = this.book.sections[sectionIndex]
         const href = section?.id
-        if (!href) {
-            // Walked off the end of the spine looking for a section with an overlay.
-            if (sectionIndex > 0 && !filter) console.warn(
-                `No media overlay found from section ${this.#sectionIndex ?? 0} onwards`)
-            return false
-        }
+        if (!href) return
 
         const { mediaOverlay } = section
-        if (!mediaOverlay) return filter ? false : this.start(sectionIndex + 1)
+        if (!mediaOverlay) return this.start(sectionIndex + 1)
         this.#sectionIndex = sectionIndex
         await this.#loadSMIL(mediaOverlay)
 
         for (let i = 0; i < this.#entries.length; i++) {
             const { items } = this.#entries[i]
             for (let j = 0; j < items.length; j++) {
-                if (items[j].text.split('#')[0] === href
-                    && (!filter || filter(items[j], j, items))) {
-                    await this.#play(i, j).catch(e => this.#error(e))
-                    return true
-                }
+                if (items[j].text.split('#')[0] === href && filter(items[j], j, items))
+                    return this.#play(i, j).catch(e => this.#error(e))
             }
         }
-
-        // The SMIL parsed, but none of its <text> targets name this section's document.
-        // Silently doing nothing here is indistinguishable from broken playback.
-        if (!filter) this.#error(
-            new Error(`Media overlay ${mediaOverlay.href} has no phrase for ${href}`
-                + ` (${this.#entries.length} audio groups parsed)`))
-        return false
     }
     pause() {
         this.#state = 'paused'
@@ -610,10 +521,8 @@ class MediaOverlay extends EventTarget {
     #stop() {
         if (this.#audio) {
             this.#audio.pause()
-            // A no-op for the streamed URLs; only blob URLs need reclaiming.
             URL.revokeObjectURL(this.#audio.src)
             this.#audio = null
-            this.#audioSrc = null
             this.#unhighlight()
         }
     }
@@ -1251,11 +1160,6 @@ ${doc.querySelector('parsererror').innerText}`)
     getTOCFragment(doc, id) {
         return doc.getElementById(id)
             ?? doc.querySelector(`[name="${CSS.escape(id)}"]`)
-    }
-    // A URL the browser can fetch directly, when the book is backed by a streaming loader.
-    // Null for archive-backed books, where callers must fall back to loadBlob.
-    getDirectUrl(href) {
-        return this.#getDirectUrl?.(href) ?? null
     }
     isExternal(uri) {
         return isExternal(uri)

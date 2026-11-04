@@ -149,35 +149,12 @@ export const makeBook = async file => {
  * @param {Object} bookInfo - Pre-fetched metadata from /api/v1/epub/{bookId}/info
  * @param {string} [authToken] - Optional authentication token
  * @param {string} [bookType] - Optional book type for alternative format (e.g., 'EPUB')
- * @param {number} [fileId] - Optional exact book-file id; disambiguates two files of the same format
  * @returns {Promise<EPUB>} Initialized EPUB book object
  */
-export const makeStreamingBook = async (bookId, baseUrl, bookInfo, authToken = null, bookType = null, fileId = null) => {
-  const loader = makeStreamingLoader(bookId, baseUrl, bookInfo, authToken, bookType, fileId)
+export const makeStreamingBook = async (bookId, baseUrl, bookInfo, authToken = null, bookType = null) => {
+  const loader = makeStreamingLoader(bookId, baseUrl, bookInfo, authToken, bookType)
   const {EPUB} = await import('./epub.js')
   return new EPUB(loader).init()
-}
-
-const HIGHLIGHT_STYLE_ID = 'foliate-media-overlay-style'
-
-/**
- * Injects the readalong highlight rule into a rendered document.
- *
- * The reader's own stylesheet can't cover this: it reaches paginated documents only, so
- * fixed-layout books get no styles at all, and it can only guess at the class name — books
- * are free to declare their own via `media:active-class`.
- */
-const ensureHighlightStyle = (doc, className) => {
-  if (!doc || doc.getElementById(HIGHLIGHT_STYLE_ID)) return
-  const parent = doc.head ?? doc.documentElement
-  if (!parent) return
-  const style = doc.createElement('style')
-  style.id = HIGHLIGHT_STYLE_ID
-  const selector = `.${CSS.escape(className)}`
-  style.textContent = `${selector}, ${selector} * {`
-    + ' background: color-mix(in srgb, currentColor 18%, transparent);'
-    + ' border-radius: 2px; }'
-  parent.append(style)
 }
 
 class CursorAutohider {
@@ -338,65 +315,32 @@ export class View extends HTMLElement {
     this.#root.append(this.renderer)
 
     if (book.sections.some(section => section.mediaOverlay)) {
-      // Books that declare no active class still need one, or the highlight is invisible.
-      // 'media-active' is what the reader stylesheet targets.
-      const activeClass = book.media?.activeClass || 'media-active'
-      const playbackActiveClass = book.media?.playbackActiveClass
+      const activeClass = book.media.activeClass
+      const playbackActiveClass = book.media.playbackActiveClass
       this.mediaOverlay = book.getMediaOverlay()
       let lastActive
-      const unhighlight = () => {
-        const el = lastActive?.deref()
-        if (!el) return
-        el.classList.remove(activeClass)
-        if (playbackActiveClass) el.ownerDocument
-          .documentElement.classList.remove(playbackActiveClass)
-        lastActive = null
-      }
-      // Phrases can be a fraction of a second apart, so a `goTo` for an earlier one can
-      // still be in flight when the next arrives. Without this, a late arrival re-adds its
-      // class and overwrites `lastActive`, stranding a highlight that nothing will remove.
-      let highlightSeq = 0
       this.mediaOverlay.addEventListener('highlight', e => {
-        const seq = ++highlightSeq
         const resolved = this.resolveNavigation(e.detail.text)
         this.renderer.goTo(resolved)
           .then(() => {
-            if (seq !== highlightSeq) return
-            const contents = this.renderer.getContents()
-            const content = contents.find(x => x.index === resolved.index)
-            if (!content?.doc) {
-              console.warn('Media overlay: no rendered document for section'
-                + ` ${resolved.index} (showing ${contents.map(x => x.index).join(', ')})`)
-              return
-            }
-            // The SMIL fragment may not resolve to an element in the rendered
-            // document; skip the highlight rather than breaking playback.
-            const el = resolved.anchor(content.doc)
-            if (!el?.classList) {
-              console.warn(`Media overlay: ${e.detail.text} matched no element`)
-              return
-            }
-            // Defensive: guarantees a single active phrase even if an `unhighlight`
-            // was missed between two closely spaced phrases.
-            if (lastActive?.deref() !== el) unhighlight()
-            ensureHighlightStyle(content.doc, activeClass)
+            const {doc} = this.renderer.getContents()
+              .find(x => x.index = resolved.index)
+            const el = resolved.anchor(doc)
             el.classList.add(activeClass)
             if (playbackActiveClass) el.ownerDocument
               .documentElement.classList.add(playbackActiveClass)
             lastActive = new WeakRef(el)
           })
-          .catch(err => console.warn('Failed to highlight media overlay target', err))
       })
-      this.mediaOverlay.addEventListener('unhighlight', unhighlight)
-      this.mediaOverlay.addEventListener('error', e => {
-        unhighlight()
-        this.#emit('media-overlay-error', e.detail)
+      this.mediaOverlay.addEventListener('unhighlight', () => {
+        const el = lastActive?.deref()
+        if (el) {
+          el.classList.remove(activeClass)
+          if (playbackActiveClass) el.ownerDocument
+            .documentElement.classList.remove(playbackActiveClass)
+        }
       })
     }
-  }
-
-  get hasMediaOverlay() {
-    return this.mediaOverlay != null
   }
 
   close() {
@@ -409,9 +353,6 @@ export class View extends HTMLElement {
     this.lastLocation = null
     this.history.clear()
     this.tts = null
-    // The audio element is not in the document, so dropping the reference alone
-    // would leave narration playing.
-    this.mediaOverlay?.stop()
     this.mediaOverlay = null
   }
 
@@ -724,29 +665,8 @@ export class View extends HTMLElement {
   }
 
   startMediaOverlay() {
-    // A fixed-layout spread can show a blank page, and `index` is the renderer's own idea
-    // of where it is — either way, better than throwing on an empty contents list.
-    const index = this.renderer.getContents()?.[0]?.index ?? this.renderer.index ?? 0
+    const {index} = this.renderer.getContents()[0]
     return this.mediaOverlay.start(index)
-  }
-
-  /**
-   * Starts playback at the phrase whose SMIL target is one of `ids`, in the given document.
-   * `ids` is the chain of element ids at a clicked point, innermost first, since the
-   * narrated element may be an ancestor of whatever was actually under the cursor.
-   * Resolves to whether a phrase matched — a click on unnarrated text matches nothing.
-   */
-  async startMediaOverlayAt(doc, ids) {
-    const content = this.renderer.getContents().find(x => x.doc === doc)
-    if (!content || !this.mediaOverlay) return false
-    // Strictly innermost first. Matching any id at once would let an ancestor win — a whole
-    // paragraph or page narrated as one phrase — and highlighting that covers the screen.
-    for (const id of ids) {
-      const started = await this.mediaOverlay.start(content.index,
-        item => item.text.split('#')[1] === id)
-      if (started) return true
-    }
-    return false
   }
 }
 

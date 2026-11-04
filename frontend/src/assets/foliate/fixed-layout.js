@@ -87,14 +87,14 @@ export class FixedLayout extends HTMLElement {
         iframe.setAttribute('scrolling', 'no')
         iframe.setAttribute('part', 'filter')
         this.#root.append(element)
-        if (!src) return { blank: true, element, iframe, index }
+        if (!src) return { blank: true, element, iframe }
         return new Promise(resolve => {
             iframe.addEventListener('load', () => {
                 const doc = iframe.contentDocument
                 this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } }))
                 const { width, height } = getViewport(doc, this.defaultViewport)
                 resolve({
-                    element, iframe, index,
+                    element, iframe,
                     width: parseFloat(width),
                     height: parseFloat(height),
                     onZoom,
@@ -249,29 +249,6 @@ export class FixedLayout extends HTMLElement {
             ? spread.left ?? spread.right : spread.right ?? spread.left)
         return this.book.sections.indexOf(section)
     }
-    // Same shape as the paginator's, so callers that need the rendered document — media
-    // overlay highlighting, text selection — work for fixed-layout books too. A spread
-    // shows two documents at once; the current side comes first.
-    //
-    // The index is derived from the spread rather than read back off the frame: the frame
-    // is bookkeeping that only holds while the spread is untouched, and a wrong index here
-    // fails silently at the call site rather than loudly.
-    getContents() {
-        const spread = this.#spreads?.[this.#index]
-        if (!spread) return []
-        const sides = spread.center
-            ? [[spread.center, this.#center]]
-            : this.#side === 'right'
-                ? [[spread.right, this.#right], [spread.left, this.#left]]
-                : [[spread.left, this.#left], [spread.right, this.#right]]
-        return sides
-            .filter(([section, frame]) =>
-                section && frame && !frame.blank && frame.iframe?.contentDocument)
-            .map(([section, frame]) => ({
-                index: this.book.sections.indexOf(section),
-                doc: frame.iframe.contentDocument,
-            }))
-    }
     #reportLocation(reason) {
         this.dispatchEvent(new CustomEvent('relocate', { detail:
             { reason, range: null, index: this.index, fraction: 0, size: 1 } }))
@@ -327,6 +304,12 @@ export class FixedLayout extends HTMLElement {
     async prev() {
         const s = this.rtl ? this.#goRight() : this.#goLeft()
         if (!s) return this.goToSpread(this.#index - 1, this.rtl ? 'left' : 'right', 'page')
+    }
+    getContents() {
+        return Array.from(this.#root.querySelectorAll('iframe'), frame => ({
+            doc: frame.contentDocument,
+            // TODO: index, overlayer
+        }))
     }
     destroy() {
         this.#observer.unobserve(this)

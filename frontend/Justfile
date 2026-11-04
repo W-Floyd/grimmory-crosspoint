@@ -64,6 +64,7 @@ e2e-list spec:
 
 # Start the Angular dev server for Playwright against a fixed host and port.
 e2e-dev host='127.0.0.1' port='4301':
+    {{ pnpm }} run foliate:patch
     {{ pnpm }} exec ng serve --host {{ host }} --port {{ port }} --configuration development --watch=false
 
 # Run Oxlint, ESLint, and Stylelint.
