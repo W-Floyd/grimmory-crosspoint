@@ -471,7 +471,7 @@
   },
   "src/app/features/settings/overdrive-settings/overdrive-settings.component.ts": {
     "@angular-eslint/prefer-signals": {
-      "count": 54
+      "count": 48
     }
   },
   "src/app/features/settings/reader-preferences/cbx-reader-preferences/cbx-reader-preferences-component.ts": {
