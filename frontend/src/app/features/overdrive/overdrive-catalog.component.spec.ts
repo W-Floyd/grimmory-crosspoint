@@ -961,6 +961,19 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
         expect.objectContaining({titleId: 'title-1', replaceBookId: 42}));
     });
 
+    it('marks the loan imported even when a sync replaced the rows meanwhile', () => {
+      const done = new Subject<{id: number}>();
+      overdriveService.borrowAndImport.mockReturnValue(done);
+      const fresh = {...imported, bookId: undefined};
+      component.loans.set([fresh]);
+
+      component.onImportLoan(fresh);
+      component.loans.set([{...fresh}]); // a sync lands mid-import with new row objects
+      done.next({id: 99});
+
+      expect(component.loans()[0].bookId).toBe(99);
+    });
+
     it('does nothing for a loan that was never imported', () => {
       component.onReplaceLoan({id: 'title-2', title: 'Nope', expireDate: '2026-08-08', cardId: 'c1'});
 

@@ -1457,7 +1457,8 @@ export class OverdriveCatalogComponent implements OnInit {
          if (book?.id != null) {
            // Stamp the new book id onto the loan so the title cell shows the "In your library"
            // link and the Import button flips to "Import again".
-           this.loans.update((rows) => rows.map((r) => r === loan ? { ...r, bookId: book.id } : r));
+           // By id, not identity: a sync during a minutes-long import replaces every row object.
+           this.loans.update((rows) => rows.map((r) => r.id === loan.id && r.cardId === cardId ? { ...r, bookId: book.id } : r));
          }
          this.setOutcome(loan.id, 'success');
          this.importingTitleId.set(null);
