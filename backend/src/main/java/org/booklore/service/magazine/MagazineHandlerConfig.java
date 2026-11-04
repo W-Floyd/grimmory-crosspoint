@@ -25,7 +25,7 @@ public class MagazineHandlerConfig {
      * Arguments passed to the tool. Placeholders: {@code {input}} (a JSON manifest carrying the card
      * credentials + loan ids), {@code {output}} (an empty directory into which the tool writes the single
      * produced file). The reference tool is a subcommand CLI, so the default leads with {@code download}. Pin a stable
-     * {@code --account-dir} (see the deploy compose notes).
+     * {@code --account-dir} (see deploy/compose/docker-compose.overdrive.yml).
      */
     private String toolArgs = "download --manifest {input} --out-dir {output}";
 

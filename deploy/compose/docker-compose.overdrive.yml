@@ -1,0 +1,88 @@
+# OverDrive / Libby and the external format handlers, layered over docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.overdrive.yml up -d
+#
+# Compose merges the environment and volumes below into the grimmory service. Kept in its own file so
+# the main compose file stays as upstream ships it.
+services:
+  grimmory:
+    environment:
+      # OverDrive / Libby integration (borrow, holds, sync, catalog search), enabled by this file.
+      # Then configure your library key under Settings → OverDrive/Libby and link a Libby account
+      # with an 8-digit setup code.
+      - OVERDRIVE_ENABLED=true
+      # - OVERDRIVE_CLIENT_ID=dewey                     # rarely needs changing
+      # - OVERDRIVE_SENTRY_BASE_URL=https://sentry.libbyapp.com
+      # Optional: enable encrypted storage of card number + PIN (for card+PIN linking) so an expired
+      # token can be re-linked automatically; also encrypts the stored Libby token. base64-encoded
+      # 16/24/32 bytes, e.g. `openssl rand -base64 32`. Unset = token-only (re-link manually on expiry);
+      # no plaintext card credentials are ever stored. Changing or removing it means re-linking cards.
+      # - OVERDRIVE_CREDENTIAL_KEY=<base64-32-bytes>
+      #
+      # Most Libby titles offer a DRM-free "open" EPUB and import with no extra setup.
+      # For titles that only offer the Adobe/ACSM format, Grimmory can hand the ACSM to an
+      # operator-supplied external tool that procures the book file. Grimmory ships no such
+      # tool and holds no keys/accounts — you supply and mount the tool (below), and ensure
+      # you have the right to do so. Leave ACSM_ENABLED unset/false to keep it off.
+      # - ACSM_ENABLED=true
+      # - ACSM_TOOL_PATH=/opt/acsm/acsm-tool           # your tool or wrapper script (must be executable in the container)
+      # - ACSM_TOOL_ARGS=-f {acsm} -o {output}
+      # - ACSM_TIMEOUT_SECONDS=120
+      #
+      # Audiobook titles work the same way, via a separate operator-supplied tool. Grimmory writes a
+      # JSON manifest (the card's number + PIN + loan ids) to {input}; your tool authenticates itself
+      # (its own chip + app-emulating User-Agent, kept separate from Grimmory's web chip), fulfils,
+      # downloads and assembles the audiobook, and writes a single file into the {output} dir, which
+      # Grimmory imports as an audiobook. Requires the card to be linked by number + PIN with
+      # OVERDRIVE_CREDENTIAL_KEY set. Grimmory ships no such tool. Leave AUDIOBOOK_ENABLED unset to keep off.
+      # - AUDIOBOOK_ENABLED=true
+      # - AUDIOBOOK_TOOL_PATH=/opt/audiobook/audiobook-tool   # your tool or wrapper script (executable in the container)
+      # The reference tool is a subcommand CLI, so the args must lead with "download" (bare flags error out).
+      # STRONGLY RECOMMENDED tool-args — pin a stable, mounted --account-dir (and see the volume below):
+      # - AUDIOBOOK_TOOL_ARGS=download --manifest {input} --out-dir {output} --account-dir /opt/audiobook/account --no-store-pin
+      #
+      # Why --account-dir matters: Grimmory runs the tool in a fresh temp dir each invocation, so without
+      # an explicit account dir the tool's default cache (./account) is created inside that temp dir and
+      # thrown away every run. That forces a fresh chip mint on every borrow, and — for Adobe-DRM ebooks —
+      # a fresh anonymous Adobe activation each time, which is wasteful and can trip Adobe's activation
+      # limits (E_ADEPT_REQUEST_REPLAY). Pointing --account-dir at a persistent mounted dir lets the tool
+      # reuse (and auto-refresh) its chip cache (identity.json) and reuse the one-time Adobe activation
+      # (adobe.blob). Treat that dir as credential storage: it also caches chips.
+      #
+      # --no-store-pin (optional hardening): stops the tool persisting the card PIN into its account dir.
+      # Safe here because Grimmory re-supplies card+PIN in the manifest on every run; drop it only if you
+      # want the tool to be able to silently re-auth a fully-lapsed card without a fresh manifest.
+      # - AUDIOBOOK_TIMEOUT_SECONDS=1800               # audiobooks are large; default 30 min
+      #
+      # Magazines mirror audiobooks: same manifest + (typically) the same tool binary, separate config.
+      # The tool borrows + fulfils the issue itself from card+PIN and writes a single PDF or EPUB.
+      # - MAGAZINE_ENABLED=true
+      # - MAGAZINE_TOOL_PATH=/opt/audiobook/audiobook-tool       # usually the same binary as AUDIOBOOK_TOOL_PATH
+      # - MAGAZINE_TOOL_ARGS=download --manifest {input} --out-dir {output} --account-dir /opt/audiobook/account --no-store-pin
+      # - MAGAZINE_TIMEOUT_SECONDS=600                            # magazines are smaller than audiobooks
+      #
+      # Ebooks: for titles offered ONLY as "ebook-overdrive" — Libby's read-in-browser format. That
+      # format has no downloadable file and yields no ACSM, so neither the open-format path nor the
+      # ACSM handler can procure it; the tool rebuilds a book file (EPUB or PDF) from the web-reader
+      # assets. Same manifest as audiobooks (mediaType "ebook") and usually the same binary. Grimmory
+      # only falls back to this when the loan offers no real download format — open/Adobe always win.
+      # - EBOOK_ENABLED=true
+      # - EBOOK_TOOL_PATH=/opt/audiobook/audiobook-tool           # usually the same binary as AUDIOBOOK_TOOL_PATH
+      # - EBOOK_TOOL_ARGS=download --manifest {input} --out-dir {output} --account-dir /opt/audiobook/account --no-store-pin
+      # - EBOOK_TIMEOUT_SECONDS=600                                # ebooks are small next to audiobooks
+    # volumes:
+      # Operator-supplied ACSM handler tool for OverDrive borrow & import (see the ACSM_* env
+      # vars above). Put a self-contained tool + its Adobe account dir here. Note the image is
+      # Alpine/musl — a native binary must be musl-compatible or statically linked, and there
+      # is no python runtime in the image, so mount a self-contained executable.
+      # Mount READ-WRITE (not :ro): the account must be a fully ACTIVATED ADE account, and the
+      # tool updates activation.xml at fulfill time (it caches each operator's license-service
+      # certificate there and reads it back to build rights.xml). Ensure ./acsm — especially
+      # ./acsm/account — is writable by and owned by the container user (USER_ID:GROUP_ID, 1000).
+      # - ./acsm:/opt/acsm
+      # Operator-supplied audiobook handler tool (see the AUDIOBOOK_* env vars above). Same image
+      # caveats as the ACSM tool: Alpine/musl, no python runtime — mount a self-contained executable
+      # (a CGO_ENABLED=0 Go binary is ideal). Mount READ-WRITE: with the recommended --account-dir the
+      # tool persists its chip cache + Adobe activation under ./audiobook/account, which must be writable
+      # by and owned by the container user (USER_ID:GROUP_ID, 1000).
+      # - ./audiobook:/opt/audiobook

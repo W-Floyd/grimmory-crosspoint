@@ -58,7 +58,7 @@ import java.util.stream.Stream;
  *     enabled: true
  *     tool-path: "/opt/audiobook/audiobook-tool"
  *     # The reference tool is a subcommand CLI: lead with "download". Pin a stable --account-dir so its chip cache
- *     # and Adobe activation persist across runs (see the deploy compose notes).
+ *     # and Adobe activation persist across runs (see deploy/compose/docker-compose.overdrive.yml).
  *     tool-args: "download --manifest {input} --out-dir {output} --account-dir /opt/audiobook/account"
  *     timeout-seconds: 1800
  * }</pre>
