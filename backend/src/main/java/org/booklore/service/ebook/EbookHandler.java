@@ -113,36 +113,39 @@ public class EbookHandler {
             pb.directory(tempDir.toFile());
 
             Process process = pb.start();
+            try {
+                StringBuilder toolLog = new StringBuilder();
+                Thread drainer = new Thread(() -> drainToolOutput(process, toolLog, logSink), "ebook-output-drain");
+                drainer.setDaemon(true);
+                drainer.start();
 
-            StringBuilder toolLog = new StringBuilder();
-            Thread drainer = new Thread(() -> drainToolOutput(process, toolLog, logSink), "ebook-output-drain");
-            drainer.setDaemon(true);
-            drainer.start();
+                boolean completed = process.waitFor(config.getTimeoutSeconds(), TimeUnit.SECONDS);
+                if (!completed) {
+                    org.booklore.util.ExternalToolCommand.destroyTree(process);
+                    log.warn("Ebook handler tool timed out after {} seconds", config.getTimeoutSeconds());
+                    throw ApiError.GENERIC_BAD_REQUEST.createException(
+                            "Ebook handler timed out after " + config.getTimeoutSeconds() + "s.");
+                }
 
-            boolean completed = process.waitFor(config.getTimeoutSeconds(), TimeUnit.SECONDS);
-            if (!completed) {
-                process.destroyForcibly();
-                log.warn("Ebook handler tool timed out after {} seconds", config.getTimeoutSeconds());
-                throw ApiError.GENERIC_BAD_REQUEST.createException(
-                        "Ebook handler timed out after " + config.getTimeoutSeconds() + "s.");
+                drainer.join(2000); // let the drainer flush the tail before we read the buffer
+                int exitCode = process.exitValue();
+                String output;
+                synchronized (toolLog) {
+                    output = toolLog.toString().strip();
+                }
+                if (exitCode != 0) {
+                    log.error("Ebook handler tool exited with code {}. Output: {}", exitCode, output);
+                    throw ApiError.GENERIC_BAD_REQUEST.createException(
+                            "Ebook handler failed (exit " + exitCode + "): " + tail(output));
+                }
+
+                Path produced = singleOutputFile(outputDir, output);
+                String extension = extensionOf(produced.getFileName().toString());
+                log.info("Ebook handler tool produced {} ({} bytes)", produced.getFileName(), Files.size(produced));
+                return new Result(produced, extension);
+            } finally {
+                org.booklore.util.ExternalToolCommand.destroyTree(process);
             }
-
-            drainer.join(2000); // let the drainer flush the tail before we read the buffer
-            int exitCode = process.exitValue();
-            String output;
-            synchronized (toolLog) {
-                output = toolLog.toString().strip();
-            }
-            if (exitCode != 0) {
-                log.error("Ebook handler tool exited with code {}. Output: {}", exitCode, output);
-                throw ApiError.GENERIC_BAD_REQUEST.createException(
-                        "Ebook handler failed (exit " + exitCode + "): " + tail(output));
-            }
-
-            Path produced = singleOutputFile(outputDir, output);
-            String extension = extensionOf(produced.getFileName().toString());
-            log.info("Ebook handler tool produced {} ({} bytes)", produced.getFileName(), Files.size(produced));
-            return new Result(produced, extension);
 
         } catch (IOException e) {
             log.error("Ebook handler tool IO error: {}", e.getMessage());

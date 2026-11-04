@@ -75,4 +75,14 @@ public class ExternalToolCommand {
         }
         return tokens;
     }
+
+    /**
+     * Kill a tool and everything it spawned. A handler tool may shell out to others, and
+     * {@link Process#destroyForcibly()} alone leaves those children writing into a work directory
+     * the caller is about to delete. No-op once the tool has exited.
+     */
+    public static void destroyTree(Process process) {
+        process.descendants().forEach(ProcessHandle::destroyForcibly);
+        process.destroyForcibly();
+    }
 }

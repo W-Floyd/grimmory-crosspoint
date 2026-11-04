@@ -1,11 +1,15 @@
 package org.booklore.util;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 class ExternalToolCommandTest {
 
@@ -37,5 +41,17 @@ class ExternalToolCommandTest {
     void build_handlesBlankArgs() {
         assertThat(ExternalToolCommand.build("tool", "", Map.of())).containsExactly("tool");
         assertThat(ExternalToolCommand.build("tool", null, Map.of())).containsExactly("tool");
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void destroyTree_killsTheToolsChildrenToo() throws Exception {
+        Process tool = new ProcessBuilder("sh", "-c", "sleep 60 & wait").start();
+        await().atMost(Duration.ofSeconds(5)).until(() -> tool.descendants().findAny().isPresent());
+        ProcessHandle child = tool.descendants().findFirst().orElseThrow();
+
+        ExternalToolCommand.destroyTree(tool);
+
+        await().atMost(Duration.ofSeconds(5)).until(() -> !tool.isAlive() && !child.isAlive());
     }
 }

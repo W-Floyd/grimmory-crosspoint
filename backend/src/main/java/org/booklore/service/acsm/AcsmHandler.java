@@ -108,45 +108,48 @@ public class AcsmHandler {
             pb.directory(tempDir.toFile());
 
             Process process = pb.start();
+            try {
+                // Drain the tool's merged stdout/stderr on a background thread so the pipe buffer never
+                // fills (which would deadlock the process) and so the waitFor timeout can fire.
+                StringBuilder toolLog = new StringBuilder();
+                Thread drainer = new Thread(() -> drainToolOutput(process, toolLog, logSink), "acsm-output-drain");
+                drainer.setDaemon(true);
+                drainer.start();
 
-            // Drain the tool's merged stdout/stderr on a background thread so the pipe buffer never
-            // fills (which would deadlock the process) and so the waitFor timeout can fire.
-            StringBuilder toolLog = new StringBuilder();
-            Thread drainer = new Thread(() -> drainToolOutput(process, toolLog, logSink), "acsm-output-drain");
-            drainer.setDaemon(true);
-            drainer.start();
+                boolean completed = process.waitFor(config.getTimeoutSeconds(), TimeUnit.SECONDS);
+                if (!completed) {
+                    org.booklore.util.ExternalToolCommand.destroyTree(process);
+                    log.warn("ACSM handler tool timed out after {} seconds", config.getTimeoutSeconds());
+                    throw ApiError.GENERIC_BAD_REQUEST.createException(
+                            "ACSM handler timed out after " + config.getTimeoutSeconds() + "s.");
+                }
 
-            boolean completed = process.waitFor(config.getTimeoutSeconds(), TimeUnit.SECONDS);
-            if (!completed) {
-                process.destroyForcibly();
-                log.warn("ACSM handler tool timed out after {} seconds", config.getTimeoutSeconds());
-                throw ApiError.GENERIC_BAD_REQUEST.createException(
-                        "ACSM handler timed out after " + config.getTimeoutSeconds() + "s.");
-            }
+                drainer.join(2000); // let the drainer flush the tail before we read the buffer
+                int exitCode = process.exitValue();
+                String output;
+                synchronized (toolLog) {
+                    output = toolLog.toString().strip();
+                }
+                if (exitCode != 0) {
+                    log.error("ACSM handler tool exited with code {}. Output: {}", exitCode, output);
+                    throw ApiError.GENERIC_BAD_REQUEST.createException(
+                            "ACSM handler failed (exit " + exitCode + "): " + tail(output));
+                }
 
-            drainer.join(2000); // let the drainer flush the tail before we read the buffer
-            int exitCode = process.exitValue();
-            String output;
-            synchronized (toolLog) {
-                output = toolLog.toString().strip();
+                // The produced book file is written to the output path, not stdout. Many ACSM tools exit 0
+                // even on failure, so surface their output — e.g. an unactivated ADE account reports
+                // "did not find the licenseService certificate in the activation data".
+                if (!Files.exists(outputFile)) {
+                    log.error("ACSM handler tool exited 0 but produced no output file. Output: {}", output);
+                    throw ApiError.GENERIC_BAD_REQUEST.createException(
+                            "ACSM handler produced no book file. Tool output: " + tail(output));
+                }
+                byte[] book = Files.readAllBytes(outputFile);
+                log.info("ACSM handler tool produced {} bytes", book.length);
+                return book;
+            } finally {
+                org.booklore.util.ExternalToolCommand.destroyTree(process);
             }
-            if (exitCode != 0) {
-                log.error("ACSM handler tool exited with code {}. Output: {}", exitCode, output);
-                throw ApiError.GENERIC_BAD_REQUEST.createException(
-                        "ACSM handler failed (exit " + exitCode + "): " + tail(output));
-            }
-
-            // The produced book file is written to the output path, not stdout. Many ACSM tools exit 0
-            // even on failure, so surface their output — e.g. an unactivated ADE account reports
-            // "did not find the licenseService certificate in the activation data".
-            if (!Files.exists(outputFile)) {
-                log.error("ACSM handler tool exited 0 but produced no output file. Output: {}", output);
-                throw ApiError.GENERIC_BAD_REQUEST.createException(
-                        "ACSM handler produced no book file. Tool output: " + tail(output));
-            }
-            byte[] book = Files.readAllBytes(outputFile);
-            log.info("ACSM handler tool produced {} bytes", book.length);
-            return book;
 
         } catch (IOException e) {
             log.error("ACSM handler tool IO error: {}", e.getMessage());

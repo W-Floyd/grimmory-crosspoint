@@ -118,36 +118,39 @@ public class MagazineHandler {
             pb.directory(tempDir.toFile());
 
             Process process = pb.start();
+            try {
+                StringBuilder toolLog = new StringBuilder();
+                Thread drainer = new Thread(() -> drainToolOutput(process, toolLog, logSink), "magazine-output-drain");
+                drainer.setDaemon(true);
+                drainer.start();
 
-            StringBuilder toolLog = new StringBuilder();
-            Thread drainer = new Thread(() -> drainToolOutput(process, toolLog, logSink), "magazine-output-drain");
-            drainer.setDaemon(true);
-            drainer.start();
+                boolean completed = process.waitFor(config.getTimeoutSeconds(), TimeUnit.SECONDS);
+                if (!completed) {
+                    org.booklore.util.ExternalToolCommand.destroyTree(process);
+                    log.warn("Magazine handler tool timed out after {} seconds", config.getTimeoutSeconds());
+                    throw ApiError.GENERIC_BAD_REQUEST.createException(
+                            "Magazine handler timed out after " + config.getTimeoutSeconds() + "s.");
+                }
 
-            boolean completed = process.waitFor(config.getTimeoutSeconds(), TimeUnit.SECONDS);
-            if (!completed) {
-                process.destroyForcibly();
-                log.warn("Magazine handler tool timed out after {} seconds", config.getTimeoutSeconds());
-                throw ApiError.GENERIC_BAD_REQUEST.createException(
-                        "Magazine handler timed out after " + config.getTimeoutSeconds() + "s.");
+                drainer.join(2000); // let the drainer flush the tail before we read the buffer
+                int exitCode = process.exitValue();
+                String output;
+                synchronized (toolLog) {
+                    output = toolLog.toString().strip();
+                }
+                if (exitCode != 0) {
+                    log.error("Magazine handler tool exited with code {}. Output: {}", exitCode, output);
+                    throw ApiError.GENERIC_BAD_REQUEST.createException(
+                            "Magazine handler failed (exit " + exitCode + "): " + tail(output));
+                }
+
+                List<OutputFile> produced = outputFiles(outputDir, output);
+                log.info("Magazine handler tool produced {} file(s) for title {}: {}", produced.size(),
+                        request.titleId(), produced.stream().map(OutputFile::fileName).toList());
+                return new Result(produced);
+            } finally {
+                org.booklore.util.ExternalToolCommand.destroyTree(process);
             }
-
-            drainer.join(2000); // let the drainer flush the tail before we read the buffer
-            int exitCode = process.exitValue();
-            String output;
-            synchronized (toolLog) {
-                output = toolLog.toString().strip();
-            }
-            if (exitCode != 0) {
-                log.error("Magazine handler tool exited with code {}. Output: {}", exitCode, output);
-                throw ApiError.GENERIC_BAD_REQUEST.createException(
-                        "Magazine handler failed (exit " + exitCode + "): " + tail(output));
-            }
-
-            List<OutputFile> produced = outputFiles(outputDir, output);
-            log.info("Magazine handler tool produced {} file(s) for title {}: {}", produced.size(),
-                    request.titleId(), produced.stream().map(OutputFile::fileName).toList());
-            return new Result(produced);
 
         } catch (IOException e) {
             log.error("Magazine handler tool IO error: {}", e.getMessage());
