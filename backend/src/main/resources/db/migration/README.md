@@ -19,7 +19,7 @@ leaving the schema quietly wrong.
 
 An upstream migration arriving as `V147` is *older* than the `V900+` migrations a fork database has
 already applied. Flyway rejects that by default, so `spring.flyway.out-of-order` is `true` in
-`application.yaml`. Checksums of already-applied migrations are still validated; only the ordering
+the fork's `config/application.yaml`. Checksums of already-applied migrations are still validated; only the ordering
 constraint is relaxed.
 
 ## Adding a migration

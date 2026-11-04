@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Configuration for the external OverDrive audiobook handler tool. Bound from application.yaml under
+ * Configuration for the external OverDrive audiobook handler tool. Bound from config/application.yaml under
  * {@code app.audiobook}.
  */
 @Component

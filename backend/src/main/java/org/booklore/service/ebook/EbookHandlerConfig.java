@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Configuration for the external OverDrive ebook handler tool, used for titles offered only in
- * Libby's read-in-browser {@code ebook-overdrive} format. Bound from application.yaml under
+ * Libby's read-in-browser {@code ebook-overdrive} format. Bound from config/application.yaml under
  * {@code app.ebook}.
  */
 @Component

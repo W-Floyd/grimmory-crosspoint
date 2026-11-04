@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Configuration for the external ACSM handler tool.
- * Bound from application.yaml under app.acsm.
+ * Bound from config/application.yaml under app.acsm.
  */
 @Component
 @ConfigurationProperties(prefix = "app.acsm")

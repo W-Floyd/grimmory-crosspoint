@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Configuration for the external OverDrive magazine handler tool. Bound from application.yaml under
+ * Configuration for the external OverDrive magazine handler tool. Bound from config/application.yaml under
  * {@code app.magazine}. Mirrors {@code app.audiobook}: the same manifest contract and (typically) the
  * same tool binary, but a separate config block so magazines can be enabled/pointed independently.
  */

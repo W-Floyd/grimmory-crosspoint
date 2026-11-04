@@ -17,7 +17,7 @@ class OverDriveConfigBindingTest {
 
     private static Properties applicationYaml() {
         YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
-        yaml.setResources(new ClassPathResource("application.yaml"));
+        yaml.setResources(new ClassPathResource("config/application.yaml"));
         Properties props = yaml.getObject();
         assertThat(props).isNotNull();
         return props;

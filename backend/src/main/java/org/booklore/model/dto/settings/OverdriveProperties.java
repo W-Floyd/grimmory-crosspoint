@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * OverDrive-specific application (deploy-level) properties, bound from application.yaml under
+ * OverDrive-specific application (deploy-level) properties, bound from config/application.yaml under
  * {@code app.overdrive}. This is the operator feature switch for the OverDrive integration;
  * per-user catalog settings (library key) live in the metadata provider settings instead.
  */
