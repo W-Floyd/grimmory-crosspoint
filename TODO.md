@@ -1,5 +1,12 @@
 # TODO
 
+## OPDS: evict cached variants of deleted books
+
+Deleting a book leaves its variants under `opds_cache/{preset}/{bookId}_{fileId}_*.epub` forever.
+`OptimizedDownloadService.evictSuperseded` only runs on a rebuild, which a deleted book never gets.
+The `opds_variant_hash` rows cascade with the book; the files don't. Needs a hook on book deletion
+(or a periodic sweep of `{bookId}` prefixes with no book row).
+
 ## OverDrive: lending partnerships (Libby 22.1+)
 
 Blocked until one of our linked libraries has a partnership to test against. As of 2026-10-09 none
