@@ -7,6 +7,7 @@ import { InputTextModule } from '@openng/optimus-ui/inputtext';
 import { MessageModule } from '@openng/optimus-ui/message';
 import { CardModule } from '@openng/optimus-ui/card';
 import { MessageService } from '@openng/optimus-ui/api';
+import { Toast } from '@openng/optimus-ui/toast';
 
 import { OverDriveService, OverDriveCard, OverDriveAutoSyncSettings, OverDriveImportDestinations, OverDriveLibraryResolution, OverDriveShareUser } from '../../../core/services/overdrive.service';
 import { ButtonModule } from '@openng/optimus-ui/button';
@@ -49,6 +50,7 @@ const AUTO_SYNC_DEFAULTS: OverDriveAutoSyncSettings = {
     MultiSelectModule,
     SelectModule,
     Checkbox,
+    Toast,
     OverdriveCardAdminComponent
 ],
   templateUrl: './overdrive-settings.component.html',
