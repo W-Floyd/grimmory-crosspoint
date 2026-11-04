@@ -5,6 +5,8 @@ import javax.imageio.ImageIO;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
+import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -12,7 +14,7 @@ import java.util.Iterator;
 
 /**
  * Shared baseline-JPEG encoder with explicit quality control. Coerces any input to
- * {@code TYPE_INT_RGB} (JPEG has no alpha) before writing.
+ * {@code TYPE_INT_RGB} (JPEG has no alpha), flattening transparency onto white.
  */
 public final class JpegImageWriter {
 
@@ -33,8 +35,13 @@ public final class JpegImageWriter {
         int type = image.getType();
         if (type != BufferedImage.TYPE_INT_RGB && type != BufferedImage.TYPE_BYTE_GRAY) {
             rgbImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
-            rgbImage.getGraphics().drawImage(image, 0, 0, null);
-            rgbImage.getGraphics().dispose();
+            // Onto white: a fresh RGB buffer is black, which is what transparent pixels became.
+            Graphics2D g = rgbImage.createGraphics();
+            try {
+                g.drawImage(image, 0, 0, Color.WHITE, null);
+            } finally {
+                g.dispose();
+            }
         }
 
         Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
