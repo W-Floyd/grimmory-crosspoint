@@ -1031,21 +1031,19 @@ public class OverDriveService {
        *
        * <p>This is the whole difference between a refusal worth ignoring and one worth stopping for,
        * and it is invisible if you match on {@code result} alone. Across the browser captures every
-       * {@code whoa} body is exactly {@code {"result":"whoa"}} — seventeen bytes, no notice, no Link
-       * header. Across ours, all ten carried the notice and the terms-of-service Link header.
+       * {@code whoa} body is exactly {@code {"result":"whoa"}} — seventeen bytes, no notice. Across
+       * ours, all ten carried the notice.
        *
-       * <p>Matched on both, because either alone could be reworded or dropped: the prose is a sentence
-       * meant for a person, and the Link header is the machine-readable half of the same statement.
+       * <p>Matched on the body only. The terms-of-service {@code Link} header is no tell: from
+       * 2026-09-22 the real browser gets it on every sentry response (all 18 in the September to
+       * November captures, none in July), so matching it would freeze a card on any bare refusal.
        */
       static boolean identifiedAsAnotherClientForTest(String body, java.net.http.HttpHeaders headers) {
-        return identifiedAsAnotherClient(body, headers);
+        return identifiedAsAnotherClient(body);
       }
 
-      private static boolean identifiedAsAnotherClient(String body, java.net.http.HttpHeaders headers) {
-        if (body != null && body.contains("private API")) {
-            return true;
-        }
-        return headers.allValues("link").stream().anyMatch(v -> v.contains("terms-of-service"));
+      private static boolean identifiedAsAnotherClient(String body) {
+        return body != null && body.contains("private API");
       }
 
       /**
@@ -4193,7 +4191,7 @@ public class OverDriveService {
                 String retryAfter = resp.headers().firstValue("retry-after").orElse(null);
                 String reqId = resp.headers().firstValue("x-request-id").orElse(null);
                 String date = resp.headers().firstValue("date").orElse(null);
-                boolean identified = identifiedAsAnotherClient(body, resp.headers());
+                boolean identified = identifiedAsAnotherClient(body);
                 log.warn("OverDrive fulfill \"whoa\" ({}) — loan {}, format {}, status {}; "
                         + "retry-after={}, x-request-id={}, date={}; body={}; headers={}",
                         identified ? "WITH the terms-of-service notice" : "bare, as the web client also sees",
@@ -4215,8 +4213,7 @@ public class OverDriveService {
                 // With the notice attached it is a different message wearing the same result code. The
                 // browser's body is seventeen bytes, `{"result":"whoa"}`, and nothing else. Ours arrives
                 // with a paragraph naming the dewey app as a private API, calling reverse engineering of
-                // its requests prohibited, and citing account suspension and legal action — plus a
-                // terms-of-service Link header the browser never receives. That is not a transient
+                // its requests prohibited, and citing account suspension and legal action. That is not a transient
                 // refusal, it is OverDrive saying it knows what is calling, so the card stops.
                 freezeCard(cardId, "OverDrive refused fulfillment on this card and attached its "
                         + "terms-of-service notice, which it does not send to the Libby app itself — it has "

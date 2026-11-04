@@ -62,16 +62,18 @@ length (`"chip"` → 4).
 `403 {"result":"whoa"}` on the fulfill endpoint comes in two forms that share a result code and mean
 entirely different things. Matching on `result` alone cannot tell them apart.
 
-- **Bare.** Body is exactly `{"result":"whoa"}` — 17 bytes, no `notice`, no Link header. **The Libby
+- **Bare.** Body is exactly `{"result":"whoa"}` — 17 bytes, no `notice`. **The Libby
   web client gets this.** Twice in the July captures (loans 12765179 and 537142, card 107556024), and
   its entire response was to POST the error to `sage.libbyapp.com/submit/error` and abandon that
   fulfillment — no re-mint, no re-link. That card kept working for months afterwards. Transient, per
   loan, no consequence.
 - **With the notice.** Body carries a paragraph naming dewey a private API, calling reverse
-  engineering of its requests prohibited, and citing account suspension and legal action; the response
-  also carries `Link: <…/terms-and-conditions>; rel="terms-of-service"`. **The browser never receives
-  this.** All ten of ours did, without exception. This is OverDrive stating it has identified the
-  caller as something other than Libby.
+  engineering of its requests prohibited, and citing account suspension and legal action. **The browser
+  never receives the body notice.** All ten of ours did, without exception. This is OverDrive stating it
+  has identified the caller as something other than Libby.
+- **The `Link: <…/terms-and-conditions>; rel="terms-of-service"` header is not a tell.** Absent from
+  every July capture, but on every sentry response the real browser gets from 2026-09-22 on (18 of 18
+  in the September to November HARs, 22.1.1 through 22.2.1). Only the body notice discriminates.
 - **Ours:** `identifiedAsAnotherClient()` in `OverDriveService` decides between them; only the second
   freezes the card.
 

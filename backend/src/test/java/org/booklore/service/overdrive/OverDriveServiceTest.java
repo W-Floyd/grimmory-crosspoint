@@ -2309,9 +2309,11 @@ class OverDriveServiceTest {
     @Test
     void aBareWhoaIsNotTreatedAsBeingIdentified() {
         // Seventeen bytes, exactly what the browser captures show. The Libby client meets this and
-        // just drops the fulfillment, so it must not freeze anything.
+        // just drops the fulfillment, so it must not freeze anything. The terms Link header is on
+        // every browser response since 2026-09-22, so it must not count either.
         assertThat(OverDriveService.identifiedAsAnotherClientForTest("{\"result\":\"whoa\"}",
-                java.net.http.HttpHeaders.of(java.util.Map.of("x-request-id", java.util.List.of("abc")),
+                java.net.http.HttpHeaders.of(java.util.Map.of("link", java.util.List.of(
+                        "<https://www.overdrive.com/policies/terms-and-conditions>; rel=\"terms-of-service\"")),
                         (a, b) -> true))).isFalse();
     }
 
@@ -2320,13 +2322,6 @@ class OverDriveServiceTest {
         String body = "{\"result\":\"whoa\",\"notice\":\"This is a private API for OverDrive's dewey app.\"}";
         assertThat(OverDriveService.identifiedAsAnotherClientForTest(body,
                 java.net.http.HttpHeaders.of(java.util.Map.of(), (a, b) -> true))).isTrue();
-
-        // The Link header says the same thing in machine-readable form, so either alone is enough —
-        // the prose could be reworded without the meaning changing.
-        assertThat(OverDriveService.identifiedAsAnotherClientForTest("{\"result\":\"whoa\"}",
-                java.net.http.HttpHeaders.of(java.util.Map.of("link",
-                        java.util.List.of("<https://www.overdrive.com/policies/terms-and-conditions>; rel=\"terms-of-service\"")),
-                        (a, b) -> true))).isTrue();
     }
 
     @Test
