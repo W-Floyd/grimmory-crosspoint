@@ -23,7 +23,6 @@ import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
-import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -860,8 +859,7 @@ public class OverDriveController {
              @PostMapping(value = "/{identity}/fulfill/{loanId}/download", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
         public ResponseEntity<byte[]> downloadViaAcsm(
                  @Parameter(description = "Library card id") @PathVariable String identity,
-                 @Parameter(description = "Loan ID to fulfill") @PathVariable String loanId,
-                 HttpServletResponse response
+                 @Parameter(description = "Loan ID to fulfill") @PathVariable String loanId
           ) {
              requireEnabled();
              if (!acsmHandlerConfig.isEnabled()) {
@@ -869,8 +867,10 @@ public class OverDriveController {
                  throw ApiError.GENERIC_BAD_REQUEST.createException("ACSM handler not enabled");
                   }
 
-             // Step 1: Fetch the ACSM from OverDrive.
-             byte[] acsmBytes = getAcsmBytes(identity, loanId);
+             // Step 1: Fetch the ACSM from OverDrive. Failures propagate as the service raised them: a
+             // frozen card, a refusal or a version block each say something a generic 400 would hide.
+             String acsmBase64 = overDriveService.fulfill(identity, loanId);
+             byte[] acsmBytes = acsmBase64 == null ? null : java.util.Base64.getDecoder().decode(acsmBase64);
              if (acsmBytes == null || acsmBytes.length == 0) {
                  log.warn("Failed to get ACSM for loan {}", loanId);
                  throw ApiError.GENERIC_BAD_REQUEST.createException("Failed to fetch ACSM");
@@ -888,17 +888,6 @@ public class OverDriveController {
              log.info("ACSM handler produced {} bytes for loan {}", bookBytes.length, loanId);
              return new ResponseEntity<>(bookBytes, HttpStatus.OK);
           }
-
-             private byte[] getAcsmBytes(String identity, String loanId) {
-                 try {
-                     String acsmBase64 = overDriveService.fulfill(identity, loanId);
-                     if (acsmBase64 == null) return null;
-                     return java.util.Base64.getDecoder().decode(acsmBase64);
-                  } catch (Exception e) {
-                     log.error("Failed to get ACSM for loan {}: {}", loanId, e.getMessage());
-                     return null;
-                   }
-                 }
 
     /**
      * POST /api/overdrive/{identity}/fulfill/{loanId}/download-audiobook —
