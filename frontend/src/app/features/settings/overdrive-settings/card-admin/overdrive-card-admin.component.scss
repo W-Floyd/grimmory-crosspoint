@@ -247,6 +247,7 @@
   grid-template-columns: minmax(10rem, 2fr) repeat(5, minmax(4rem, max-content)) max-content;
   gap: 0.4rem 0.6rem;
   align-items: center;
+
   // Five numeric columns plus a name will not fit a phone; scroll the grid rather than crushing it.
   overflow-x: auto;
 

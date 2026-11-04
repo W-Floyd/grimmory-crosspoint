@@ -62,7 +62,6 @@ describe('MetadataViewerComponent', () => {
   const updatePersonalRating = vi.fn(() => of(void 0));
   const resetPersonalRating = vi.fn(() => of(void 0));
   const getBooksInSeries = vi.fn(() => of([] as Book[]));
-  const findBookById = vi.fn();
 
   const downloadFile = vi.fn();
   const downloadAdditionalFile = vi.fn();
@@ -173,7 +172,6 @@ describe('MetadataViewerComponent', () => {
     updatePersonalRating.mockClear();
     resetPersonalRating.mockClear();
     getBooksInSeries.mockClear();
-    findBookById.mockClear();
 
     downloadFile.mockClear();
     downloadAdditionalFile.mockClear();
@@ -227,7 +225,6 @@ describe('MetadataViewerComponent', () => {
         {
           provide: BookService,
           useValue: {
-            readBook,
             togglePhysicalFlag,
             deleteBooks,
             updateDateFinished,
@@ -236,7 +233,6 @@ describe('MetadataViewerComponent', () => {
             updatePersonalRating,
             resetPersonalRating,
             getBooksInSeries,
-            findBookById,
           },
         },
         {provide: BookFileService, useValue: {downloadFile, downloadAdditionalFile, downloadAllFiles, deleteAdditionalFile, deleteBookFile, detachBookFile}},
@@ -257,6 +253,7 @@ describe('MetadataViewerComponent', () => {
             previousBookId,
             nextBookId,
             updateCurrentBook,
+            readBook,
           },
         },
         {provide: BookMetadataHostService, useValue: {switchBook}},
@@ -296,7 +293,6 @@ describe('MetadataViewerComponent', () => {
         seriesNumber: 3,
       }
     );
-    findBookById.mockReturnValue(richBook);
 
     currentUser.set({
       permissions: {
@@ -337,10 +333,10 @@ describe('MetadataViewerComponent', () => {
       'metadata.viewer.menuStreamingReader',
     ]);
     runMenuCommand(primaryReaders[1].command);
-    expect(readBook).toHaveBeenCalledWith(21, 'epub-streaming', 'EPUB', 1);
+    expect(readBook).toHaveBeenCalledWith(richBook, {bookType: 'EPUB', streaming: true, fileId: 1});
     // The PDF alternative is a direct command addressed by its own file id.
     runMenuCommand(readItems[2].command);
-    expect(readBook).toHaveBeenLastCalledWith(21, undefined, 'PDF', 3);
+    expect(readBook).toHaveBeenLastCalledWith(richBook, {bookType: 'PDF', fileId: 3});
 
     const downloadItems = component.downloadMenuItems();
     expect(downloadItems.some(item => item.separator)).toBe(true);

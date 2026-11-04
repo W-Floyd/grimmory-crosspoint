@@ -1,4 +1,4 @@
-import {Component, EventEmitter, inject, Input, Output} from '@angular/core';
+import {Component, inject, input, output} from '@angular/core';
 import {TranslocoPipe, TranslocoService} from '@jsverse/transloco';
 import {ReaderIconComponent} from '../shared/icon.component';
 
@@ -21,15 +21,14 @@ interface ShortcutGroup {
   styleUrls: ['./shortcuts-help.component.scss']
 })
 export class EbookShortcutsHelpComponent {
-  @Output() closed = new EventEmitter<void>();
+  private readonly t = inject(TranslocoService);
+  readonly closed = output<void>();
 
   /** Listing readalong keys for a book without narration would only mislead. */
-  @Input() hasReadalong = false;
-
-  private readonly t = inject(TranslocoService);
+  readonly hasReadalong = input(false);
 
   get shortcutGroups(): ShortcutGroup[] {
-    const readalongGroups: ShortcutGroup[] = this.hasReadalong ? [
+    const readalongGroups: ShortcutGroup[] = this.hasReadalong() ? [
       {
         title: this.t.translate('readerEbook.shortcutsHelp.readalong'),
         shortcuts: [

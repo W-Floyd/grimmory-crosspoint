@@ -4,7 +4,7 @@
     <h2 class="settings-title">
       <i class="pi pi-server"></i>
       {{ t('title') }}
-      <app-external-doc-link docType="opds"></app-external-doc-link>
+      <app-external-doc-link docType="opds" />
     </h2>
     <p class="settings-description">
       {{ t('description') }}
@@ -45,8 +45,7 @@
             <p-toggleswitch
               [(ngModel)]="opdsEnabled"
               [disabled]="loading()"
-              (onChange)="toggleOpdsServer()">
-            </p-toggleswitch>
+              (onChange)="toggleOpdsServer()" />
           </div>
 
           @if (opdsEnabled) {
@@ -95,8 +94,7 @@
             <p-toggleswitch
               [(ngModel)]="komgaApiEnabled"
               [disabled]="loading()"
-              (onChange)="toggleKomgaApi()">
-            </p-toggleswitch>
+              (onChange)="toggleKomgaApi()" />
           </div>
 
           @if (komgaApiEnabled) {
@@ -120,8 +118,7 @@
               <p-toggleswitch
                 [(ngModel)]="komgaGroupUnknown"
                 [disabled]="loading()"
-                (onChange)="toggleKomgaGroupUnknown()">
-              </p-toggleswitch>
+                (onChange)="toggleKomgaGroupUnknown()" />
             </div>
           }
         </div>
@@ -167,8 +164,7 @@
                     [outlined]="true"
                     size="small"
                     (onClick)="copyEndpoint()"
-                    [pTooltip]="t('endpoints.copyUrl')">
-                  </p-button>
+                    [pTooltip]="t('endpoints.copyUrl')" />
                 </div>
 
                 @if (devicePresets().length > 0) {
@@ -220,8 +216,7 @@
                     [outlined]="true"
                     size="small"
                     (onClick)="copyKomgaEndpoint()"
-                    [pTooltip]="t('endpoints.copyUrl')">
-                  </p-button>
+                    [pTooltip]="t('endpoints.copyUrl')" />
                 </div>
               </div>
             }
@@ -249,8 +244,7 @@
               severity="success"
               size="small"
               [outlined]="true"
-              (onClick)="showCreateUserDialog = true">
-            </p-button>
+              (onClick)="showCreateUserDialog = true" />
           </div>
         </div>
 
@@ -327,8 +321,7 @@
                         [outlined]="true"
                         [rounded]="true"
                         (onClick)="saveSortOrder(user)"
-                        [pTooltip]="'common.save' | transloco">
-                      </p-button>
+                        [pTooltip]="'common.save' | transloco" />
                       <p-button
                         icon="pi pi-times"
                         severity="secondary"
@@ -336,8 +329,7 @@
                         [outlined]="true"
                         [rounded]="true"
                         (onClick)="cancelEdit()"
-                        [pTooltip]="'common.cancel' | transloco">
-                      </p-button>
+                        [pTooltip]="'common.cancel' | transloco" />
                     } @else {
                       <p-button
                         icon="pi pi-pencil"
@@ -346,8 +338,7 @@
                         [outlined]="true"
                         [rounded]="true"
                         (onClick)="startEdit(user)"
-                        [pTooltip]="t('users.editSortOrder')">
-                      </p-button>
+                        [pTooltip]="t('users.editSortOrder')" />
                       <p-button
                         icon="pi pi-trash"
                         severity="danger"
@@ -355,8 +346,7 @@
                         [outlined]="true"
                         [rounded]="true"
                         (onClick)="confirmDelete(user)"
-                        [pTooltip]="t('users.deleteUser')">
-                      </p-button>
+                        [pTooltip]="t('users.deleteUser')" />
                     }
                   </div>
                 </div>
@@ -447,19 +437,17 @@
             [label]="'common.cancel' | transloco"
             severity="secondary"
             outlined="true"
-            (onClick)="cancelCreateUser()">
-          </p-button>
+            (onClick)="cancelCreateUser()" />
           <p-button
             [label]="t('createDialog.create')"
             severity="success"
             [disabled]="!newUser.username || !newUser.password"
-            (onClick)="createUser()">
-          </p-button>
+            (onClick)="createUser()" />
         </div>
       </ng-template>
     </p-dialog>
 
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmDialog />
   } @else {
     <div class="access-denied-card">
       <i class="pi pi-lock"></i>

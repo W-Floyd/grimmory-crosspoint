@@ -42,6 +42,13 @@ import {TranslocoDirective, TranslocoPipe, TranslocoService} from '@jsverse/tran
   styleUrl: './opds-settings.scss'
 })
 export class OpdsSettings implements OnInit {
+  private readonly opdsService = inject(OpdsService);
+  private readonly confirmationService = inject(ConfirmationService);
+  private readonly messageService = inject(MessageService);
+  private readonly userService = inject(UserService);
+  private readonly appSettingsService = inject(AppSettingsService);
+  private readonly t = inject(TranslocoService);
+  private readonly destroyRef = inject(DestroyRef);
 
   opdsEndpoint = `${API_CONFIG.BASE_URL}/api/v1/opds`;
   komgaEndpoint = `${API_CONFIG.BASE_URL}/komga`;
@@ -50,16 +57,9 @@ export class OpdsSettings implements OnInit {
   komgaGroupUnknown = true;
   opdsReplaceCover = false;
 
-  private opdsService = inject(OpdsService);
-  private confirmationService = inject(ConfirmationService);
-  private messageService = inject(MessageService);
-  private userService = inject(UserService);
-  private appSettingsService = inject(AppSettingsService);
-  private t = inject(TranslocoService);
-
-  users: WritableSignal<OpdsUserV2[]> = signal([]);
-  devicePresets: WritableSignal<OpdsDevicePreset[]> = signal([]);
-  loading = signal(false);
+  readonly users: WritableSignal<OpdsUserV2[]> = signal([]);
+  readonly devicePresets: WritableSignal<OpdsDevicePreset[]> = signal([]);
+  readonly loading = signal(false);
   showCreateUserDialog = false;
   newUser: OpdsUserV2CreateRequest = {username: '', password: '', sortOrder: 'RECENT', defaultPreset: null};
   passwordVisibility: boolean[] = [];
@@ -68,8 +68,6 @@ export class OpdsSettings implements OnInit {
   editingUserId: number | null = null;
   editingSortOrder: OpdsSortOrder | null = null;
   editingDefaultPreset: string | null = null;
-
-  private readonly destroyRef = inject(DestroyRef);
   dummyPassword: string = "***********************";
 
   sortOrderOptions = [
@@ -151,7 +149,7 @@ export class OpdsSettings implements OnInit {
       })
     ).subscribe(users => {
       this.users.set([...users]);
-      this.passwordVisibility = new Array(users.length).fill(false);
+      this.passwordVisibility = Array.from({length: users.length}, () => false);
       this.loading.set(false);
     });
   }

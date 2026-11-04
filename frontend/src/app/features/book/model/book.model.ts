@@ -307,6 +307,9 @@ export interface MetadataClearFlags {
   applebooksId?: boolean;
   applebooksRating?: boolean;
   applebooksReviewCount?: boolean;
+  doubanId?: boolean;
+  doubanRating?: boolean;
+  doubanReviewCount?: boolean;
   narrator?: boolean;
   abridged?: boolean;
   authors?: boolean;
@@ -475,21 +478,6 @@ export interface BookStatusUpdateResponse {
 export interface PersonalRatingUpdateResponse {
   bookId: number;
   personalRating?: number;
-}
-
-export interface DuplicateDetectionRequest {
-  libraryId: number;
-  matchByIsbn: boolean;
-  matchByExternalId: boolean;
-  matchByTitleAuthor: boolean;
-  matchByDirectory: boolean;
-  matchByFilename: boolean;
-}
-
-export interface DuplicateGroup {
-  suggestedTargetBookId: number;
-  matchReason: string;
-  books: Book[];
 }
 
 export interface DetachBookFileResponse {

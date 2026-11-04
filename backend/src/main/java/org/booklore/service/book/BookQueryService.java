@@ -13,6 +13,7 @@ import org.booklore.model.entity.BookMetadataEntity;
 import org.booklore.repository.BookRepository;
 import org.booklore.repository.UserContentRestrictionRepository;
 import org.booklore.security.policy.ContentRestrictionSpecification;
+import org.booklore.service.browse.BookFilterSpecification;
 import org.booklore.service.restriction.ContentRestrictionService;
 import org.booklore.util.BookUtils;
 import org.hibernate.Hibernate;
@@ -89,12 +90,25 @@ public class BookQueryService {
         return new PageImpl<>(dtos, pageable, page.getTotalElements());
     }
 
+    public List<Book> findBooks(Specification<BookEntity> spec, Long userId) {
+        List<BookEntity> matches = bookRepository.findAll(distinct(spec));
+        Map<Long, BookEntity> booksById = bookRepository
+                .findAllWithMetadataByIds(matches.stream().map(BookEntity::getId).collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(BookEntity::getId, book -> book));
+        return matches.stream()
+                .map(book -> booksById.get(book.getId()))
+                .filter(Objects::nonNull)
+                .map(book -> mapBookToDto(book, false, userId, true))
+                .toList();
+    }
+
     private Specification<BookEntity> visibleBooks(Collection<Long> libraryIds, Long userId) {
         Specification<BookEntity> inLibraries = (root, query, cb) ->
                 libraryIds == null || libraryIds.isEmpty()
                         ? cb.disjunction()
                         : root.get("library").get("id").in(libraryIds);
-        return AppBookSpecification.notDeleted()
+        return BookFilterSpecification.notDeleted()
                 .and(inLibraries)
                 .and(ContentRestrictionSpecification.from(restrictionRepository.findByUserId(userId)));
     }

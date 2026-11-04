@@ -10,6 +10,7 @@ import org.booklore.model.dto.browse.FacetGroupsResponse.Properties;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 final class FacetResponseBuilder {
 
@@ -54,15 +55,39 @@ final class FacetResponseBuilder {
         return new FacetGroup(new Metadata("facet", key, title), links);
     }
 
+    FacetGroup numberGroup(String key, String title, List<FacetCount> counts, Number min, Number max) {
+        FacetGroup group = group(key, title, counts);
+        if (min == null) {
+            return group;
+        }
+        String href = pageLink("facet=" + BrowseParams.encode(key + ":") + "{min}..{max}");
+        FacetLink range = new FacetLink(List.of("facet"), href, Link.JSON_TYPE, true, title, null, new Properties(null, min, max));
+        return new FacetGroup(group.metadata(), Stream.concat(Stream.of(range), group.links().stream()).toList());
+    }
+
     List<Link> selfLinks() {
         return List.of(Link.json(List.of("self"), href(facetPath)));
     }
 
+    List<Link> pagedLinks(String search, int page, int size, boolean hasNext) {
+        String query = search == null ? preserved : join(preserved, "search=" + BrowseParams.encode(search));
+        List<Link> links = new ArrayList<>();
+        links.add(Link.json(List.of("self"), facetPath + "?" + join(query, "page=" + page + "&size=" + size)));
+        if (hasNext) {
+            links.add(Link.json(List.of("next"), facetPath + "?" + join(query, "page=" + (page + 1) + "&size=" + size)));
+        }
+        return links;
+    }
+
     private String pageLink(String param) {
-        return preserved.isBlank() ? pagePath + "?" + param : pagePath + "?" + preserved + "&" + param;
+        return pagePath + "?" + join(preserved, param);
     }
 
     private String href(String path) {
         return preserved.isBlank() ? path : path + "?" + preserved;
+    }
+
+    private static String join(String query, String params) {
+        return query.isBlank() ? params : query + "&" + params;
     }
 }
