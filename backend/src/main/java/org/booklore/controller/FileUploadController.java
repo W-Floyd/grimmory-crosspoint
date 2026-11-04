@@ -2,6 +2,7 @@ package org.booklore.controller;
 
 import org.booklore.config.security.annotation.CheckLibraryAccess;
 import org.booklore.model.dto.Book;
+import org.booklore.service.acsm.AcsmUploadConverter;
 import org.booklore.service.upload.FileUploadService;
 import lombok.AllArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +27,7 @@ import java.io.IOException;
 public class FileUploadController {
 
     private final FileUploadService fileUploadService;
+    private final AcsmUploadConverter acsmUploadConverter;
 
     @Operation(summary = "Upload a file", description = "Upload a file to a specific library and path. Requires upload permission or admin.")
     @ApiResponse(responseCode = "204", description = "File uploaded successfully")
@@ -39,7 +41,7 @@ public class FileUploadController {
         if (file.isEmpty()) {
             throw new IllegalArgumentException("Uploaded file is missing.");
         }
-        fileUploadService.uploadFile(file, libraryId, pathId);
+        fileUploadService.uploadFile(acsmUploadConverter.materializeIfAcsm(file), libraryId, pathId);
         return ResponseEntity.noContent().build();
     }
 
@@ -52,6 +54,6 @@ public class FileUploadController {
         if (file.isEmpty()) {
             throw new IllegalArgumentException("Uploaded file is missing.");
         }
-        return ResponseEntity.ok(fileUploadService.uploadFileBookDrop(file));
+        return ResponseEntity.ok(fileUploadService.uploadFileBookDrop(acsmUploadConverter.materializeIfAcsm(file)));
     }
 }
