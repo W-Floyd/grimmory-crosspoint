@@ -1,5 +1,6 @@
 package org.booklore.model.entity;
 
+import org.booklore.service.overdrive.OverDriveTokenConverter;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -39,8 +40,9 @@ public class OverDriveTokenEntity {
     @Column(name = "library_key", length = 255)
     private String libraryKey;
 
-    /** The bearer token used for authenticated OverDrive calls. */
-    @Column(name = "token", length = 4096, nullable = false)
+    /** The bearer token used for authenticated OverDrive calls; encrypted at rest when a key is configured. */
+    @Column(name = "token", length = 8192, nullable = false)
+    @Convert(converter = OverDriveTokenConverter.class)
     private String token;
 
     /** Epoch-seconds expiry hint (best-effort; OverDrive may reject earlier). */

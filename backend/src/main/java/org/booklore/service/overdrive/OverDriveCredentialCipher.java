@@ -19,8 +19,8 @@ import java.util.Base64;
  * key is configured the cipher is disabled and credentials are simply not stored (token-only mode) —
  * so this never weakens the existing behaviour, it only enables the opt-in auto-relink feature.
  *
- * <p>Output format: base64( 12-byte IV || GCM ciphertext+tag ). The token itself remains stored as-is
- * (unchanged from before); only the reusable card credentials are encrypted at rest.
+ * <p>Output format: base64( 12-byte IV || GCM ciphertext+tag ). The same key also encrypts the stored
+ * bearer token (see {@link OverDriveTokenConverter}), which without a key is stored as-is.
  */
 @Slf4j
 @Component

@@ -27,8 +27,9 @@ services:
       # - OVERDRIVE_CLIENT_ID=dewey                     # rarely needs changing
       # - OVERDRIVE_SENTRY_BASE_URL=https://sentry.libbyapp.com
       # Optional: enable encrypted storage of card number + PIN (for card+PIN linking) so an expired
-      # token can be re-linked automatically. base64-encoded 16/24/32 bytes, e.g. `openssl rand -base64 32`.
-      # Unset = token-only (re-link manually on expiry); no plaintext credentials are ever stored.
+      # token can be re-linked automatically; also encrypts the stored Libby token. base64-encoded
+      # 16/24/32 bytes, e.g. `openssl rand -base64 32`. Unset = token-only (re-link manually on expiry);
+      # no plaintext card credentials are ever stored. Changing or removing it means re-linking cards.
       # - OVERDRIVE_CREDENTIAL_KEY=<base64-32-bytes>
       #
       # Most Libby titles offer a DRM-free "open" EPUB and import with no extra setup.

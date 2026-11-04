@@ -16,7 +16,8 @@ See also [OverDrive-Libby-API.md](OverDrive-Libby-API.md) for the API/endpoint r
     caches the license-service cert into `activation.xml` at fulfill time). See the ACSM notes in
     `deploy/compose/docker-compose.yml`.
 - Optional: `OVERDRIVE_CREDENTIAL_KEY` (base64 16/24/32 bytes) to enable encrypted card-credential
-  storage + silent re-link on token expiry. Unset ⇒ token-only (no auto-relink); everything else works.
+  storage + silent re-link on token expiry, and to encrypt stored tokens (existing ones on next start).
+  Unset ⇒ token-only (no auto-relink), tokens stored as-is; everything else works.
 
 A scripted reproduction of the borrow→fulfill contract lives in the session scratchpad
 (`overdrive_verify.py`) — run it **once at a time** (repeated fulfills trip the `whoa` rate limit).
