@@ -32,7 +32,7 @@ public class OpdsVariantHashService {
         if (hash == null || hash.isBlank()) {
             return Optional.empty();
         }
-        return repository.findBookByVariantHash(hash);
+        return repository.findBooksByVariantHash(hash).stream().findFirst();
     }
 
     /**

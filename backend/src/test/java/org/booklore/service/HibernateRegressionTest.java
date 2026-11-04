@@ -2,6 +2,7 @@ package org.booklore.service;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.booklore.repository.OpdsVariantHashRepository;
 import org.booklore.BookloreApplication;
 import org.booklore.model.entity.*;
 import org.booklore.model.enums.BookFileType;
@@ -77,6 +78,9 @@ class HibernateRegressionTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private OpdsVariantHashRepository opdsVariantHashRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -1162,6 +1166,35 @@ class HibernateRegressionTest {
             entityManager.persist(user);
             entityManager.persist(perms);
             return user;
+        }
+    }
+
+    @Nested
+    class OpdsVariantHashes {
+
+        @Test
+        void aHashSharedByTwoPresetsResolvesToTheFirstRegisteredBook() {
+            LibraryEntity library = LibraryEntity.builder().name("Variant Library").icon("book").watch(false).build();
+            entityManager.persist(library);
+            BookEntity first = persistBookWithVariant(library, "xteink-x4");
+            persistBookWithVariant(library, "xteink-s4");
+            entityManager.flush();
+            entityManager.clear();
+
+            assertThat(opdsVariantHashRepository.findBooksByVariantHash("same-bytes"))
+                    .extracting(BookEntity::getId).first().isEqualTo(first.getId());
+        }
+
+        private BookEntity persistBookWithVariant(LibraryEntity library, String preset) {
+            BookEntity book = BookEntity.builder().library(library).addedOn(Instant.now()).deleted(false).build();
+            entityManager.persist(book);
+            BookFileEntity file = BookFileEntity.builder()
+                    .book(book).fileName(preset + ".epub").fileSubPath("").isBookFormat(true).bookType(BookFileType.EPUB)
+                    .build();
+            entityManager.persist(file);
+            entityManager.persist(OpdsVariantHashEntity.builder()
+                    .book(book).bookFile(file).preset(preset).variantHash("same-bytes").updatedAt(Instant.now()).build());
+            return book;
         }
     }
 

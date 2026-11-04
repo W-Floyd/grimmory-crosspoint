@@ -12,6 +12,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -106,11 +107,11 @@ class OpdsVariantHashServiceTest {
     @Test
     void findBookByVariantHash_delegates_andGuardsBlank() {
         BookEntity book = mock(BookEntity.class);
-        when(repository.findBookByVariantHash("abc")).thenReturn(Optional.of(book));
+        when(repository.findBooksByVariantHash("abc")).thenReturn(List.of(book));
 
         assertThat(service.findBookByVariantHash("abc")).containsSame(book);
         assertThat(service.findBookByVariantHash("")).isEmpty();
         assertThat(service.findBookByVariantHash(null)).isEmpty();
-        verify(repository, never()).findBookByVariantHash("");
+        verify(repository, never()).findBooksByVariantHash("");
     }
 }
