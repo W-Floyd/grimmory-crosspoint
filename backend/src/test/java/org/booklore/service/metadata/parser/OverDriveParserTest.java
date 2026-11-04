@@ -213,4 +213,48 @@ class OverDriveParserTest {
         assertThat(top).isNotNull();
         assertThat(top.getTitle()).isEqualTo("First");
     }
+
+    @Test
+    void linkingACardFetchesItsLibraryOnce() throws Exception {
+        mockResponse("""
+                {"name": "Johnson County Library", "websiteId": "123"}
+                """);
+
+        assertThat(parser.fetchWebsiteId("jocolibrary")).isEqualTo("123");
+        assertThat(parser.fetchLibraryName("jocolibrary")).isEqualTo("Johnson County Library");
+
+        // One throttled request for one document, not one per field.
+        verify(httpClient, times(1)).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    }
+
+    @Test
+    void concurrentRequestsStillWaitTheirTurn() throws Exception {
+        HttpResponse<String> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        when(response.body()).thenReturn("{\"name\": \"x\", \"websiteId\": \"1\"}");
+        java.util.List<Long> sentAt = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenAnswer(inv -> {
+            sentAt.add(System.nanoTime());
+            return response;
+        });
+
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        java.util.List<Thread> callers = java.util.stream.Stream.of("lapl", "bpl", "kcl").map(key ->
+                Thread.startVirtualThread(() -> {
+                    try {
+                        go.await();
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                    parser.fetchLibraryName(key);
+                })).toList();
+        go.countDown(); // released together, as concurrent link requests would be
+        for (Thread t : callers) t.join();
+
+        java.util.List<Long> sorted = sentAt.stream().sorted().toList();
+        assertThat(sorted).hasSize(3);
+        for (int i = 1; i < sorted.size(); i++) {
+            assertThat((sorted.get(i) - sorted.get(i - 1)) / 1_000_000).isGreaterThanOrEqualTo(900);
+        }
+    }
 }

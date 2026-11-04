@@ -32,6 +32,8 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
@@ -70,6 +72,10 @@ public class OverDriveParser implements BookParser {
     private final AppSettingService appSettingService;
     private final HttpClient httpClient;
     private final AtomicLong lastRequestTime = new AtomicLong(0);
+    private final Cache<String, LibraryInfo> libraryInfo = Caffeine.newBuilder()
+            .expireAfterWrite(Duration.ofHours(1))
+            .maximumSize(500)
+            .build();
 
     public OverDriveParser(ObjectMapper objectMapper, AppSettingService appSettingService, HttpClient httpClient) {
         this.objectMapper = objectMapper;
@@ -201,13 +207,35 @@ public class OverDriveParser implements BookParser {
         return fetchItems(libraryKey, query, mediaTypes, availableOnly, language, maxResults);
     }
 
-    /**
-     * Resolve a library's display name from its preferred/advantage key via the Thunder library
-     * directory ({@code /v2/libraries/{key}}). No auth required. Returns null on any failure.
-     */
+    /** A library's display name from its preferred/advantage key, or null on any failure. */
     public String fetchLibraryName(String libraryKey) {
+        LibraryInfo info = fetchLibraryInfo(libraryKey);
+        return info != null ? info.name() : null;
+    }
+
+    /**
+     * A library's OverDrive {@code websiteId} from its preferred/advantage key, needed for the
+     * authenticated card-link endpoints. Null on any failure.
+     */
+    public String fetchWebsiteId(String libraryKey) {
+        LibraryInfo info = fetchLibraryInfo(libraryKey);
+        return info != null ? info.websiteId() : null;
+    }
+
+    private record LibraryInfo(String name, String websiteId) {}
+
+    /**
+     * One Thunder library-directory document ({@code /v2/libraries/{key}}, no auth). Linking a card
+     * asks for both fields, and each card on a chip asks for its library's name, so the document is
+     * kept rather than fetched (and throttled) per field. Failures are not kept.
+     */
+    private LibraryInfo fetchLibraryInfo(String libraryKey) {
         if (libraryKey == null || libraryKey.isBlank()) {
             return null;
+        }
+        LibraryInfo cached = libraryInfo.getIfPresent(libraryKey);
+        if (cached != null) {
+            return cached;
         }
         try {
             waitForRateLimit();
@@ -228,10 +256,11 @@ public class OverDriveParser implements BookParser {
                 return null;
             }
             var node = objectMapper.readTree(response.body());
-            var name = node.get("name");
-            return name != null && !name.asString().isBlank() ? name.asString() : null;
+            LibraryInfo info = new LibraryInfo(textOrNull(node.get("name")), textOrNull(node.get("websiteId")));
+            libraryInfo.put(libraryKey, info);
+            return info;
         } catch (IOException e) {
-            log.warn("OverDrive: failed to resolve library name for {}: {}", libraryKey, e.getMessage());
+            log.warn("OverDrive: failed to resolve library {}: {}", libraryKey, e.getMessage());
             return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -239,42 +268,8 @@ public class OverDriveParser implements BookParser {
         }
     }
 
-    /**
-     * Resolve a library's OverDrive {@code websiteId} from its preferred/advantage key via the Thunder
-     * library directory. Needed for the authenticated card-link endpoints. Returns null on any failure.
-     */
-    public String fetchWebsiteId(String libraryKey) {
-        if (libraryKey == null || libraryKey.isBlank()) {
-            return null;
-        }
-        try {
-            waitForRateLimit();
-            URI uri = UriComponentsBuilder.fromUriString(THUNDER_BASE_URL)
-                    .pathSegment(libraryKey)
-                    .build()
-                    .encode()
-                    .toUri();
-            HttpRequest httpRequest = HttpRequest.newBuilder()
-                    .uri(uri)
-                    .timeout(REQUEST_TIMEOUT)
-                    .header("User-Agent", "Mozilla/5.0 (compatible; Grimmory)")
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                return null;
-            }
-            var node = objectMapper.readTree(response.body());
-            var websiteId = node.get("websiteId");
-            return websiteId != null && !websiteId.asString().isBlank() ? websiteId.asString() : null;
-        } catch (IOException e) {
-            log.warn("OverDrive: failed to resolve websiteId for {}: {}", libraryKey, e.getMessage());
-            return null;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return null;
-        }
+    private static String textOrNull(tools.jackson.databind.JsonNode value) {
+        return value != null && !value.asString().isBlank() ? value.asString() : null;
     }
 
     /**
@@ -712,16 +707,19 @@ public class OverDriveParser implements BookParser {
         return new ArrayList<>(keys);
     }
 
+    /**
+     * Reserve the next request slot atomically, then wait for it. A read-then-write let concurrent
+     * callers see the same last request and all go at once.
+     */
     private void waitForRateLimit() {
         long now = System.currentTimeMillis();
-        long sinceLast = now - lastRequestTime.get();
-        if (sinceLast < MIN_REQUEST_INTERVAL_MS) {
+        long slot = lastRequestTime.accumulateAndGet(now, (last, n) -> Math.max(n, last + MIN_REQUEST_INTERVAL_MS));
+        if (slot > now) {
             try {
-                Thread.sleep(MIN_REQUEST_INTERVAL_MS - sinceLast);
+                Thread.sleep(slot - now);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
         }
-        lastRequestTime.set(System.currentTimeMillis());
     }
 }
