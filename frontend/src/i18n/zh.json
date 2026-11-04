@@ -113,7 +113,8 @@
       "tasks": "任务",
       "auditLogs": "审计日志",
       "opds": "",
-      "devices": "设备"
+      "devices": "设备",
+      "overdrive": ""
     }
   },
   "settingsEmail": {
@@ -658,6 +659,7 @@
       "apiToken": "API 令牌",
       "hardcoverPlaceholder": "输入 Hardcover API 令牌",
       "comicvinePlaceholder": "输入 Comic Vine API 令牌",
+      "overdriveConfigNote": "",
       "ranobedbPreferRomajiLabel": "",
       "ranobedbPreferRomajiDesc": ""
     },
@@ -998,7 +1000,7 @@
       "series": "系列名称",
       "seriesIndex": "系列索引",
       "language": "语言代码",
-      "narrator": "Narrator(s) (audiobooks)",
+      "narrator": "",
       "publisher": "出版社",
       "isbn": "ISBN 号码",
       "currentFilename": "原始文件名",
@@ -1061,6 +1063,8 @@
       "komgaDesc": "启用兼容 Komga 的 API 以使用 Komga 客户端（Tachiyomi、Komelia 等）访问 Grimmory。使用相同的 OPDS 用户账户进行身份验证。",
       "groupUnknownLabel": "分组未知系列",
       "groupUnknownDesc": "启用后，没有系列的图书将被归入「未知系列」。禁用后，每本书将作为独立系列显示。",
+      "replaceCoverLabel": "",
+      "replaceCoverDesc": "",
       "enabled": "已启用",
       "disabled": "已禁用",
       "grouped": "已分组",
@@ -1073,7 +1077,8 @@
       "opdsHint": "用于兼容 OPDS 的应用",
       "komgaBase": "Komga 基础 URL",
       "komgaHint": "用于 Tachiyomi、Komelia 等",
-      "copyUrl": "复制 URL"
+      "copyUrl": "复制 URL",
+      "devicePresetsHint": ""
     },
     "users": {
       "sectionTitle": "OPDS 用户",
@@ -1082,6 +1087,7 @@
       "emptyTitle": "未找到用户",
       "emptySubtitle": "创建您的第一个 OPDS 用户以开始使用",
       "editSortOrder": "编辑排序顺序",
+      "editPreset": "",
       "deleteUser": "删除用户"
     },
     "createDialog": {
@@ -1093,8 +1099,12 @@
       "enterPassword": "输入密码",
       "selectSortOrder": "选择排序顺序",
       "sortHint": "这将决定此用户在 OPDS 订阅源中图书的显示方式",
+      "defaultPreset": "",
+      "selectPreset": "",
+      "presetHint": "",
       "create": "创建"
     },
+    "presetNone": "",
     "sortOrders": {
       "recent": "最近添加",
       "titleAsc": "标题（A-Z）",
@@ -1128,7 +1138,9 @@
     "komgaEnabled": "Komga API 已启用。",
     "komgaDisabled": "Komga API 已禁用。",
     "groupEnabled": "没有系列的图书将被归入「未知系列」。",
-    "groupDisabled": "没有系列的图书将作为独立系列显示。"
+    "groupDisabled": "没有系列的图书将作为独立系列显示。",
+    "replaceCoverEnabled": "",
+    "replaceCoverDisabled": ""
   },
   "settingsTasks": {
     "title": "系统任务管理器",
@@ -1153,11 +1165,11 @@
       "invalidField": "无效的 {{name}} 字段：{{value}}",
       "updateSuccess": "定时任务配置已成功更新。",
       "updateError": "更新定时任务配置失败。",
-      "jitterLabel": "Jitter",
-      "jitterPlaceholder": "0",
-      "jitterUnit": "min",
-      "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
-      "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
+      "jitterLabel": "",
+      "jitterPlaceholder": "",
+      "jitterUnit": "",
+      "jitterHint": "",
+      "jitterInvalid": ""
     },
     "buttons": {
       "run": "运行",
@@ -2421,6 +2433,7 @@
       "readStatusUnset": "未设置",
       "menuStreamingReader": "流式阅读器",
       "menuStandardReader": "标准阅读器",
+      "menuPrimary": "",
       "menuShelf": "书架",
       "menuUploadFile": "上传文件",
       "menuOrganizeFiles": "整理文件",
@@ -2710,7 +2723,8 @@
       "lubimyczytac": "",
       "ranobedb": "",
       "audible": "",
-      "appleBooks": ""
+      "appleBooks": "",
+      "overdrive": ""
     },
     "providerFields": {
       "id": "",

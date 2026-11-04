@@ -113,7 +113,8 @@
       "tasks": "Uppgifter",
       "auditLogs": "Granskningsloggar",
       "opds": "",
-      "devices": "Enheter"
+      "devices": "Enheter",
+      "overdrive": ""
     }
   },
   "settingsEmail": {
@@ -658,6 +659,7 @@
       "apiToken": "API-token",
       "hardcoverPlaceholder": "Ange Hardcover API-token",
       "comicvinePlaceholder": "Ange Comic Vine API-token",
+      "overdriveConfigNote": "",
       "ranobedbPreferRomajiLabel": "",
       "ranobedbPreferRomajiDesc": ""
     },
@@ -998,7 +1000,7 @@
       "series": "Serienamn",
       "seriesIndex": "Serieindex",
       "language": "Språkkod",
-      "narrator": "Narrator(s) (audiobooks)",
+      "narrator": "",
       "publisher": "Förlag",
       "isbn": "ISBN-nummer",
       "currentFilename": "Originalfilnamn",
@@ -1061,6 +1063,8 @@
       "komgaDesc": "Aktivera det Komga-kompatibla API:t för att använda Komga-klienter (Tachiyomi, Komelia osv.) med Grimmory. Använder samma OPDS-användarkonton för autentisering.",
       "groupUnknownLabel": "Gruppera okända serier",
       "groupUnknownDesc": "När aktiverat grupperas böcker utan serie under \"Okänd serie\". När inaktiverat visas varje bok som sin egen individuella serie.",
+      "replaceCoverLabel": "",
+      "replaceCoverDesc": "",
       "enabled": "Aktiverad",
       "disabled": "Inaktiverad",
       "grouped": "Grupperad",
@@ -1073,7 +1077,8 @@
       "opdsHint": "För OPDS-kompatibla appar",
       "komgaBase": "Komga-bas-URL",
       "komgaHint": "För Tachiyomi, Komelia osv.",
-      "copyUrl": "Kopiera URL"
+      "copyUrl": "Kopiera URL",
+      "devicePresetsHint": ""
     },
     "users": {
       "sectionTitle": "OPDS-användare",
@@ -1082,6 +1087,7 @@
       "emptyTitle": "Inga användare hittades",
       "emptySubtitle": "Skapa din första OPDS-användare för att komma igång",
       "editSortOrder": "Redigera sorteringsordning",
+      "editPreset": "",
       "deleteUser": "Radera användare"
     },
     "createDialog": {
@@ -1093,8 +1099,12 @@
       "enterPassword": "Ange lösenord",
       "selectSortOrder": "Välj sorteringsordning",
       "sortHint": "Detta bestämmer hur böcker visas i OPDS-flödet för denna användare",
+      "defaultPreset": "",
+      "selectPreset": "",
+      "presetHint": "",
       "create": "Skapa"
     },
+    "presetNone": "",
     "sortOrders": {
       "recent": "Nyligen tillagda",
       "titleAsc": "Titel (A-Ö)",
@@ -1128,7 +1138,9 @@
     "komgaEnabled": "Komga API aktiverat.",
     "komgaDisabled": "Komga API inaktiverat.",
     "groupEnabled": "Böcker utan serie grupperas under \"Okänd serie\".",
-    "groupDisabled": "Böcker utan serie visas som individuella serier."
+    "groupDisabled": "Böcker utan serie visas som individuella serier.",
+    "replaceCoverEnabled": "",
+    "replaceCoverDisabled": ""
   },
   "settingsTasks": {
     "title": "Systemuppgiftshanterare",
@@ -1153,11 +1165,11 @@
       "invalidField": "Ogiltigt {{name}}-fält: {{value}}",
       "updateSuccess": "Schemalagd uppgiftskonfiguration har uppdaterats.",
       "updateError": "Kunde inte uppdatera schemalagd uppgiftskonfiguration.",
-      "jitterLabel": "Jitter",
-      "jitterPlaceholder": "0",
-      "jitterUnit": "min",
-      "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
-      "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
+      "jitterLabel": "",
+      "jitterPlaceholder": "",
+      "jitterUnit": "",
+      "jitterHint": "",
+      "jitterInvalid": ""
     },
     "buttons": {
       "run": "Kör",
@@ -2421,6 +2433,7 @@
       "readStatusUnset": "Ej angiven",
       "menuStreamingReader": "Strömmande läsare",
       "menuStandardReader": "Standardläsare",
+      "menuPrimary": "",
       "menuShelf": "Hylla",
       "menuUploadFile": "Ladda upp fil",
       "menuOrganizeFiles": "Organisera filer",
@@ -2710,7 +2723,8 @@
       "lubimyczytac": "",
       "ranobedb": "",
       "audible": "",
-      "appleBooks": ""
+      "appleBooks": "",
+      "overdrive": ""
     },
     "providerFields": {
       "id": "",

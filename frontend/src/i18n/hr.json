@@ -113,7 +113,8 @@
       "tasks": "Zadaci",
       "auditLogs": "Revizijski zapisi",
       "opds": "OPDS",
-      "devices": "Uređaji"
+      "devices": "Uređaji",
+      "overdrive": ""
     }
   },
   "settingsEmail": {
@@ -658,6 +659,7 @@
       "apiToken": "API token",
       "hardcoverPlaceholder": "Unesite Hardcover API token",
       "comicvinePlaceholder": "Unesite Comic Vine API token",
+      "overdriveConfigNote": "",
       "ranobedbPreferRomajiLabel": "Prednost ima Romaji",
       "ranobedbPreferRomajiDesc": "Kada je ta opcija omogućena, japanska izdanja koriste romanizaciju japanskih znakova gdje god je to moguće."
     },
@@ -998,7 +1000,7 @@
       "series": "Naziv serijala",
       "seriesIndex": "Indeks serijala",
       "language": "Kod jezika",
-      "narrator": "Narrator(s) (audiobooks)",
+      "narrator": "",
       "publisher": "Izdavač",
       "isbn": "ISBN broj",
       "currentFilename": "Izvorni naziv datoteke",
@@ -1061,6 +1063,8 @@
       "komgaDesc": "Omogućite Komga kompatibilni API za korištenje Komga klijenata (Tachiyomi, Komelia itd.) s Grimmory-om. Koristi iste OPDS korisničke račune za autentifikaciju.",
       "groupUnknownLabel": "Grupiraj nepoznate serijale",
       "groupUnknownDesc": "Kada je omogućeno, knjige bez serijala bit će grupirane pod \"Nepoznati serijal\". Kada je onemogućeno, svaka knjiga će se pojaviti kao vlastiti pojedinačni serijal.",
+      "replaceCoverLabel": "",
+      "replaceCoverDesc": "",
       "enabled": "Omogućeno",
       "disabled": "Onemogućeno",
       "grouped": "Grupirano",
@@ -1073,7 +1077,8 @@
       "opdsHint": "Za OPDS kompatibilne aplikacije",
       "komgaBase": "Komga bazni URL",
       "komgaHint": "Za Tachiyomi, Komelia itd.",
-      "copyUrl": "Kopiraj URL"
+      "copyUrl": "Kopiraj URL",
+      "devicePresetsHint": ""
     },
     "users": {
       "sectionTitle": "OPDS korisnici",
@@ -1082,6 +1087,7 @@
       "emptyTitle": "Nema pronađenih korisnika",
       "emptySubtitle": "Kreirajte prvog OPDS korisnika za početak",
       "editSortOrder": "Uredi redoslijed sortiranja",
+      "editPreset": "",
       "deleteUser": "Obriši korisnika"
     },
     "createDialog": {
@@ -1093,8 +1099,12 @@
       "enterPassword": "Unesite lozinku",
       "selectSortOrder": "Odaberite redoslijed sortiranja",
       "sortHint": "Ovo će odrediti kako se knjige prikazuju u OPDS feedu za ovog korisnika",
+      "defaultPreset": "",
+      "selectPreset": "",
+      "presetHint": "",
       "create": "Kreiraj"
     },
+    "presetNone": "",
     "sortOrders": {
       "recent": "Nedavno dodano",
       "titleAsc": "Naslov (A-Ž)",
@@ -1128,7 +1138,9 @@
     "komgaEnabled": "Komga API omogućen.",
     "komgaDisabled": "Komga API onemogućen.",
     "groupEnabled": "Knjige bez serijala bit će grupirane pod \"Nepoznati serijal\".",
-    "groupDisabled": "Knjige bez serijala pojavit će se kao pojedinačni serijali."
+    "groupDisabled": "Knjige bez serijala pojavit će se kao pojedinačni serijali.",
+    "replaceCoverEnabled": "",
+    "replaceCoverDisabled": ""
   },
   "settingsTasks": {
     "title": "Upravitelj sistemskih zadataka",
@@ -1153,11 +1165,11 @@
       "invalidField": "Nevažeće polje {{name}}: {{value}}",
       "updateSuccess": "Konfiguracija zakazanog zadatka je uspješno ažurirana.",
       "updateError": "Ažuriranje konfiguracije zakazanog zadatka nije uspjelo.",
-      "jitterLabel": "Jitter",
-      "jitterPlaceholder": "0",
-      "jitterUnit": "min",
-      "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
-      "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
+      "jitterLabel": "",
+      "jitterPlaceholder": "",
+      "jitterUnit": "",
+      "jitterHint": "",
+      "jitterInvalid": ""
     },
     "buttons": {
       "run": "Pokreni",
@@ -2421,6 +2433,7 @@
       "readStatusUnset": "Nepostavljeno",
       "menuStreamingReader": "Streaming čitač",
       "menuStandardReader": "Standardni čitač",
+      "menuPrimary": "",
       "menuShelf": "Polica",
       "menuUploadFile": "Učitaj datoteku",
       "menuOrganizeFiles": "Organiziraj datoteke",
@@ -2710,7 +2723,8 @@
       "lubimyczytac": "",
       "ranobedb": "",
       "audible": "",
-      "appleBooks": ""
+      "appleBooks": "",
+      "overdrive": ""
     },
     "providerFields": {
       "id": "",

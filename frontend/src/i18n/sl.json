@@ -113,7 +113,8 @@
       "tasks": "Opravila",
       "auditLogs": "Dnevniki revizije",
       "opds": "",
-      "devices": "Naprave"
+      "devices": "Naprave",
+      "overdrive": ""
     }
   },
   "settingsEmail": {
@@ -658,6 +659,7 @@
       "apiToken": "API žeton",
       "hardcoverPlaceholder": "Vnesi Hardcover API žeton",
       "comicvinePlaceholder": "Vnesi Comic Vine API žeton",
+      "overdriveConfigNote": "",
       "ranobedbPreferRomajiLabel": "",
       "ranobedbPreferRomajiDesc": ""
     },
@@ -998,7 +1000,7 @@
       "series": "Ime zbirke",
       "seriesIndex": "Številka v zbirki",
       "language": "Koda jezika",
-      "narrator": "Narrator(s) (audiobooks)",
+      "narrator": "",
       "publisher": "Založba",
       "isbn": "ISBN številka",
       "currentFilename": "Izvirno ime datoteke",
@@ -1061,6 +1063,8 @@
       "komgaDesc": "Omogoči API, združljiv s Komgo, za uporabo odjemalcev Komga (Tachiyomi, Komelia itd.) z Grimmory. Za avtentikacijo uporablja iste uporabniške račune OPDS.",
       "groupUnknownLabel": "Združi neznane zbirke",
       "groupUnknownDesc": "Ko je to omogočeno, bodo knjige brez zbirke združene pod naslovom \"Neznana zbirka\". Ko je onemogočeno, se bo vsaka knjiga pojavila kot svoja samostojna zbirka.",
+      "replaceCoverLabel": "",
+      "replaceCoverDesc": "",
       "enabled": "Omogočeno",
       "disabled": "Onemogočeno",
       "grouped": "Združeno",
@@ -1073,7 +1077,8 @@
       "opdsHint": "Za aplikacije, združljive z OPDS",
       "komgaBase": "Osnovni URL za Komga",
       "komgaHint": "Za Tachiyomi, Komelia itd.",
-      "copyUrl": "Kopiraj URL"
+      "copyUrl": "Kopiraj URL",
+      "devicePresetsHint": ""
     },
     "users": {
       "sectionTitle": "Uporabniki OPDS",
@@ -1082,6 +1087,7 @@
       "emptyTitle": "Ni najdenih uporabnikov",
       "emptySubtitle": "Za začetek ustvari svojega prvega uporabnika OPDS",
       "editSortOrder": "Uredi vrstni red razvrščanja",
+      "editPreset": "",
       "deleteUser": "Izbriši uporabnika"
     },
     "createDialog": {
@@ -1093,8 +1099,12 @@
       "enterPassword": "Vnesi geslo",
       "selectSortOrder": "Izberi vrstni red razvrščanja",
       "sortHint": "To določa, kako se bodo knjige prikazale v viru OPDS za tega uporabnika",
+      "defaultPreset": "",
+      "selectPreset": "",
+      "presetHint": "",
       "create": "Ustvari"
     },
+    "presetNone": "",
     "sortOrders": {
       "recent": "Zadnje dodano",
       "titleAsc": "Naslov (A–Z)",
@@ -1128,7 +1138,9 @@
     "komgaEnabled": "Komga API omogočen.",
     "komgaDisabled": "Komga API onemogočen.",
     "groupEnabled": "Knjige brez zbirke bodo združene pod \"Neznana zbirka\".",
-    "groupDisabled": "Knjige brez zbirke se bodo pojavile kot posamezne zbirke."
+    "groupDisabled": "Knjige brez zbirke se bodo pojavile kot posamezne zbirke.",
+    "replaceCoverEnabled": "",
+    "replaceCoverDisabled": ""
   },
   "settingsTasks": {
     "title": "Upravitelj sistemskih opravil",
@@ -1153,11 +1165,11 @@
       "invalidField": "Neveljavno polje {{name}}: {{value}}",
       "updateSuccess": "Konfiguracija načrtovanega opravila je bila uspešno posodobljena.",
       "updateError": "Posodobitev načrtovanega opravila ni uspela.",
-      "jitterLabel": "Jitter",
-      "jitterPlaceholder": "0",
-      "jitterUnit": "min",
-      "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
-      "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
+      "jitterLabel": "",
+      "jitterPlaceholder": "",
+      "jitterUnit": "",
+      "jitterHint": "",
+      "jitterInvalid": ""
     },
     "buttons": {
       "run": "Zaženi",
@@ -2421,6 +2433,7 @@
       "readStatusUnset": "Ni določeno",
       "menuStreamingReader": "Spletni bralnik",
       "menuStandardReader": "Standardni bralnik",
+      "menuPrimary": "",
       "menuShelf": "Polica",
       "menuUploadFile": "Naloži datoteko",
       "menuOrganizeFiles": "Organiziraj datoteke",
@@ -2710,7 +2723,8 @@
       "lubimyczytac": "",
       "ranobedb": "",
       "audible": "",
-      "appleBooks": ""
+      "appleBooks": "",
+      "overdrive": ""
     },
     "providerFields": {
       "id": "",

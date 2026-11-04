@@ -113,7 +113,8 @@
       "tasks": "Aufgaben",
       "auditLogs": "Audit-Protokolle",
       "opds": "",
-      "devices": "Geräte"
+      "devices": "Geräte",
+      "overdrive": ""
     }
   },
   "settingsEmail": {
@@ -658,6 +659,7 @@
       "apiToken": "API-Token",
       "hardcoverPlaceholder": "Hardcover-API-Token eingeben",
       "comicvinePlaceholder": "Comic-Vine-API-Token eingeben",
+      "overdriveConfigNote": "",
       "ranobedbPreferRomajiLabel": "",
       "ranobedbPreferRomajiDesc": ""
     },
@@ -998,7 +1000,7 @@
       "series": "Serienname",
       "seriesIndex": "Serienindex",
       "language": "Sprachcode",
-      "narrator": "Narrator(s) (audiobooks)",
+      "narrator": "",
       "publisher": "Verlag",
       "isbn": "ISBN-Nummer",
       "currentFilename": "Originaler Dateiname",
@@ -1061,6 +1063,8 @@
       "komgaDesc": "Aktivieren Sie die Komga-kompatible API, um Komga-Clients (Tachiyomi, Komelia usw.) mit Grimmory zu verwenden. Nutzt dieselben OPDS-Benutzerkonten zur Authentifizierung.",
       "groupUnknownLabel": "Unbekannte Serien gruppieren",
       "groupUnknownDesc": "Wenn aktiviert, werden Bücher ohne Serie unter \"Unbekannte Serie\" gruppiert. Wenn deaktiviert, erscheint jedes Buch als eigene individuelle Serie.",
+      "replaceCoverLabel": "",
+      "replaceCoverDesc": "",
       "enabled": "Aktiviert",
       "disabled": "Deaktiviert",
       "grouped": "Gruppiert",
@@ -1073,7 +1077,8 @@
       "opdsHint": "Für OPDS-kompatible Apps",
       "komgaBase": "Komga-Basis-URL",
       "komgaHint": "Für Tachiyomi, Komelia usw.",
-      "copyUrl": "URL kopieren"
+      "copyUrl": "URL kopieren",
+      "devicePresetsHint": ""
     },
     "users": {
       "sectionTitle": "OPDS-Benutzer",
@@ -1082,6 +1087,7 @@
       "emptyTitle": "Keine Benutzer gefunden",
       "emptySubtitle": "Erstellen Sie Ihren ersten OPDS-Benutzer, um loszulegen",
       "editSortOrder": "Sortierreihenfolge bearbeiten",
+      "editPreset": "",
       "deleteUser": "Benutzer löschen"
     },
     "createDialog": {
@@ -1093,8 +1099,12 @@
       "enterPassword": "Passwort eingeben",
       "selectSortOrder": "Sortierreihenfolge auswählen",
       "sortHint": "Dies bestimmt, wie Bücher im OPDS-Feed für diesen Benutzer angezeigt werden",
+      "defaultPreset": "",
+      "selectPreset": "",
+      "presetHint": "",
       "create": "Erstellen"
     },
+    "presetNone": "",
     "sortOrders": {
       "recent": "Zuletzt hinzugefügt",
       "titleAsc": "Titel (A-Z)",
@@ -1128,7 +1138,9 @@
     "komgaEnabled": "Komga-API aktiviert.",
     "komgaDisabled": "Komga-API deaktiviert.",
     "groupEnabled": "Bücher ohne Serie werden unter \"Unbekannte Serie\" gruppiert.",
-    "groupDisabled": "Bücher ohne Serie erscheinen als individuelle Serien."
+    "groupDisabled": "Bücher ohne Serie erscheinen als individuelle Serien.",
+    "replaceCoverEnabled": "",
+    "replaceCoverDisabled": ""
   },
   "settingsTasks": {
     "title": "System-Aufgabenverwaltung",
@@ -1153,11 +1165,11 @@
       "invalidField": "Ungültiges {{name}}-Feld: {{value}}",
       "updateSuccess": "Geplante Aufgabenkonfiguration wurde erfolgreich aktualisiert.",
       "updateError": "Geplante Aufgabenkonfiguration konnte nicht aktualisiert werden.",
-      "jitterLabel": "Jitter",
-      "jitterPlaceholder": "0",
-      "jitterUnit": "min",
-      "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
-      "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
+      "jitterLabel": "",
+      "jitterPlaceholder": "",
+      "jitterUnit": "",
+      "jitterHint": "",
+      "jitterInvalid": ""
     },
     "buttons": {
       "run": "Ausführen",
@@ -2421,6 +2433,7 @@
       "readStatusUnset": "Nicht gesetzt",
       "menuStreamingReader": "Streaming-Reader",
       "menuStandardReader": "Standard-Reader",
+      "menuPrimary": "",
       "menuShelf": "Regal",
       "menuUploadFile": "Datei hochladen",
       "menuOrganizeFiles": "Dateien organisieren",
@@ -2710,7 +2723,8 @@
       "lubimyczytac": "",
       "ranobedb": "",
       "audible": "",
-      "appleBooks": ""
+      "appleBooks": "",
+      "overdrive": ""
     },
     "providerFields": {
       "id": "",

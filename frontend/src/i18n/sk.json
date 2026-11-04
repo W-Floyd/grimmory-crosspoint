@@ -113,7 +113,8 @@
       "tasks": "Úlohy",
       "auditLogs": "Auditné záznamy",
       "opds": "",
-      "devices": "Zariadenia"
+      "devices": "Zariadenia",
+      "overdrive": ""
     }
   },
   "settingsEmail": {
@@ -658,6 +659,7 @@
       "apiToken": "",
       "hardcoverPlaceholder": "",
       "comicvinePlaceholder": "",
+      "overdriveConfigNote": "",
       "ranobedbPreferRomajiLabel": "",
       "ranobedbPreferRomajiDesc": ""
     },
@@ -1061,6 +1063,8 @@
       "komgaDesc": "",
       "groupUnknownLabel": "",
       "groupUnknownDesc": "",
+      "replaceCoverLabel": "",
+      "replaceCoverDesc": "",
       "enabled": "",
       "disabled": "",
       "grouped": "",
@@ -1073,7 +1077,8 @@
       "opdsHint": "",
       "komgaBase": "",
       "komgaHint": "",
-      "copyUrl": ""
+      "copyUrl": "",
+      "devicePresetsHint": ""
     },
     "users": {
       "sectionTitle": "",
@@ -1082,6 +1087,7 @@
       "emptyTitle": "",
       "emptySubtitle": "",
       "editSortOrder": "",
+      "editPreset": "",
       "deleteUser": ""
     },
     "createDialog": {
@@ -1093,8 +1099,12 @@
       "enterPassword": "",
       "selectSortOrder": "",
       "sortHint": "",
+      "defaultPreset": "",
+      "selectPreset": "",
+      "presetHint": "",
       "create": ""
     },
+    "presetNone": "",
     "sortOrders": {
       "recent": "",
       "titleAsc": "",
@@ -1128,7 +1138,9 @@
     "komgaEnabled": "",
     "komgaDisabled": "",
     "groupEnabled": "",
-    "groupDisabled": ""
+    "groupDisabled": "",
+    "replaceCoverEnabled": "",
+    "replaceCoverDisabled": ""
   },
   "settingsTasks": {
     "title": "Správca úloh systému",
@@ -1151,11 +1163,11 @@
       "updateSuccess": "",
       "invalidField": "",
       "updateError": "",
-      "jitterLabel": "Jitter",
-      "jitterPlaceholder": "0",
-      "jitterUnit": "min",
-      "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
-      "jitterInvalid": "Jitter must be between 0 and 1440 minutes.",
+      "jitterLabel": "",
+      "jitterPlaceholder": "",
+      "jitterUnit": "",
+      "jitterHint": "",
+      "jitterInvalid": "",
       "noSchedule": "",
       "placeholder": ""
     },
@@ -2421,6 +2433,7 @@
       "readStatusUnset": "",
       "menuStreamingReader": "",
       "menuStandardReader": "",
+      "menuPrimary": "",
       "menuShelf": "",
       "menuUploadFile": "",
       "menuOrganizeFiles": "",
@@ -2710,7 +2723,8 @@
       "lubimyczytac": "",
       "ranobedb": "",
       "audible": "",
-      "appleBooks": ""
+      "appleBooks": "",
+      "overdrive": ""
     },
     "providerFields": {
       "id": "",

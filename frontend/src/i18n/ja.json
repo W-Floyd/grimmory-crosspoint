@@ -113,7 +113,8 @@
       "tasks": "タスク",
       "auditLogs": "監査ログ",
       "opds": "",
-      "devices": "デバイス"
+      "devices": "デバイス",
+      "overdrive": ""
     }
   },
   "settingsEmail": {
@@ -658,6 +659,7 @@
       "apiToken": "APIトークン",
       "hardcoverPlaceholder": "Hardcover APIトークンを入力",
       "comicvinePlaceholder": "Comic Vine APIトークンを入力",
+      "overdriveConfigNote": "",
       "ranobedbPreferRomajiLabel": "",
       "ranobedbPreferRomajiDesc": ""
     },
@@ -998,7 +1000,7 @@
       "series": "シリーズ名",
       "seriesIndex": "シリーズ番号",
       "language": "言語コード",
-      "narrator": "Narrator(s) (audiobooks)",
+      "narrator": "",
       "publisher": "出版社",
       "isbn": "ISBN番号",
       "currentFilename": "元のファイル名",
@@ -1061,6 +1063,8 @@
       "komgaDesc": "Komga互換APIを有効にして、Komgaクライアント（Tachiyomi、Komeliaなど）をGrimmoryで使用します。認証にはOPDSユーザーアカウントを使用します。",
       "groupUnknownLabel": "不明なシリーズをグループ化",
       "groupUnknownDesc": "有効にすると、シリーズのない本は「不明なシリーズ」の下にグループ化されます。無効にすると、各本が個別のシリーズとして表示されます。",
+      "replaceCoverLabel": "",
+      "replaceCoverDesc": "",
       "enabled": "有効",
       "disabled": "無効",
       "grouped": "グループ化",
@@ -1073,7 +1077,8 @@
       "opdsHint": "OPDS対応アプリ用",
       "komgaBase": "Komga ベースURL",
       "komgaHint": "Tachiyomi、Komeliaなど用",
-      "copyUrl": "URLをコピー"
+      "copyUrl": "URLをコピー",
+      "devicePresetsHint": ""
     },
     "users": {
       "sectionTitle": "OPDSユーザー",
@@ -1082,6 +1087,7 @@
       "emptyTitle": "ユーザーが見つかりません",
       "emptySubtitle": "最初のOPDSユーザーを作成して始めましょう",
       "editSortOrder": "ソート順を編集",
+      "editPreset": "",
       "deleteUser": "ユーザーを削除"
     },
     "createDialog": {
@@ -1093,8 +1099,12 @@
       "enterPassword": "パスワードを入力",
       "selectSortOrder": "ソート順を選択",
       "sortHint": "このユーザーのOPDSフィードでの本の表示順を決定します",
+      "defaultPreset": "",
+      "selectPreset": "",
+      "presetHint": "",
       "create": "作成"
     },
+    "presetNone": "",
     "sortOrders": {
       "recent": "最近追加",
       "titleAsc": "タイトル（A-Z）",
@@ -1128,7 +1138,9 @@
     "komgaEnabled": "Komga APIが有効になりました。",
     "komgaDisabled": "Komga APIが無効になりました。",
     "groupEnabled": "シリーズのない本は「不明なシリーズ」の下にグループ化されます。",
-    "groupDisabled": "シリーズのない本は個別のシリーズとして表示されます。"
+    "groupDisabled": "シリーズのない本は個別のシリーズとして表示されます。",
+    "replaceCoverEnabled": "",
+    "replaceCoverDisabled": ""
   },
   "settingsTasks": {
     "title": "システムタスクマネージャー",
@@ -1153,11 +1165,11 @@
       "invalidField": "無効な{{name}}フィールド: {{value}}",
       "updateSuccess": "スケジュールタスクの設定が正常に更新されました。",
       "updateError": "スケジュールタスクの設定の更新に失敗しました。",
-      "jitterLabel": "Jitter",
-      "jitterPlaceholder": "0",
-      "jitterUnit": "min",
-      "jitterHint": "Random delay of up to this many minutes added to each run, so it does not fire at exactly the same time.",
-      "jitterInvalid": "Jitter must be between 0 and 1440 minutes."
+      "jitterLabel": "",
+      "jitterPlaceholder": "",
+      "jitterUnit": "",
+      "jitterHint": "",
+      "jitterInvalid": ""
     },
     "buttons": {
       "run": "実行",
@@ -2421,6 +2433,7 @@
       "readStatusUnset": "未設定",
       "menuStreamingReader": "ストリーミングリーダー",
       "menuStandardReader": "スタンダードリーダー",
+      "menuPrimary": "",
       "menuShelf": "シェルフ",
       "menuUploadFile": "ファイルをアップロード",
       "menuOrganizeFiles": "ファイルを整理",
@@ -2710,7 +2723,8 @@
       "lubimyczytac": "",
       "ranobedb": "",
       "audible": "",
-      "appleBooks": ""
+      "appleBooks": "",
+      "overdrive": ""
     },
     "providerFields": {
       "id": "",
