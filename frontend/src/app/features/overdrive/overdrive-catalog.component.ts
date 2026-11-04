@@ -1841,7 +1841,7 @@ export class OverdriveCatalogComponent implements OnInit {
            for (let i = 0; i < byteCharacters.length; i++) {
              byteNumbers[i] = byteCharacters.charCodeAt(i);
              }
-           const blob = new Blob([byteNumbers], { type: 'application/smil+xml' });
+           const blob = new Blob([byteNumbers], { type: 'application/vnd.adobe.adept+xml' });
            const url = URL.createObjectURL(blob);
            const a = document.createElement('a');
            a.href = url;
