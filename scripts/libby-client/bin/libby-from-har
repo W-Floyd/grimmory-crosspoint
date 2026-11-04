@@ -57,6 +57,11 @@ function bodyOf(entry) {
   return c.text;
 }
 
+// Same rule as libby_strip in libby-assets. Scripts and stylesheets only: other assets aren't text.
+function stripLeadingComments(asset, text) {
+  return /\.(?:js|css)$/.test(asset) ? text.replace(/^(?:\s*\/\*[\s\S]*?\*\/)+\s*/, '') : text;
+}
+
 const found = new Map(); // version -> Map(assetPath -> {text, from})
 let scanned = 0;
 let skippedHuge = 0;
@@ -78,8 +83,9 @@ for (const input of inputs) {
       const m = url.match(/libbyapp\.com\/dewey-([\d.]+)\/([^?#]+)/);
       if (!m) continue;
       const [, version, asset] = m;
-      const text = bodyOf(entry);
-      if (text === null) continue;
+      const body = bodyOf(entry);
+      if (body === null) continue;
+      const text = stripLeadingComments(asset, body);
       if (!found.has(version)) found.set(version, new Map());
       const bucket = found.get(version);
       // Keep the largest copy seen: a truncated body in one capture should not beat a whole one.

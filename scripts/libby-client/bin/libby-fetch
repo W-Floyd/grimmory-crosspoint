@@ -29,6 +29,7 @@ for asset in "${LIBBY_ASSETS[@]}"; do
   # --fail so a 404 leaves no file behind: a zero-byte main.js that looks archived is worse than an
   # obvious gap, because the gap can still be filled from a HAR while the lie cannot be noticed.
   if curl -fsS --max-time 120 -A "$LIBBY_UA" "$url" -o "$out"; then
+    libby_strip "$out"
     printf '  %-24s %8d bytes\n' "$asset" "$(wc -c <"$out")"
   else
     echo "  $asset — FAILED (${url})" >&2

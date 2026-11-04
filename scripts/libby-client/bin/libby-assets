@@ -11,6 +11,12 @@ LIBBY_ASSETS=(
   "css/main.css"
 )
 
+# Drop leading block comments so versions diff on code alone. Minified assets carry comments only there,
+# and only there can they be removed without a parser. Same rule as stripLeadingComments in libby-from-har.
+libby_strip() { # $1 = file, rewritten in place
+  perl -0777 -pi -e 's{\A(?:\s*/\*.*?\*/)+\s*}{}s' "$1"
+}
+
 # What a browser looks like: the same rule as FirefoxVersion on the server — the newest Firefox major
 # released at least 7 days ago, per Mozilla's release history, never below the built-in version.
 LIBBY_FIREFOX_BUILT_IN=157
