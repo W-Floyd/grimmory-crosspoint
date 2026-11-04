@@ -22,6 +22,7 @@ fi
 dest="$here/../versions/$version/raw"
 mkdir -p "$dest"
 
+missing=()
 for asset in "${LIBBY_ASSETS[@]}"; do
   out="$dest/$asset"
   mkdir -p "$(dirname "$out")"
@@ -34,6 +35,7 @@ for asset in "${LIBBY_ASSETS[@]}"; do
   else
     echo "  $asset — FAILED (${url})" >&2
     rm -f "$out"
+    missing+=("$asset")
   fi
 done
 
@@ -45,8 +47,15 @@ curl -fsS --max-time 60 -A "$LIBBY_UA" "$LIBBY_BASE/" -o "$dest/index.html" || t
   echo "fetched: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "source:  $LIBBY_BASE/dewey-$version/"
   echo "ua:      $LIBBY_UA"
+  # Said here, not only on the terminal: the archive outlives the run that made it.
+  if ((${#missing[@]})); then echo "missing: ${missing[*]}"; fi
 } >"$here/../versions/$version/PROVENANCE"
 
 echo
 echo "archived → versions/$version/raw"
 echo "next: bin/libby-split versions/$version"
+
+if ((${#missing[@]})); then
+  echo "incomplete: ${missing[*]} could not be fetched; fill them from a HAR (bin/libby-from-har)" >&2
+  exit 1
+fi
