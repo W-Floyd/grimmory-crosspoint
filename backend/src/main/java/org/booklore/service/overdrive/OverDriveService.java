@@ -1484,7 +1484,7 @@ public class OverDriveService {
                 log.warn("OverDrive: cards joined card {}'s chip but the token re-mint failed ({}); "
                         + "they are on the shared chip with its existing token", targetCardId, e.getMessage());
             }
-            recordAudit(OverDriveAuditAction.CARD_REFRESHED, targetCardId, null, null, null, null,
+            recordAudit(OverDriveAuditAction.CARDS_UNIFIED, targetCardId, null, null, null, null,
                     "Unified " + moved.size() + " card(s) onto this Libby account");
         }
 
@@ -1859,7 +1859,7 @@ public class OverDriveService {
         log.info("OverDrive: borrow limits for card {} set to {}/min {}/hr {}/day {}/week {}/30d",
                 identity, cleaned.perMinute(), cleaned.perHour(), cleaned.perDay(), cleaned.perWeek(),
                 cleaned.perMonth());
-        recordAudit(OverDriveAuditAction.CARD_RELABELED, identity, null, null, null, null,
+        recordAudit(OverDriveAuditAction.CARD_LIMITS_CHANGED, identity, null, null, null, null,
                 "Borrow limits set to " + describe(cleaned) + ".");
         return budgetFor(identity, cleaned);
       }
@@ -3000,7 +3000,7 @@ public class OverDriveService {
                     identity, rate.lastMinute(), rate.lastHour(), rate.lastDay(), rate.lastWeek(),
                     rate.last30Days());
             log.warn("OverDrive: {} Set a per-card limit below these numbers to stay under it.", detail);
-            recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null, detail, false);
+            recordAudit(OverDriveAuditAction.CARD_COOLDOWN, identity, null, null, null, null, detail, false);
         } catch (Exception e) {
             // Diagnostics must never be what turns a refused borrow into a broken pass.
             log.debug("OverDrive: could not measure the borrow rate for {} ({})", identity, e.getMessage());
@@ -3053,7 +3053,7 @@ public class OverDriveService {
         tokenRepository.saveAll(rows);
         log.warn("OverDrive: card {} hit the churning limit; borrows and returns on it are paused until {} "
                 + "for all {} user(s) holding it", identity, until, rows.size());
-        recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null,
+        recordAudit(OverDriveAuditAction.CARD_COOLDOWN, identity, null, null, null, null,
                 "OverDrive reported too many titles borrowed and returned. Borrows and returns on this "
                         + "card are paused until " + until + ".", false);
       }
@@ -3221,7 +3221,7 @@ public class OverDriveService {
         }
         clearFreeze(rows);
         log.info("OverDrive: card {} was re-linked by hand; its freeze is lifted", identity);
-        recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null,
+        recordAudit(OverDriveAuditAction.CARD_UNFROZEN, identity, null, null, null, null,
                 "Re-linked by hand; the card is no longer frozen.", false);
       }
 
@@ -3296,10 +3296,10 @@ public class OverDriveService {
         clearFreeze(rows);
         Long me = currentUserId();
         log.info("OverDrive: card {} unfrozen by user {}", identity, me);
-        recordAudit(OverDriveAuditAction.CARD_REFRESHED, identity, null, null, null, null,
+        recordAudit(OverDriveAuditAction.CARD_UNFROZEN, identity, null, null, null, null,
                 "Unfrozen; the card is back in service.", false);
         if (!me.equals(card.getUserId())) {
-            recordAuditForUser(card.getUserId(), OverDriveAuditAction.CARD_REFRESHED, identity,
+            recordAuditForUser(card.getUserId(), OverDriveAuditAction.CARD_UNFROZEN, identity,
                     "Unfrozen by an administrator; the card is back in service.");
         }
       }

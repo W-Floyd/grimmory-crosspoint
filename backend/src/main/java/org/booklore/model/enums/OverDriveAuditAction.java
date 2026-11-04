@@ -30,8 +30,16 @@ public enum OverDriveAuditAction {
     CARD_UNLINKED,
     CARD_RELABELED,
     CARD_REFRESHED,
-    /** A card stopped completely after OverDrive refused to fulfill on it even post-re-link. Cleared
-      * only by a deliberate re-link — see OverDriveService#freezeCard. */
+    /** A card stopped completely: OverDrive refused or suspended it, or a person froze it. See
+      * OverDriveService#freezeCard. */
     CARD_FROZEN,
+    /** A frozen card put back in service, by hand or by a person re-linking it. */
+    CARD_UNFROZEN,
+    /** Borrows and returns paused after OverDrive reported too much churn, with the rate that tripped it. */
+    CARD_COOLDOWN,
+    /** A card's borrow ceilings changed. */
+    CARD_LIMITS_CHANGED,
+    /** Cards moved onto one Libby account so they sync together. */
+    CARDS_UNIFIED,
     SHARE_UPDATED
 }

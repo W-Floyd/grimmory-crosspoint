@@ -2308,6 +2308,11 @@ export class OverdriveCatalogComponent implements OnInit {
      CARD_UNLINKED: 'Card unlinked',
      CARD_RELABELED: 'Card renamed',
      CARD_REFRESHED: 'Card refreshed',
+     CARD_FROZEN: 'Card frozen',
+     CARD_UNFROZEN: 'Card unfrozen',
+     CARD_COOLDOWN: 'Card paused',
+     CARD_LIMITS_CHANGED: 'Borrow limits changed',
+     CARDS_UNIFIED: 'Cards unified',
      SHARE_UPDATED: 'Sharing updated'
    };
 

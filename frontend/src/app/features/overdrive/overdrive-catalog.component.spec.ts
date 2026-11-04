@@ -584,6 +584,10 @@ describe('OverdriveCatalogComponent eligible-card selection', () => {
     expect(component.actionLabel('BORROW_AND_IMPORT')).toBe('Borrowed & imported');
     expect(component.actionLabel('HOLD_PLACED')).toBe('Hold placed');
     expect(component.actionLabel('WHAT')).toBe('WHAT');
+    // Every card action the server writes has a label; a raw code here means one was missed.
+    for (const code of ['CARD_FROZEN', 'CARD_UNFROZEN', 'CARD_COOLDOWN', 'CARD_LIMITS_CHANGED', 'CARDS_UNIFIED']) {
+      expect(component.actionLabel(code)).not.toBe(code);
+    }
     expect(component.actionClass('BORROW')).toBe('borrow');
     expect(component.actionClass('RETURN')).toBe('return');
     expect(component.actionClass('SHARE_UPDATED')).toBe('neutral');
