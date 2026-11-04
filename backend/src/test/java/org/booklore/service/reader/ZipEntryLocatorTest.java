@@ -3,6 +3,8 @@ package org.booklore.service.reader;
 import org.booklore.service.ByteRangeSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -144,8 +146,10 @@ class ZipEntryLocatorTest {
                 source.lastModified().toEpochMilli());
     }
 
-    @Test
-    void openEntry_rebuiltArchive_reindexesInsteadOfServingStaleOffsets() throws IOException {
+    @ParameterizedTest(name = "mtime preserved: {0}")
+    @ValueSource(booleans = {false, true})
+    void openEntry_rebuiltArchive_reindexesInsteadOfServingStaleOffsets(boolean mtimePreserved) throws IOException {
+        java.nio.file.attribute.FileTime original = Files.getLastModifiedTime(archive);
         // Prime the offset cache against the original layout
         assertArrayEquals(storedContent, readRange(locator.openEntry(archive, STORED_ENTRY), 0, storedContent.length));
 
@@ -168,9 +172,9 @@ class ZipEntryLocatorTest {
             zip.write(replacement);
             zip.closeEntry();
         }
-        // Cache invalidation keys on mtime; ensure it differs from the original write
-        Files.setLastModifiedTime(archive, java.nio.file.attribute.FileTime.fromMillis(
-                Files.getLastModifiedTime(archive).toMillis() + 5000));
+        // Preserved, as rsync -a or a restore leaves it; otherwise moved clearly past the original.
+        Files.setLastModifiedTime(archive, mtimePreserved ? original
+                : java.nio.file.attribute.FileTime.fromMillis(original.toMillis() + 5000));
 
         ByteRangeSource source = locator.openEntry(archive, STORED_ENTRY);
 

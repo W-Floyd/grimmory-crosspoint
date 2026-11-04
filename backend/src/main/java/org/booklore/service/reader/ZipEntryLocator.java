@@ -16,6 +16,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -58,7 +59,14 @@ public class ZipEntryLocator {
         }
     }
 
-    private record ArchiveIndex(long lastModified, Map<String, ZipEntryLocation> entries) {}
+    /**
+     * Identifies one version of an archive file. Not mtime alone: a replacement that preserves it
+     * (rsync -a, a backup restore) would keep the old offsets and serve the wrong bytes. Such tools
+     * write a new file and rename it in, which changes the file key (the inode, where there is one).
+     */
+    private record ArchiveStamp(long lastModified, long size, Object fileKey) {}
+
+    private record ArchiveIndex(ArchiveStamp stamp, Map<String, ZipEntryLocation> entries) {}
 
     /**
      * Builds a range source for one entry of an archive.
@@ -66,22 +74,24 @@ public class ZipEntryLocator {
      * @throws FileNotFoundException if the archive has no such entry
      */
     public ByteRangeSource openEntry(Path archivePath, String entryName) throws IOException {
-        Instant lastModified = Files.getLastModifiedTime(archivePath).toInstant();
-        ZipEntryLocation location = getIndex(archivePath, lastModified.toEpochMilli()).entries().get(entryName);
+        BasicFileAttributes attrs = Files.readAttributes(archivePath, BasicFileAttributes.class);
+        Instant lastModified = attrs.lastModifiedTime().toInstant();
+        ArchiveStamp stamp = new ArchiveStamp(lastModified.toEpochMilli(), attrs.size(), attrs.fileKey());
+        ZipEntryLocation location = getIndex(archivePath, stamp).entries().get(entryName);
         if (location == null) {
             throw new FileNotFoundException("Entry not found in archive: " + entryName);
         }
         return new ZipEntryByteRangeSource(archivePath, entryName, location, lastModified);
     }
 
-    private ArchiveIndex getIndex(Path archivePath, long currentModified) throws IOException {
+    private ArchiveIndex getIndex(Path archivePath, ArchiveStamp stamp) throws IOException {
         String cacheKey = archivePath.toString();
         ArchiveIndex cached = indexCache.getIfPresent(cacheKey);
-        if (cached != null && cached.lastModified() == currentModified) {
+        if (cached != null && cached.stamp().equals(stamp)) {
             return cached;
         }
 
-        ArchiveIndex index = new ArchiveIndex(currentModified, readCentralDirectory(archivePath));
+        ArchiveIndex index = new ArchiveIndex(stamp, readCentralDirectory(archivePath));
         indexCache.put(cacheKey, index);
         return index;
     }
