@@ -190,6 +190,7 @@ export class ReaderEventService {
     });
 
     this.view.addEventListener('media-overlay-error', (event: Event) => {
+      // SAFETY: foliate dispatches media-overlay-error as a CustomEvent; detail stays unknown.
       const e = event as CustomEvent<unknown>;
       this.eventSubject.next({type: 'media-overlay-error', detail: e.detail});
     });
@@ -330,7 +331,9 @@ export class ReaderEventService {
       }, '*');
     }) as EventListener, {capture: true});
 
+    // SAFETY: a dblclick listener only ever receives MouseEvents.
     track(doc, 'dblclick', ((event: MouseEvent) => {
+      // SAFETY: the target is in the book's iframe — another realm, where `instanceof HTMLElement` fails.
       const ids = this.collectElementIds(event.target as HTMLElement | null);
       if (!ids.length) return;
       this.eventSubject.next({type: 'readalong-seek', detail: {doc, ids}});

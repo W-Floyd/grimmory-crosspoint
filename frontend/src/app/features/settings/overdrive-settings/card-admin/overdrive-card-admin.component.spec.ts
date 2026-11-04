@@ -91,7 +91,7 @@ describe('OverdriveCardAdminComponent', () => {
     const budget = {identity: 'card-a', limits: {perHour: 5}, rate: rate()} as OverDriveCardBudget;
     c.budgets.set([budget]);
 
-    c.onLimitChange(budget, 'perHour', '');
+    c.onLimitChange(budget, 'perHour', null);
 
     // Zero would ground the card; blank means the window is simply not capped.
     expect(c.limitsFor(budget).perHour).toBeNull();
@@ -102,7 +102,7 @@ describe('OverdriveCardAdminComponent', () => {
     const c = setup();
     const budget = {identity: 'card-a', limits: {}, rate: rate()} as OverDriveCardBudget;
     c.budgets.set([budget]);
-    c.onLimitChange(budget, 'perMonth', '120');
+    c.onLimitChange(budget, 'perMonth', 120);
 
     c.saveLimits(budget);
 
@@ -408,7 +408,7 @@ describe('OverdriveCardAdminComponent', () => {
     const component = setup();
     const budget = {identity: 'card-1', limits: {perMonth: 145}, effective: {}, rate: rate()} as OverDriveCardBudget;
 
-    component.onLimitChange(budget, 'perMonth', '');
+    component.onLimitChange(budget, 'perMonth', null);
 
     // Zero would ground the card permanently and the server rejects it; null hands the window back.
     expect(component.limitsFor(budget).perMonth).toBeNull();

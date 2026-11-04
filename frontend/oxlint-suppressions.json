@@ -85,14 +85,6 @@
       "count": 3
     }
   },
-  "src/app/core/services/overdrive.service.ts": {
-    "anti-slop/no-unsafe-dictionary-type": {
-      "count": 3
-    },
-    "typescript/prefer-optional-chain": {
-      "count": 1
-    }
-  },
   "src/app/core/services/pwa-update.service.ts": {
     "typescript/no-unsafe-assignment": {
       "count": 1
@@ -766,7 +758,7 @@
   },
   "src/app/features/metadata/component/book-metadata-center/metadata-viewer/metadata-viewer.component.ts": {
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 3
+      "count": 2
     },
     "typescript/no-unnecessary-condition": {
       "count": 23
@@ -895,32 +887,6 @@
       "count": 2
     }
   },
-  "src/app/features/overdrive/overdrive-catalog.component.ts": {
-    "anti-slop/no-known-value-widening": {
-      "count": 2
-    },
-    "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 8
-    },
-    "typescript/consistent-type-assertions": {
-      "count": 2
-    },
-    "typescript/no-unnecessary-condition": {
-      "count": 44
-    },
-    "typescript/no-unnecessary-template-expression": {
-      "count": 1
-    },
-    "typescript/no-unsafe-member-access": {
-      "count": 1
-    },
-    "typescript/no-unsafe-return": {
-      "count": 1
-    },
-    "typescript/prefer-nullish-coalescing": {
-      "count": 1
-    }
-  },
   "src/app/features/readers/audiobook-player/audiobook-player.component.ts": {
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 1
@@ -945,7 +911,7 @@
   },
   "src/app/features/readers/cbx-reader/cbx-reader.component.ts": {
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 48
+      "count": 47
     },
     "typescript/no-floating-promises": {
       "count": 1
@@ -998,7 +964,7 @@
   },
   "src/app/features/readers/ebook-reader/core/event.service.ts": {
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 22
+      "count": 19
     },
     "typescript/no-deprecated": {
       "count": 1
@@ -1020,7 +986,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 4
+      "count": 2
     },
     "typescript/no-unnecessary-condition": {
       "count": 2
@@ -1090,14 +1056,6 @@
       "count": 1
     },
     "typescript/no-unsafe-member-access": {
-      "count": 1
-    }
-  },
-  "src/app/features/readers/ebook-reader/features/readalong/readalong.service.ts": {
-    "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 1
-    },
-    "typescript/prefer-readonly": {
       "count": 1
     }
   },
@@ -1348,7 +1306,7 @@
   },
   "src/app/features/settings/global-preferences/metadata-provider-settings/metadata-provider-settings.component.ts": {
     "typescript/no-unnecessary-condition": {
-      "count": 30
+      "count": 29
     }
   },
   "src/app/features/settings/library-metadata-settings/library-metadata-settings.component.ts": {
@@ -1374,10 +1332,10 @@
       "count": 2
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 10
+      "count": 9
     },
     "typescript/no-unnecessary-condition": {
-      "count": 4
+      "count": 3
     },
     "typescript/no-unsafe-argument": {
       "count": 1
@@ -1387,37 +1345,6 @@
     },
     "typescript/no-unsafe-member-access": {
       "count": 1
-    }
-  },
-  "src/app/features/settings/overdrive-settings/card-admin/overdrive-card-admin.component.ts": {
-    "anti-slop/no-unknown-parameters": {
-      "count": 2
-    },
-    "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 1
-    },
-    "typescript/no-unnecessary-condition": {
-      "count": 14
-    },
-    "typescript/prefer-readonly": {
-      "count": 2
-    }
-  },
-  "src/app/features/settings/overdrive-settings/overdrive-settings.component.ts": {
-    "typescript/no-deprecated": {
-      "count": 1
-    },
-    "typescript/no-unnecessary-condition": {
-      "count": 26
-    },
-    "typescript/no-unsafe-argument": {
-      "count": 14
-    },
-    "typescript/no-unsafe-assignment": {
-      "count": 1
-    },
-    "typescript/no-unsafe-member-access": {
-      "count": 28
     }
   },
   "src/app/features/settings/reader-preferences/cbx-reader-preferences/cbx-reader-preferences-component.ts": {
@@ -1830,7 +1757,7 @@
   },
   "src/app/shared/components/book-uploader/book-uploader.component.ts": {
     "typescript/no-unnecessary-condition": {
-      "count": 5
+      "count": 4
     },
     "typescript/no-unsafe-assignment": {
       "count": 1
@@ -1852,7 +1779,7 @@
       "count": 4
     },
     "typescript/no-unnecessary-condition": {
-      "count": 9
+      "count": 7
     },
     "typescript/no-unsafe-argument": {
       "count": 1

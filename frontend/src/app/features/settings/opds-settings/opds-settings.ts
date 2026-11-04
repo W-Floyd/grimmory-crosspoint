@@ -120,7 +120,7 @@ export class OpdsSettings implements OnInit {
     this.opdsEnabled = settings.opdsServerEnabled ?? false;
     this.komgaApiEnabled = settings.komgaApiEnabled ?? false;
     this.komgaGroupUnknown = settings.komgaGroupUnknown ?? true;
-    this.opdsReplaceCover = settings.opdsReplaceCover ?? false;
+    this.opdsReplaceCover = settings.opdsReplaceCover;
 
     if (this.opdsEnabled && !this.hasLoadedPresets) {
       this.loadDevicePresets();
@@ -342,10 +342,12 @@ export class OpdsSettings implements OnInit {
     const groups = new Map<string, OpdsDevicePreset[]>();
     for (const preset of this.devicePresets()) {
       const brand = preset.brand || 'Other';
-      if (!groups.has(brand)) {
-        groups.set(brand, []);
+      let group = groups.get(brand);
+      if (!group) {
+        group = [];
+        groups.set(brand, group);
       }
-      groups.get(brand)!.push(preset);
+      group.push(preset);
     }
     return [...groups.entries()].map(([brand, presets]) => ({brand, presets}));
   }

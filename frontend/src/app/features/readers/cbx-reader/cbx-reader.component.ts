@@ -429,9 +429,10 @@ export class CbxReaderComponent implements OnInit, OnDestroy {
             this.currentBook.set(book);
 
             // Determine which file ID to use for progress tracking
-            if (this.altFileId() != null) {
+            const altFileId = this.altFileId();
+            if (altFileId != null) {
               // Exact file chosen (disambiguates two files of the same format).
-              this.bookFileId.set(this.altFileId()!);
+              this.bookFileId.set(altFileId);
             } else if (this.altBookType()) {
               const altFile = book.alternativeFormats?.find(f => f.bookType === this.altBookType());
               this.bookFileId.set(altFile?.id ?? null);

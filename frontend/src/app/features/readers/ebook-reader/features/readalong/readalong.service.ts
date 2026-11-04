@@ -23,7 +23,7 @@ const NAVIGATION_SETTLE_MS = 300;
  */
 @Injectable()
 export class ReaderReadalongService {
-  private viewManager = inject(ReaderViewManagerService);
+  private readonly viewManager = inject(ReaderViewManagerService);
 
   private readonly _available = signal(false);
   private readonly _state = signal<ReadalongState>('stopped');
@@ -164,7 +164,7 @@ export class ReaderReadalongService {
 
   /** Advances to the next speed in {@link READALONG_RATES}, wrapping at the end. */
   cycleRate(): void {
-    const index = READALONG_RATES.indexOf(this._rate() as typeof READALONG_RATES[number]);
+    const index = READALONG_RATES.findIndex(rate => rate === this._rate());
     const next = READALONG_RATES[(index + 1) % READALONG_RATES.length];
     this.setRate(next);
   }

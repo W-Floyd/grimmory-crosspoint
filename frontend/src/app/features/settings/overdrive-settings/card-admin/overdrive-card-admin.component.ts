@@ -24,6 +24,7 @@ import {
   OverDriveShareUser
 } from '../../../../core/services/overdrive.service';
 import { UserService } from '../../user-management/user.service';
+import {errorMessage} from '../../../../shared/util/error-message';
 
 /** How a delegated card link is performed — each artifact is one the user can pass on. */
 type LinkMethod = 'setup-code' | 'card-pin' | 'token';
@@ -131,11 +132,11 @@ export class OverdriveCardAdminComponent implements OnInit {
   /** Identity currently being saved, so only that row's button spins. */
   savingLimitsFor = signal<string | null>(null);
   /** In-progress edits, keyed by identity — applied only when the row is saved. */
-  private limitEdits = signal<Record<string, OverDriveBorrowLimits>>({});
+  private readonly limitEdits = signal<Partial<Record<string, OverDriveBorrowLimits>>>({});
 
   /** The deployment default every card falls back on, and its own unsaved edit. */
   defaultLimits = signal<OverDriveBorrowLimits>({});
-  private defaultEdit = signal<OverDriveBorrowLimits | null>(null);
+  private readonly defaultEdit = signal<OverDriveBorrowLimits | null>(null);
   savingDefault = signal(false);
 
   /** The five windows, in the order the grid shows them. */
@@ -157,12 +158,12 @@ export class OverdriveCardAdminComponent implements OnInit {
 
   /** The values a row's inputs should show: the user's unsaved edit, else what is stored. */
   limitsFor(budget: OverDriveCardBudget): OverDriveBorrowLimits {
-    return this.limitEdits()[budget.identity] ?? budget.limits ?? {};
+    return this.limitEdits()[budget.identity] ?? budget.limits;
   }
 
   /** The same for the default row. */
   defaultLimitsFor(): OverDriveBorrowLimits {
-    return this.defaultEdit() ?? this.defaultLimits() ?? {};
+    return this.defaultEdit() ?? this.defaultLimits();
   }
 
   /**
@@ -183,25 +184,24 @@ export class OverdriveCardAdminComponent implements OnInit {
     if (stored !== null && stored !== undefined && stored < 0) {
       return 'none';
     }
-    const effective = budget.effective?.[window];
+    const effective = budget.effective[window];
     return effective === null || effective === undefined ? 'none' : String(effective);
   }
 
   /** Record an edit without saving. Blank hands the window back to the default rather than to zero. */
-  onLimitChange(budget: OverDriveCardBudget, window: keyof OverDriveBorrowLimits, value: unknown): void {
+  onLimitChange(budget: OverDriveCardBudget, window: keyof OverDriveBorrowLimits, value: number | null): void {
     this.limitEdits.update(edits => ({
       ...edits,
       [budget.identity]: { ...this.limitsFor(budget), [window]: this.parseLimit(value) }
     }));
   }
 
-  onDefaultLimitChange(window: keyof OverDriveBorrowLimits, value: unknown): void {
+  onDefaultLimitChange(window: keyof OverDriveBorrowLimits, value: number | null): void {
     this.defaultEdit.set({ ...this.defaultLimitsFor(), [window]: this.parseLimit(value) });
   }
 
-  private parseLimit(value: unknown): number | null {
-    const parsed = value === '' || value === null || value === undefined ? null : Number(value);
-    return parsed !== null && Number.isFinite(parsed) ? parsed : null;
+  private parseLimit(value: number | null): number | null {
+    return value !== null && Number.isFinite(value) ? value : null;
   }
 
   /** True when this card has opted out of every ceiling rather than deferring to the default. */
@@ -226,7 +226,7 @@ export class OverdriveCardAdminComponent implements OnInit {
   private loadDefaultLimits(): void {
     this.overdriveService.defaultCardLimits().subscribe({
       // Best-effort: a failure here costs the grid its placeholders, not its point.
-      next: (limits) => this.defaultLimits.set(limits ?? {}),
+      next: (limits) => this.defaultLimits.set(limits),
       error: () => this.defaultLimits.set({})
     });
   }
@@ -239,20 +239,20 @@ export class OverdriveCardAdminComponent implements OnInit {
     this.savingDefault.set(true);
     this.overdriveService.setDefaultCardLimits(this.defaultLimitsFor()).subscribe({
       next: (saved) => {
-        this.defaultLimits.set(saved ?? {});
+        this.defaultLimits.set(saved);
         this.defaultEdit.set(null);
         this.savingDefault.set(false);
         // Every card that defers to the default is now held to different numbers, and the grid shows
         // those numbers — so it has to be re-read rather than patched in place.
         this.overdriveService.cardLimits().subscribe({
-          next: (budgets) => this.budgets.set(budgets ?? [])
+          next: (budgets) => this.budgets.set(budgets)
         });
         this.messageService.add({ severity: 'success', summary: 'Default limits saved',
           detail: 'Every card that has not set its own now uses these.' });
       },
       error: (err: unknown) => {
         this.savingDefault.set(false);
-        this.error.set(this.messageOf(err, 'Could not save the default borrow limits'));
+        this.error.set(errorMessage(err, 'Could not save the default borrow limits'));
       }
     });
   }
@@ -275,7 +275,7 @@ export class OverdriveCardAdminComponent implements OnInit {
       },
       error: (err: unknown) => {
         this.savingLimitsFor.set(null);
-        this.error.set(this.messageOf(err, 'Could not save the borrow limits'));
+        this.error.set(errorMessage(err, 'Could not save the borrow limits'));
       }
     });
   }
@@ -291,19 +291,19 @@ export class OverdriveCardAdminComponent implements OnInit {
     this.overdriveService.cardLimits().subscribe({
       // Best-effort: the card list is the point of this section, and a limits failure should not
       // hide it.
-      next: (budgets) => this.budgets.set(budgets ?? []),
+      next: (budgets) => this.budgets.set(budgets),
       error: () => this.budgets.set([])
     });
     this.overdriveService.allCards().subscribe({
       next: (cards) => {
-        this.cards.set(cards ?? []);
+        this.cards.set(cards);
         this.loading.set(false);
         this.loaded.set(true);
       },
       error: (err) => {
         this.loading.set(false);
         this.loaded.set(true);
-        this.error.set(this.messageOf(err, 'Could not load cards'));
+        this.error.set(errorMessage(err, 'Could not load cards'));
       }
     });
   }
@@ -336,7 +336,7 @@ export class OverdriveCardAdminComponent implements OnInit {
           detail: label ? `${card.ownerName}'s card labelled "${label}"` : `Label cleared on ${card.ownerName}'s card`
         });
       },
-      error: (err) => this.error.set(this.messageOf(err, 'Rename failed'))
+      error: (err) => this.error.set(errorMessage(err, 'Rename failed'))
     });
   }
 
@@ -346,7 +346,7 @@ export class OverdriveCardAdminComponent implements OnInit {
         severity: 'success', summary: 'Refreshed',
         detail: `Re-linked ${this.cardLabel(card)} for ${card.ownerName}`
       }),
-      error: (err) => this.error.set(this.messageOf(err, 'Refresh failed'))
+      error: (err) => this.error.set(errorMessage(err, 'Refresh failed'))
     });
   }
 
@@ -373,7 +373,7 @@ export class OverdriveCardAdminComponent implements OnInit {
             detail: `Removed ${this.cardLabel(card)} from ${card.ownerName}`
           });
         },
-        error: (err) => this.error.set(this.messageOf(err, 'Unlink failed'))
+        error: (err) => this.error.set(errorMessage(err, 'Unlink failed'))
       })
     });
   }
@@ -386,11 +386,11 @@ export class OverdriveCardAdminComponent implements OnInit {
     this.shareDialogVisible.set(true);
     // Scoped to the owner, so the owner is excluded as a target and the manager themselves is offered.
     this.overdriveService.shareableUsers(card.ownerUserId).subscribe({
-      next: (users) => this.shareableUsers.set(users ?? []),
+      next: (users) => this.shareableUsers.set(users),
       error: () => this.shareableUsers.set([])
     });
     this.overdriveService.listShares(card.cardId, card.ownerUserId).subscribe({
-      next: (shares) => this.selectedShareUserIds.set((shares ?? []).map(s => s.userId)),
+      next: (shares) => this.selectedShareUserIds.set(shares.map(s => s.userId)),
       error: () => this.selectedShareUserIds.set([])
     });
   }
@@ -416,7 +416,7 @@ export class OverdriveCardAdminComponent implements OnInit {
       },
       error: (err) => {
         this.savingShares.set(false);
-        this.error.set(this.messageOf(err, 'Share update failed'));
+        this.error.set(errorMessage(err, 'Share update failed'));
       }
     });
   }
@@ -461,7 +461,7 @@ export class OverdriveCardAdminComponent implements OnInit {
     this.linkKeyResolution.set(null);
     this.linkDialogVisible.set(true);
     this.overdriveService.shareableUsers().subscribe({
-      next: (users) => this.linkableUsers.set(users ?? []),
+      next: (users) => this.linkableUsers.set(users),
       error: () => this.linkableUsers.set([])
     });
   }
@@ -510,14 +510,14 @@ export class OverdriveCardAdminComponent implements OnInit {
         const owner = this.linkableUsers().find(u => u.userId === userId);
         this.messageService.add({
           severity: 'success', summary: 'Card linked',
-          detail: `Linked ${cards?.length ?? 0} card(s) for ${owner ? this.userOptionLabel(owner) : 'that user'}`
+          detail: `Linked ${cards.length} card(s) for ${owner ? this.userOptionLabel(owner) : 'that user'}`
         });
         // The new rows belong to another user, so re-fetch rather than patching local state.
         this.load();
       },
       error: (err) => {
         this.linking.set(false);
-        this.linkError.set(this.messageOf(err, 'Link failed'));
+        this.linkError.set(errorMessage(err, 'Link failed'));
       }
     });
   }
@@ -566,8 +566,4 @@ export class OverdriveCardAdminComponent implements OnInit {
     this.cards.update(cards => cards.map(c => this.sameCard(c, card) ? { ...c, ...patch } : c));
   }
 
-  private messageOf(err: unknown, fallback: string): string {
-    const e = err as { error?: { message?: string }; message?: string } | null;
-    return e?.error?.message || e?.message || fallback;
-  }
 }

@@ -101,7 +101,7 @@ export class BookUploaderComponent {
     const permissions = this.userService.currentUser()?.permissions;
     if (permissions?.admin || permissions?.canAccessOverdrive) {
       this.overdriveService.capabilities().subscribe({
-        next: (c) => this.acsmSupported.set(!!c?.acsmHandlerConfigured),
+        next: (c) => this.acsmSupported.set(c.acsmHandlerConfigured),
         error: () => this.acsmSupported.set(false)
       });
     }

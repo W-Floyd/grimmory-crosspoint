@@ -372,11 +372,11 @@ export class ReaderViewManagerService {
 
   /** Starts readalong playback at the section currently on screen. */
   startMediaOverlay(): Observable<void> {
-    const view = this.view;
-    if (!view?.startMediaOverlay) {
+    const start = this.view?.startMediaOverlay?.bind(this.view);
+    if (!start) {
       return throwError(() => new Error('Media overlay not available'));
     }
-    return defer(() => from(view.startMediaOverlay!())).pipe(map(() => undefined));
+    return defer(() => from(start())).pipe(map(() => undefined));
   }
 
   /**
@@ -384,11 +384,11 @@ export class ReaderViewManagerService {
    * Emits whether a phrase matched: text outside the narration matches nothing.
    */
   startMediaOverlayAt(doc: Document, ids: string[]): Observable<boolean> {
-    const view = this.view;
-    if (!view?.startMediaOverlayAt) {
+    const startAt = this.view?.startMediaOverlayAt?.bind(this.view);
+    if (!startAt) {
       return of(false);
     }
-    return defer(() => from(view.startMediaOverlayAt!(doc, ids)));
+    return defer(() => from(startAt(doc, ids)));
   }
 
   pauseMediaOverlay(): void {

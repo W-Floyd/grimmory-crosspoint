@@ -458,7 +458,7 @@
   },
   "src/app/features/settings/overdrive-settings/card-admin/overdrive-card-admin.component.ts": {
     "@angular-eslint/prefer-signals": {
-      "count": 29
+      "count": 27
     }
   },
   "src/app/features/settings/overdrive-settings/overdrive-settings.component.html": {

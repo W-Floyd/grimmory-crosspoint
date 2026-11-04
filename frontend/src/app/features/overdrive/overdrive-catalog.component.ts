@@ -2,7 +2,7 @@ import { Component, computed, DestroyRef, effect, ElementRef, inject, OnInit, si
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
+import { HttpResponse } from '@angular/common/http';
 import { TranslocoService } from '@jsverse/transloco';
 import { OverDriveService, OverDriveAuditEntry, OverDriveAutoSyncSchedule, OverDriveBookbagEntry, OverDriveBookbagPlanEntry, OverDriveCard, OverDriveCatalogItem, OverDriveCreator, OverDriveHold, OverDriveLibrary, OverDriveLibraryAvailability, OverDriveLoan, OverDriveSearchFilter, OverDriveSyncResult, OverDriveToolEvent, OverDriveToolLog, OverDriveToolLogFrame } from '../../core/services/overdrive.service';
 
@@ -27,6 +27,7 @@ import { ConfirmDialog } from '@openng/optimus-ui/confirmdialog';
 import { OverdriveTitleCellComponent } from './overdrive-title-cell.component';
 import { TaskService, TaskType } from '../settings/task-management/task.service';
 import { OverdriveCoverComponent } from './overdrive-cover.component';
+import {errorMessage} from '../../shared/util/error-message';
 
 /**
  * How soon after borrowing a return is worth confirming, for titles with no known runtime. Audiobooks
@@ -42,10 +43,16 @@ const EARLY_RETURN_THRESHOLD_MINUTES = 12 * 60;
  * reports "228.2 MB / ~228.2 MB" against a real 217.6 MB), so `current` can overshoot `total` and
  * drive the bar past full — which reads as 100% while the fill is still visibly short of the end.
  */
+/** A card's usage against one of its limits, for the at-a-glance capacity bar. */
+interface CapacityBar {
+  count: number | null;
+  limit: number | null;
+  pct: number;
+  atLimit: boolean;
+}
+
 export function toolProgressPct(e: { pct?: number; current?: number; total?: number }): number | null {
-  const raw = e.pct != null
-    ? e.pct
-    : (e.total ? ((e.current ?? 0) / e.total) * 100 : null);
+  const raw = e.pct ?? (e.total ? ((e.current ?? 0) / e.total) * 100 : null);
   if (raw == null || !Number.isFinite(raw)) {
     return null;
   }
@@ -390,11 +397,11 @@ export class OverdriveCatalogComponent implements OnInit {
     this.loadingLoanAvailability.set(true);
     this.overdriveService.titleAvailabilityBatch(titleIds, cardIds).subscribe({
       next: (byTitle) => {
-        this.loanAvailability.update(m => ({ ...m, ...(byTitle ?? {}) }));
+        this.loanAvailability.update(m => ({ ...m, ...byTitle }));
         this.loadingLoanAvailability.set(false);
       },
       error: (err: unknown) => {
-        this.error.set(this.errorMessage(err, 'Availability check failed'));
+        this.error.set(errorMessage(err, 'Availability check failed'));
         this.loadingLoanAvailability.set(false);
       }
     });
@@ -490,7 +497,7 @@ export class OverdriveCatalogComponent implements OnInit {
       const bv = key(field, b);
       const cmp = typeof av === 'number' && typeof bv === 'number'
         ? av - bv
-        : String(av ?? '').localeCompare(String(bv ?? ''));
+        : String(av).localeCompare(String(bv));
       return order * cmp;
     });
   }
@@ -552,6 +559,7 @@ export class OverdriveCatalogComponent implements OnInit {
        .pipe(takeUntilDestroyed(this.destroyRef))
        .subscribe(msg => {
          try {
+           // SAFETY: our own server's frame; every field is optional and checked before use.
            const frame = JSON.parse(msg.body) as OverDriveToolLogFrame;
            // Only for work this page started. The server no longer streams unattended runs at all,
            // but a second session of the same user still can — and having the console thrown over
@@ -648,11 +656,11 @@ export class OverdriveCatalogComponent implements OnInit {
      this.loadAutoSyncSchedule();
      this.overdriveService.capabilities().subscribe({
        next: (c) => {
-         this.acsmConfigured.set(!!c?.acsmHandlerConfigured);
-         this.audiobookConfigured.set(!!c?.audiobookHandlerConfigured);
-         this.magazineConfigured.set(!!c?.magazineHandlerConfigured);
-         this.ebookConfigured.set(!!c?.ebookHandlerConfigured);
-         this.libbyBlockedReason.set(c?.libbyClient?.blockedReason ?? null);
+         this.acsmConfigured.set(c.acsmHandlerConfigured);
+         this.audiobookConfigured.set(c.audiobookHandlerConfigured);
+         this.magazineConfigured.set(c.magazineHandlerConfigured);
+         this.ebookConfigured.set(c.ebookHandlerConfigured);
+         this.libbyBlockedReason.set(c.libbyClient?.blockedReason ?? null);
        },
        error: () => { /* leave default (assume not configured) */ }
      });
@@ -779,7 +787,7 @@ export class OverdriveCatalogComponent implements OnInit {
    }
 
    /** Loan capacity for a card's at-a-glance bar: count, limit, fill % and whether it's at the limit. */
-   loanBar(cardId: string): { count: number | null; limit: number | null; pct: number; atLimit: boolean } {
+   loanBar(cardId: string): CapacityBar {
      const count = this.loanCountFor(cardId);
      const limit = this.loanLimitFor(cardId);
      const pct = count != null && limit != null && limit > 0 ? Math.min(100, (count / limit) * 100) : 0;
@@ -787,7 +795,7 @@ export class OverdriveCatalogComponent implements OnInit {
    }
 
    /** Hold capacity for a card's at-a-glance bar. `canHold` is false when the card can't place holds. */
-   holdBar(cardId: string): { count: number | null; limit: number | null; pct: number; atLimit: boolean; canHold: boolean } {
+   holdBar(cardId: string): CapacityBar & { canHold: boolean } {
      const count = this.holdCountFor(cardId);
      const limit = this.holdLimitFor(cardId);
      const pct = count != null && limit != null && limit > 0 ? Math.min(100, (count / limit) * 100) : 0;
@@ -800,7 +808,8 @@ export class OverdriveCatalogComponent implements OnInit {
      const syncs = this.cardSyncs();
      let total = 0; let any = false;
      for (const card of this.selectedCards()) {
-       const v = pick(syncs.get(card.cardId) ?? {} as OverDriveSyncResult);
+       const s = syncs.get(card.cardId);
+       const v = s ? pick(s) : null;
        if (v != null) { total += v; any = true; }
      }
      return any ? total : fallback;
@@ -810,7 +819,8 @@ export class OverdriveCatalogComponent implements OnInit {
      const syncs = this.cardSyncs();
      let total = 0; let allKnown = this.selectedCards().length > 0;
      for (const card of this.selectedCards()) {
-       const v = pick(syncs.get(card.cardId) ?? {} as OverDriveSyncResult);
+       const s = syncs.get(card.cardId);
+       const v = s ? pick(s) : null;
        if (v == null) { allKnown = false; break; }
        total += v;
      }
@@ -861,8 +871,8 @@ export class OverdriveCatalogComponent implements OnInit {
    private loadCards(): void {
      this.overdriveService.cards().subscribe({
        next: (cards) => {
-         this.cards.set(cards ?? []);
-         if (cards && cards.length > 0) {
+         this.cards.set(cards);
+         if (cards.length > 0) {
            this.selectedCards.set([...cards]);
            this.syncSelectedCards();
          } else {
@@ -875,7 +885,7 @@ export class OverdriveCatalogComponent implements OnInit {
    }
 
    onCardsChange(cards: OverDriveCard[]): void {
-     this.selectedCards.set(cards ?? []);
+     this.selectedCards.set(cards);
      this.syncSelectedCards();
    }
 
@@ -899,7 +909,7 @@ export class OverdriveCatalogComponent implements OnInit {
        next: (byCard) => {
          const map = new Map<string, OverDriveSyncResult>();
          for (const card of cards) {
-           const s = byCard?.[card.cardId];
+           const s = byCard[card.cardId];
            if (s) map.set(card.cardId, s);
          }
          this.cardSyncs.set(map);
@@ -911,7 +921,7 @@ export class OverdriveCatalogComponent implements OnInit {
          }
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Failed to sync'));
+         this.error.set(errorMessage(err, 'Failed to sync'));
          this.loading.set(false);
        }
      });
@@ -927,9 +937,9 @@ export class OverdriveCatalogComponent implements OnInit {
        const s = map.get(card.cardId);
        if (!s) continue;
        // Trust the sync feed's own card tag; fall back to the card we asked for only if it's missing.
-       for (const l of s.loans ?? []) loans.push({ ...l, cardId: l.cardId ?? card.cardId });
-       for (const h of s.holds ?? []) holds.push({ ...h, cardId: h.cardId ?? card.cardId });
-       for (const lib of s.libraries ?? []) libraries.set(lib.preferredKey, lib);
+       for (const l of s.loans) loans.push({ ...l, cardId: l.cardId ?? card.cardId });
+       for (const h of s.holds) holds.push({ ...h, cardId: h.cardId ?? card.cardId });
+       for (const lib of s.libraries) libraries.set(lib.preferredKey, lib);
      }
      this.loans.set(loans);
      this.holds.set(holds);
@@ -1010,13 +1020,13 @@ export class OverdriveCatalogComponent implements OnInit {
      const filter = this.serverSideFilter() ? this.serverFilter() : undefined;
      this.overdriveService.search(query, this.selectedCards().map(c => c.cardId), filter, limit).subscribe({
        next: (items) => {
-         this.results.set(items ?? []);
+         this.results.set(items);
          this.searching.set(false);
          this.loadingMore.set(false);
          this.searched = true;
          },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, isLoadMore ? 'Load more failed' : 'Search failed'));
+         this.error.set(errorMessage(err, isLoadMore ? 'Load more failed' : 'Search failed'));
          this.searching.set(false);
          this.loadingMore.set(false);
          }
@@ -1051,7 +1061,7 @@ export class OverdriveCatalogComponent implements OnInit {
    /** True when the result's language differs from the user's active language (both known). */
    isForeignLanguage(item: OverDriveCatalogItem): boolean {
      const lang = item.language?.trim().toLowerCase();
-     const user = this.userLanguage()?.trim().toLowerCase();
+     const user = this.userLanguage().trim().toLowerCase();
      return !!lang && !!user && lang !== user;
    }
 
@@ -1126,14 +1136,20 @@ export class OverdriveCatalogComponent implements OnInit {
 
    /** The user's active language code, uppercased. */
    userLanguageLabel(): string {
-     return (this.userLanguage() ?? '').trim().toUpperCase();
+     return this.userLanguage().trim().toUpperCase();
    }
 
    /** The per-library availability with the shortest estimated wait for this title (the best case). */
    private shortestWaitAvailability(item: OverDriveCatalogItem): OverDriveLibraryAvailability | null {
-     const waited = (item.availability ?? []).filter(a => a.estimatedWaitDays != null);
-     if (waited.length === 0) return null;
-     return waited.reduce((best, a) => (a.estimatedWaitDays! < best.estimatedWaitDays! ? a : best));
+     let best: OverDriveLibraryAvailability | null = null;
+     let bestDays = Infinity;
+     for (const a of item.availability ?? []) {
+       if (a.estimatedWaitDays != null && a.estimatedWaitDays < bestDays) {
+         best = a;
+         bestDays = a.estimatedWaitDays;
+       }
+     }
+     return best;
    }
 
    /** Shortest estimated wait (days) across the title's libraries, for the aggregate availability cell. */
@@ -1218,7 +1234,7 @@ export class OverdriveCatalogComponent implements OnInit {
 
    /** Card ids (among selected) that already hold this title. */
    private heldCardIds(item: OverDriveCatalogItem): Set<string> {
-     return new Set(this.holds().filter(h => h.id === item.titleId && h.cardId).map(h => h.cardId!));
+     return new Set(this.holds().flatMap(h => (h.id === item.titleId && h.cardId ? [h.cardId] : [])));
    }
 
    /** Per-library availability entry for a card's library, if the title carries one. */
@@ -1437,7 +1453,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.importingTitleId.set(null);
          },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Import failed'));
+         this.error.set(errorMessage(err, 'Import failed'));
          this.setOutcome(loan.id, 'error');
          this.importingTitleId.set(null);
          }
@@ -1469,7 +1485,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.syncSelectedCards();
          },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Borrow failed'));
+         this.error.set(errorMessage(err, 'Borrow failed'));
          this.setOutcome(hold.id, 'error');
          this.importingTitleId.set(null);
          this.syncSelectedCards();
@@ -1492,7 +1508,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.syncSelectedCards();
          },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Borrow failed'));
+         this.error.set(errorMessage(err, 'Borrow failed'));
          this.setOutcome(hold.id, 'error');
          this.importingTitleId.set(null);
          this.syncSelectedCards();
@@ -1552,7 +1568,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.checkingAll.set(false);
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Availability check failed'));
+         this.error.set(errorMessage(err, 'Availability check failed'));
          this.checkingAll.set(false);
        }
      });
@@ -1569,11 +1585,11 @@ export class OverdriveCatalogComponent implements OnInit {
      this.error.set(null);
      this.overdriveService.titleAvailability(hold.id, others.map(c => c.cardId)).subscribe({
        next: (avail) => {
-         this.holdAvailability.update(m => ({ ...m, [hold.id]: avail ?? [] }));
+         this.holdAvailability.update(m => ({ ...m, [hold.id]: avail }));
          this.checkingHoldId.set(null);
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Availability check failed'));
+         this.error.set(errorMessage(err, 'Availability check failed'));
          this.checkingHoldId.set(null);
        }
      });
@@ -1627,12 +1643,13 @@ export class OverdriveCatalogComponent implements OnInit {
     */
    onHoldElsewhereAndCancel(hold: OverDriveHold): void {
      const target = this.holdableSoonerElsewhere(hold);
-     if (!target || !hold.cardId) return;
+     const sourceCardId = hold.cardId;
+     if (!target || !sourceCardId) return;
      this.importingTitleId.set(hold.id);
      this.error.set(null);
      this.overdriveService.placeHold(target.card.cardId, hold.id).subscribe({
        next: () => {
-         this.overdriveService.cancelHold(hold.cardId!, hold.id).subscribe({
+         this.overdriveService.cancelHold(sourceCardId, hold.id).subscribe({
            next: () => {
              this.messageService.add({ severity: 'success', summary: 'Hold moved',
                detail: `Placed a hold at ${this.shortCardLabel(target.card.cardId)} (~${target.waitDays}d) and cancelled the original` });
@@ -1652,7 +1669,7 @@ export class OverdriveCatalogComponent implements OnInit {
          });
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Could not place the new hold — original hold kept'));
+         this.error.set(errorMessage(err, 'Could not place the new hold — original hold kept'));
          this.setOutcome(hold.id, 'error');
          this.importingTitleId.set(null);
        }
@@ -1665,7 +1682,8 @@ export class OverdriveCatalogComponent implements OnInit {
     */
    onBorrowElsewhereAndCancel(hold: OverDriveHold): void {
      const card = this.availableElsewhere(hold);
-     if (!card || !hold.cardId) return;
+     const sourceCardId = hold.cardId;
+     if (!card || !sourceCardId) return;
      this.importingTitleId.set(hold.id);
      this.error.set(null);
      this.overdriveService.borrowAndImport(card.cardId, {
@@ -1679,7 +1697,7 @@ export class OverdriveCatalogComponent implements OnInit {
      }).subscribe({
        next: (book) => {
          // Borrow succeeded — now cancel the original hold on its own card.
-         this.overdriveService.cancelHold(hold.cardId!, hold.id).subscribe({
+         this.overdriveService.cancelHold(sourceCardId, hold.id).subscribe({
            next: () => {
              const where = this.shortCardLabel(card.cardId);
              const detail = book?.id != null
@@ -1702,7 +1720,7 @@ export class OverdriveCatalogComponent implements OnInit {
        },
        error: (err: unknown) => {
          // Borrow failed → the hold is untouched, so the user keeps their place in line.
-         this.error.set(this.errorMessage(err, 'Borrow failed — hold kept'));
+         this.error.set(errorMessage(err, 'Borrow failed — hold kept'));
          this.setOutcome(hold.id, 'error');
          this.importingTitleId.set(null);
        }
@@ -1723,7 +1741,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.syncSelectedCards();
          },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Cancel hold failed'));
+         this.error.set(errorMessage(err, 'Cancel hold failed'));
          }
       });
      }
@@ -1794,7 +1812,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.syncSelectedCards();
          },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Return failed'));
+         this.error.set(errorMessage(err, 'Return failed'));
          }
       });
      }
@@ -1828,7 +1846,7 @@ export class OverdriveCatalogComponent implements OnInit {
            }
          },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Fulfill failed'));
+         this.error.set(errorMessage(err, 'Fulfill failed'));
          }
       });
      }
@@ -1851,14 +1869,14 @@ export class OverdriveCatalogComponent implements OnInit {
          const url = URL.createObjectURL(blob);
          const a = document.createElement('a');
          a.href = url;
-         a.download = this.downloadFilename(response, `${loan.title || loan.id}`);
+         a.download = this.downloadFilename(response, loan.title || loan.id);
          a.click();
          URL.revokeObjectURL(url);
          this.messageService.add({ severity: 'success', summary: 'Downloaded', detail: 'Audiobook downloaded' });
          this.downloadingLoanId.set(null);
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Audiobook download failed'));
+         this.error.set(errorMessage(err, 'Audiobook download failed'));
          this.downloadingLoanId.set(null);
        },
      });
@@ -1869,17 +1887,6 @@ export class OverdriveCatalogComponent implements OnInit {
      const disposition = response.headers.get('Content-Disposition') ?? '';
      const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
      return match ? decodeURIComponent(match[1]) : fallback;
-   }
-
-   /** Prefer the backend's structured error body message, falling back to a generic string. */
-   private errorMessage(err: unknown, fallback: string): string {
-     if (err instanceof HttpErrorResponse) {
-       return err.error?.message || err.message || fallback;
-     }
-     if (err instanceof Error) {
-       return err.message || fallback;
-     }
-     return fallback;
    }
 
    formatDate(dateStr: string | null | undefined): string {
@@ -2006,12 +2013,12 @@ export class OverdriveCatalogComponent implements OnInit {
      this.bookbagLoading.set(true);
      this.overdriveService.bookbag().subscribe({
        next: (entries) => {
-         this.bookbag.set(entries ?? []);
+         this.bookbag.set(entries);
          this.bookbagLoading.set(false);
          this.loadBookbagPlan();
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Could not load your bookbag'));
+         this.error.set(errorMessage(err, 'Could not load your bookbag'));
          this.bookbagLoading.set(false);
        }
      });
@@ -2035,7 +2042,7 @@ export class OverdriveCatalogComponent implements OnInit {
    /** Fetch the projection. Cheap, and refetched whenever the queue or the schedule changes. */
    loadBookbagPlan(): void {
      this.overdriveService.bookbagPlan().subscribe({
-       next: (entries) => this.bookbagPlan.set(new Map((entries ?? []).map(e => [e.entryId, e]))),
+       next: (entries) => this.bookbagPlan.set(new Map(entries.map(e => [e.entryId, e]))),
        error: () => this.bookbagPlan.set(new Map())
      });
    }
@@ -2087,7 +2094,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.loadAutoSyncSchedule();
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Could not start a run'));
+         this.error.set(errorMessage(err, 'Could not start a run'));
          this.startingRun.set(false);
        }
      });
@@ -2115,7 +2122,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.loadBookbag();
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Could not adopt your holds'));
+         this.error.set(errorMessage(err, 'Could not adopt your holds'));
          this.adoptingHolds.set(false);
        }
      });
@@ -2134,7 +2141,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.loadBookbag();
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Could not add that title to your bookbag'));
+         this.error.set(errorMessage(err, 'Could not add that title to your bookbag'));
          this.setOutcome(item.titleId, 'error');
        }
      });
@@ -2163,7 +2170,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.syncSelectedCards();
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Could not borrow that title right now'));
+         this.error.set(errorMessage(err, 'Could not borrow that title right now'));
          this.bookbagBusyId.set(null);
        }
      });
@@ -2177,7 +2184,7 @@ export class OverdriveCatalogComponent implements OnInit {
          this.bookbagBusyId.set(null);
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Could not remove that title'));
+         this.error.set(errorMessage(err, 'Could not remove that title'));
          this.bookbagBusyId.set(null);
        }
      });
@@ -2198,11 +2205,11 @@ export class OverdriveCatalogComponent implements OnInit {
      this.bookbagBusyId.set(entry.id);
      this.overdriveService.reorderBookbag(ids).subscribe({
        next: (entries) => {
-         this.bookbag.set(entries ?? []);
+         this.bookbag.set(entries);
          this.bookbagBusyId.set(null);
        },
        error: (err: unknown) => {
-         this.error.set(this.errorMessage(err, 'Could not reorder your bookbag'));
+         this.error.set(errorMessage(err, 'Could not reorder your bookbag'));
          this.bookbagBusyId.set(null);
        }
      });
@@ -2259,8 +2266,8 @@ export class OverdriveCatalogComponent implements OnInit {
      this.loadingHistory.set(true);
      this.overdriveService.history(page, this.historyPageSize).subscribe({
        next: (result) => {
-         this.history.set(result?.entries ?? []);
-         this.historyTotal.set(result?.total ?? 0);
+         this.history.set(result.entries);
+         this.historyTotal.set(result.total);
          this.loadingHistory.set(false);
        },
        error: () => { this.loadingHistory.set(false); }

@@ -143,7 +143,7 @@ export class MetadataProviderSettingsComponent {
     this.selectedAudibleDomain = metadataProviderSettings?.audible?.domain ?? 'com';
     this.selectedAppleBooksCountry = metadataProviderSettings?.appleBooks?.country ?? 'US';
     // `enabled` must not ride along: saveSettings spreads these options over the toggle state.
-    const overdrive: Partial<Overdrive> = {...metadataProviderSettings?.overdrive};
+    const overdrive: Partial<Overdrive> = {...metadataProviderSettings.overdrive};
     delete overdrive.enabled;
     this.overdriveOptions = {...this.overdriveOptions, ...overdrive};
     for (const provider of this.catalog.providers()) {

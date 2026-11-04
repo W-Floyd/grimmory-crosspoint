@@ -134,7 +134,7 @@ export interface OverDriveAuditEntry {
 
 export interface OverDriveLoan {
   id: string;
-  title: string;
+  title: string | null;
   /** OverDrive often puts the real book name here (title is the series/franchise). */
   subtitle?: string | null;
   expireDate: string;
@@ -183,7 +183,7 @@ export interface OverDriveAutoReturnSchedule {
 
 export interface OverDriveHold {
   id: string;
-  title: string;
+  title: string | null;
   /** OverDrive often puts the real book name here (title is the series/franchise). */
   subtitle?: string | null;
   /** Flat primary-author name from sync (sync omits the `creators` array). */
@@ -326,8 +326,9 @@ export interface OverDriveLibraryAvailability {
 
 export interface OverDriveCatalogItem {
   titleId: string;
-  formatId: string;
-  title: string;
+  /** Null when the title offers no format this server can borrow. */
+  formatId: string | null;
+  title: string | null;
   /** OverDrive often puts the real book name here (title is the series/franchise). */
   subtitle?: string | null;
   author?: string | null;
@@ -398,6 +399,14 @@ export interface OverDriveBorrowImportRequest {
 }
 
 /** Minimal shape of the imported book returned by borrow-and-import. */
+interface OverDriveLinkCardRequest {
+  libraryKey: string;
+  cardNumber: string;
+  pin: string;
+  userId?: number;
+  linkToCardId?: string;
+}
+
 export interface OverDriveImportedBook {
   id: number;
   title?: string;
@@ -432,9 +441,9 @@ export class OverDriveService {
     // userId links the card for another user — the only link flow that can be delegated, since a setup
     // code or identity token comes from that user's own Libby app or browser session.
     // linkToCardId adds the card to an existing card's Libby identity, so they sync in one call.
-    const body: Record<string, unknown> = { libraryKey, cardNumber, pin };
-    if (ownerUserId != null) body['userId'] = ownerUserId;
-    if (linkToCardId) body['linkToCardId'] = linkToCardId;
+    const body: OverDriveLinkCardRequest = { libraryKey, cardNumber, pin };
+    if (ownerUserId != null) body.userId = ownerUserId;
+    if (linkToCardId) body.linkToCardId = linkToCardId;
     return this.http.post<OverDriveCard[]>(`${this.baseUrl}/link-card`, body);
   }
 
@@ -495,7 +504,7 @@ export class OverDriveService {
   /** Set a friendly display label for a card (blank clears it back to the default name). */
   setCardLabel(cardId: string, name: string, ownerUserId?: number): Observable<void> {
     const params: Record<string, string> = {};
-    if (name && name.trim()) {
+    if (name.trim()) {
       params['name'] = name.trim();
     }
     return this.http.put<void>(`${this.baseUrl}/${cardId}/label`, null, { params: this.ownerParams(params, ownerUserId) });
@@ -587,8 +596,8 @@ export class OverDriveService {
    * Fetch a passive, read-only diagnostics snapshot (config, linked cards, recorded loans). Makes no
    * live OverDrive calls and takes no input.
    */
-  diagnostics(): Observable<Record<string, unknown>> {
-    return this.http.get<Record<string, unknown>>(`${this.baseUrl}/diagnostics`);
+  diagnostics(): Observable<object> {
+    return this.http.get<object>(`${this.baseUrl}/diagnostics`);
   }
 
   // Catalog
@@ -642,8 +651,9 @@ export class OverDriveService {
   }
 
   /** Borrow a title on the given card and import the fulfilled book into a library. */
-  borrowAndImport(cardId: string, request: OverDriveBorrowImportRequest): Observable<OverDriveImportedBook> {
-    return this.http.post<OverDriveImportedBook>(`${this.baseUrl}/${cardId}/borrow-and-import`, request);
+  /** Emits null when the book went to Bookdrop for review instead of a library. */
+  borrowAndImport(cardId: string, request: OverDriveBorrowImportRequest): Observable<OverDriveImportedBook | null> {
+    return this.http.post<OverDriveImportedBook | null>(`${this.baseUrl}/${cardId}/borrow-and-import`, request);
   }
 
   // Sync / loans
@@ -660,8 +670,8 @@ export class OverDriveService {
    * collapses cards sharing a chip into a single upstream call — always prefer this over looping
    * {@link sync} per card. Cards whose sync failed are simply absent from the result.
    */
-  syncAll(cardIds: string[]): Observable<Record<string, OverDriveSyncResult>> {
-    return this.http.get<Record<string, OverDriveSyncResult>>(`${this.baseUrl}/sync-all`, {
+  syncAll(cardIds: string[]): Observable<Partial<Record<string, OverDriveSyncResult>>> {
+    return this.http.get<Partial<Record<string, OverDriveSyncResult>>>(`${this.baseUrl}/sync-all`, {
       params: { identities: cardIds.join(',') }
     });
   }

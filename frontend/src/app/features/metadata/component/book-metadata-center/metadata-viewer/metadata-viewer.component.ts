@@ -194,13 +194,12 @@ export class MetadataViewerComponent implements OnInit, AfterViewChecked {
     const files = [
       ...(book.primaryFile ? [{f: book.primaryFile, primary: true}] : []),
       ...(book.alternativeFormats ?? []).map(f => ({f, primary: false})),
-    ].filter(({f}) => f.bookType && READABLE.includes(f.bookType));
+    ].flatMap(({f, primary}) => (f.bookType && READABLE.includes(f.bookType) ? [{f, type: f.bookType, primary}] : []));
 
     const multiple = files.length > 1;
     const items: MenuItem[] = [];
 
-    files.forEach(({f, primary}) => {
-      const type = f.bookType!;
+    files.forEach(({f, type, primary}) => {
       // With one file keep the terse format label; with several, show the filename to tell them apart.
       const base = multiple && f.fileName ? this.truncateFileName(f.fileName, 32) : type;
       const label = primary && multiple ? `${base} (${this.t.translate('metadata.viewer.menuPrimary')})` : base;

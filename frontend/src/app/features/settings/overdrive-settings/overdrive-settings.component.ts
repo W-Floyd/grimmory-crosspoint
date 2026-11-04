@@ -21,6 +21,7 @@ import { LibraryService } from '../../../features/book/service/library.service';
 import { OverdriveCardAdminComponent } from './card-admin/overdrive-card-admin.component';
 import { Library, LibraryPath } from '../../../features/book/model/library.model';
 import { UserService } from '../user-management/user.service';
+import {errorMessage} from '../../../shared/util/error-message';
 
 /** Everything off, matching the server's defaults for a user who has never opted in. */
 const AUTO_SYNC_DEFAULTS: OverDriveAutoSyncSettings = {
@@ -68,7 +69,7 @@ export class OverdriveSettingsComponent {
    * only accepts from an admin — so without this the controls rendered for everyone with OverDrive
    * access, and saving them failed with a 403.
    */
-  readonly canEditGlobalSettings = computed(() => !!this.userService.currentUser()?.permissions?.admin);
+  readonly canEditGlobalSettings = computed(() => !!this.userService.currentUser()?.permissions.admin);
 
   // Grimmory libraries (with paths) for the per-type import-destination selectors.
   readonly grimmoryLibraries = this.libraryService.libraries;
@@ -104,7 +105,7 @@ export class OverdriveSettingsComponent {
   // The "add a key" input.
   newKeyInput = signal('');
   // Per-key Thunder validation result (or 'checking' while in flight), keyed by the key itself.
-  keyStatus = signal<Record<string, OverDriveLibraryResolution | 'checking'>>({});
+  keyStatus = signal<Partial<Record<string, OverDriveLibraryResolution | 'checking'>>>({});
   setupCode = signal('');
   connecting = signal(false);
   linkedCards = signal<OverDriveCard[]>([]);
@@ -146,21 +147,21 @@ export class OverdriveSettingsComponent {
 
   constructor() {
     effect(() => {
-      const overdrive = this.appSettingsService.appSettings()?.metadataProviderSettings?.overdrive;
+      const overdrive = this.appSettingsService.appSettings()?.metadataProviderSettings.overdrive;
       if (overdrive) {
         this.libraryKeys.set([...new Set((overdrive.libraryKeys ?? []).map(k => k.trim()).filter(k => k.length > 0))]);
         this.formatPreference = this.orderFormatPreference(overdrive.formatPreference);
       }
     });
     this.overdriveService.cards().subscribe({
-      next: (cards) => this.linkedCards.set(cards ?? []),
+      next: (cards) => this.linkedCards.set(cards),
       error: () => this.linkedCards.set([])
     });
     this.overdriveService.capabilities().subscribe({
       next: (c) => {
-        this.credentialStorageEnabled.set(!!c?.credentialStorageEnabled);
-        this.acsmHandlerConfigured.set(!!c?.acsmHandlerConfigured);
-        this.libbyBlockedReason.set(c?.libbyClient?.blockedReason ?? null);
+        this.credentialStorageEnabled.set(c.credentialStorageEnabled);
+        this.acsmHandlerConfigured.set(c.acsmHandlerConfigured);
+        this.libbyBlockedReason.set(c.libbyClient?.blockedReason ?? null);
       },
       error: () => {
         this.credentialStorageEnabled.set(false);
@@ -235,19 +236,19 @@ export class OverdriveSettingsComponent {
         // Put the checkboxes back to what the server actually holds, so a failed save can't leave the
         // user believing automation is on when it isn't.
         this.loadAutoSyncSettings();
-        this.setupError.set(err?.error?.message || err?.message || 'Failed to save auto-sync settings');
+        this.setupError.set(errorMessage(err, 'Failed to save auto-sync settings'));
       }
     });
   }
 
   private applyAutoSync(settings: OverDriveAutoSyncSettings): void {
-    this.autoImportLoans.set(!!settings?.autoImportLoans);
-    this.autoBorrowHolds.set(!!settings?.autoBorrowHolds);
-    this.autoReturnEnabled.set(!!settings?.autoReturnEnabled);
-    this.autoReturnMinAgeDays.set(settings?.autoReturnMinAgeDays ?? 14);
-    this.autoReturnMaxDelayHours.set(settings?.autoReturnMaxDelayHours ?? 48);
-    this.autoReturnPromptWhenWaitlisted.set(settings?.autoReturnPromptWhenWaitlisted ?? true);
-    this.holdShoppingEnabled.set(!!settings?.holdShoppingEnabled);
+    this.autoImportLoans.set(settings.autoImportLoans);
+    this.autoBorrowHolds.set(settings.autoBorrowHolds);
+    this.autoReturnEnabled.set(settings.autoReturnEnabled);
+    this.autoReturnMinAgeDays.set(settings.autoReturnMinAgeDays);
+    this.autoReturnMaxDelayHours.set(settings.autoReturnMaxDelayHours);
+    this.autoReturnPromptWhenWaitlisted.set(settings.autoReturnPromptWhenWaitlisted);
+    this.holdShoppingEnabled.set(settings.holdShoppingEnabled);
   }
 
   /** Cards this user owns, as options for sharing a Libby identity with a new card. */
@@ -320,7 +321,7 @@ export class OverdriveSettingsComponent {
     };
     this.setupError.set(null);
     this.overdriveService.setImportDestinations(payload).subscribe({
-      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Failed to save import destinations')
+      error: (err) => this.setupError.set(errorMessage(err, 'Failed to save import destinations'))
     });
   }
 
@@ -430,7 +431,7 @@ export class OverdriveSettingsComponent {
       },
       error: (err) => {
         this.savingCred.set(false);
-        this.credError.set(err?.error?.message || err?.message || 'Saving credentials failed');
+        this.credError.set(errorMessage(err, 'Saving credentials failed'));
       }
     });
   }
@@ -558,7 +559,7 @@ export class OverdriveSettingsComponent {
     this.shareableUsers.set([]);
     this.shareDialogVisible.set(true);
     this.overdriveService.shareableUsers().subscribe({
-      next: (users) => this.shareableUsers.set(users ?? []),
+      next: (users) => this.shareableUsers.set(users),
       error: () => this.shareableUsers.set([])
     });
   }
@@ -571,11 +572,11 @@ export class OverdriveSettingsComponent {
     this.shareableUsers.set([]);
     this.shareDialogVisible.set(true);
     this.overdriveService.shareableUsers().subscribe({
-      next: (users) => this.shareableUsers.set(users ?? []),
+      next: (users) => this.shareableUsers.set(users),
       error: () => this.shareableUsers.set([])
     });
     this.overdriveService.listShares(card.cardId).subscribe({
-      next: (shares) => this.selectedShareUserIds.set((shares ?? []).map(s => s.userId)),
+      next: (shares) => this.selectedShareUserIds.set(shares.map(s => s.userId)),
       error: () => this.selectedShareUserIds.set([])
     });
   }
@@ -604,7 +605,7 @@ export class OverdriveSettingsComponent {
       },
       error: (err) => {
         this.savingShares.set(false);
-        this.setupError.set(err?.error?.message || err?.message || 'Share update failed');
+        this.setupError.set(errorMessage(err, 'Share update failed'));
       }
     });
   }
@@ -654,7 +655,7 @@ export class OverdriveSettingsComponent {
    */
   private reloadLinkedCards(): void {
     this.overdriveService.cards().subscribe({
-      next: (cards) => this.linkedCards.set(cards ?? []),
+      next: (cards) => this.linkedCards.set(cards),
       error: () => { /* keep whatever we have */ }
     });
   }
@@ -666,7 +667,7 @@ export class OverdriveSettingsComponent {
         this.linkedCards.update(cards => cards.filter(c => c.cardId !== card.cardId));
         this.messageService.add({ severity: 'success', summary: 'Unlinked', detail: `Removed ${this.cardLabel(card)}` });
       },
-      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Unlink failed')
+      error: (err) => this.setupError.set(errorMessage(err, 'Unlink failed'))
     });
   }
 
@@ -678,7 +679,7 @@ export class OverdriveSettingsComponent {
         this.linkedCards.update(cards => cards.map(c => c.cardId === card.cardId ? { ...c, name: label || null } : c));
         this.messageService.add({ severity: 'success', summary: 'Renamed', detail: label ? `Card labelled "${label}"` : 'Card label cleared' });
       },
-      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Rename failed')
+      error: (err) => this.setupError.set(errorMessage(err, 'Rename failed'))
     });
   }
 
@@ -709,17 +710,17 @@ export class OverdriveSettingsComponent {
     this.overdriveService.unifyChip(card.cardId).subscribe({
       next: (result) => {
         this.reloadLinkedCards();
-        const skipped = result.skipped ?? [];
+        const skipped = result.skipped;
         this.messageService.add({
           severity: skipped.length > 0 ? 'warn' : 'success',
-          summary: `${result.moved?.length ?? 0} card(s) now share this account`,
+          summary: `${result.moved.length} card(s) now share this account`,
           // Name what did not move and why — the fix is usually to re-link that card by number.
           detail: skipped.length > 0
             ? skipped.map(sk => `${sk.cardName || sk.cardId}: ${sk.reason}`).join(' · ')
             : 'They now sync in a single request.'
         });
       },
-      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Could not unify these cards'),
+      error: (err) => this.setupError.set(errorMessage(err, 'Could not unify these cards')),
       complete: () => this.unifyingChip.set(null)
     });
   }
@@ -753,7 +754,7 @@ export class OverdriveSettingsComponent {
         this.messageService.add({ severity: 'success', summary: 'Frozen', detail: `${this.cardLabel(card)} is stopped` });
         this.reloadLinkedCards();
       },
-      error: (err) => this.freezeError.set(err?.error?.message || err?.message || 'Could not freeze this card'),
+      error: (err) => this.freezeError.set(errorMessage(err, 'Could not freeze this card')),
       complete: () => this.freezingCard.set(false)
     });
   }
@@ -764,14 +765,14 @@ export class OverdriveSettingsComponent {
         this.messageService.add({ severity: 'success', summary: 'Unfrozen', detail: `${this.cardLabel(card)} is back in service` });
         this.reloadLinkedCards();
       },
-      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Could not unfreeze this card')
+      error: (err) => this.setupError.set(errorMessage(err, 'Could not unfreeze this card'))
     });
   }
 
   onRefreshCard(card: OverDriveCard): void {
     this.overdriveService.refreshCard(card.cardId).subscribe({
       next: () => this.messageService.add({ severity: 'success', summary: 'Refreshed', detail: `Re-linked ${this.cardLabel(card)}` }),
-      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Refresh failed')
+      error: (err) => this.setupError.set(errorMessage(err, 'Refresh failed'))
     });
   }
 
@@ -841,7 +842,7 @@ export class OverdriveSettingsComponent {
         this.setupCode.set('');
       },
       error: (err) => {
-        this.setupError.set(err.message || 'Connection failed');
+        this.setupError.set(errorMessage(err, 'Connection failed'));
       },
       complete: () => {
         this.connecting.set(false);
@@ -900,7 +901,7 @@ export class OverdriveSettingsComponent {
         this.cardNumber.set('');
         this.pin.set('');
       },
-      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Card link failed'),
+      error: (err) => this.setupError.set(errorMessage(err, 'Card link failed')),
       complete: () => this.linkingCard.set(false)
     });
   }
@@ -924,7 +925,7 @@ export class OverdriveSettingsComponent {
         });
         this.identityToken.set('');
       },
-      error: (err) => this.setupError.set(err?.error?.message || err?.message || 'Token link failed'),
+      error: (err) => this.setupError.set(errorMessage(err, 'Token link failed')),
       complete: () => this.linkingToken.set(false)
     });
   }
@@ -940,7 +941,7 @@ export class OverdriveSettingsComponent {
         this.runningDiagnostics.set(false);
       },
       error: (err) => {
-        this.setupError.set(err?.error?.message || err?.message || 'Diagnostics failed');
+        this.setupError.set(errorMessage(err, 'Diagnostics failed'));
         this.runningDiagnostics.set(false);
       }
     });
@@ -956,7 +957,8 @@ export class OverdriveSettingsComponent {
     const json = this.diagnosticsJson();
     if (!json) return;
     const done = () => this.messageService.add({ severity: 'success', summary: 'Copied', detail: 'Diagnostics copied to clipboard' });
-    if (navigator.clipboard?.writeText) {
+    // The async clipboard API exists only in secure (https/localhost) contexts.
+    if (window.isSecureContext) {
       navigator.clipboard.writeText(json).then(done, () => this.fallbackCopy(json, done));
     } else {
       this.fallbackCopy(json, done);
@@ -973,6 +975,7 @@ export class OverdriveSettingsComponent {
       document.body.appendChild(ta);
       ta.focus();
       ta.select();
+      // oxlint-disable-next-line typescript/no-deprecated -- SAFETY: the only copy path on plain http, where navigator.clipboard is absent.
       const ok = document.execCommand('copy');
       document.body.removeChild(ta);
       if (ok) { onSuccess(); return; }
@@ -1043,7 +1046,7 @@ export class OverdriveSettingsComponent {
         this.messageService.add({
           severity: 'error',
           summary: 'Error',
-          detail: err.message || 'Save failed'
+          detail: errorMessage(err, 'Save failed')
         });
       }
     });

@@ -329,7 +329,7 @@ export class FileMoverComponent implements OnDestroy {
    */
   private getLibraryPathValue(libraryId: number | null, libraryPathId: number | null): string {
     const paths = this.getLibraryPathsById(libraryId);
-    const match = paths.find(p => p.id === libraryPathId) ?? paths[0];
+    const match = paths.find(p => p.id === libraryPathId) ?? paths.at(0);
     return match ? match.path.replace(/\/+$/g, '') : '';
   }
 
@@ -344,7 +344,7 @@ export class FileMoverComponent implements OnDestroy {
     if (!libraryId) return relativePath;
 
     const paths = this.getLibraryPathsById(libraryId);
-    const match = paths.find(p => p.id === libraryPathId) ?? paths[0];
+    const match = paths.find(p => p.id === libraryPathId) ?? paths.at(0);
     const libraryPath = match ? match.path.replace(/\/+$/g, '') : '';
     return libraryPath ? `${libraryPath}/${relativePath}`.replace(/\/\/+/g, '/') : relativePath;
   }
