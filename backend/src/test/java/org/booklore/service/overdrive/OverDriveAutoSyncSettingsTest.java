@@ -40,6 +40,7 @@ class OverDriveAutoSyncSettingsTest {
 
     @Mock private org.booklore.repository.OverDriveLoanRepository loanRepository;
     @Mock private org.booklore.repository.BookRepository bookRepository;
+    @Mock private org.booklore.repository.OverDriveBookRepository overDriveBookRepository;
     @Mock private org.booklore.service.acsm.AcsmHandler acsmHandler;
     @Mock private org.booklore.service.audiobook.AudiobookHandler audiobookHandler;
     @Mock private org.booklore.service.magazine.MagazineHandler magazineHandler;
@@ -68,7 +69,7 @@ class OverDriveAutoSyncSettingsTest {
 
     @BeforeEach
     void setUp() {
-        service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
+        service = new OverDriveService(loanRepository, bookRepository, overDriveBookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,

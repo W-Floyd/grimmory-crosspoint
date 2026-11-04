@@ -48,6 +48,7 @@ class OverDriveServiceTest {
 
     @Mock private OverDriveLoanRepository loanRepository;
     @Mock private org.booklore.repository.BookRepository bookRepository;
+    @Mock private org.booklore.repository.OverDriveBookRepository overDriveBookRepository;
     @Mock private AcsmHandler acsmHandler;
     @Mock private org.booklore.service.audiobook.AudiobookHandler audiobookHandler;
     @Mock private org.booklore.service.magazine.MagazineHandler magazineHandler;
@@ -80,7 +81,7 @@ class OverDriveServiceTest {
     void setUp() {
         // Credential cipher with no key configured -> disabled (token-only), matching default deploys.
         OverDriveCredentialCipher cipher = new OverDriveCredentialCipher("");
-        service = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
+        service = new OverDriveService(loanRepository, bookRepository, overDriveBookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
@@ -774,7 +775,7 @@ class OverDriveServiceTest {
 
     /** A service built on the given cipher (the default one in {@link #setUp} has no key). */
     private OverDriveService serviceWith(OverDriveCredentialCipher cipher) {
-        OverDriveService svc = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler, magazineHandler,
+        OverDriveService svc = new OverDriveService(loanRepository, bookRepository, overDriveBookRepository, acsmHandler, audiobookHandler, magazineHandler,
                 ebookHandler, bookService,
                 restClient, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService, cipher,
@@ -1109,16 +1110,16 @@ class OverDriveServiceTest {
     @Test
     void resolveLinkedBookId_matchesByAsinWhenNoIsbn() {
         authAsAdmin(7L); // admin → global (unscoped) match
-        when(bookRepository.findIdsByAsin("B0ABCD1234")).thenReturn(List.of(55L));
+        when(overDriveBookRepository.findIdsByAsin("B0ABCD1234")).thenReturn(List.of(55L));
         assertThat(service.resolveLinkedBookId(null, "B0ABCD1234")).isEqualTo(55L);
     }
 
     @Test
     void resolveLinkedBookId_prefersIsbnOverAsin() {
         authAsAdmin(7L); // admin → global (unscoped) match
-        when(bookRepository.findIdsByIsbn13("9780441013593")).thenReturn(List.of(7L));
+        when(overDriveBookRepository.findIdsByIsbn13("9780441013593")).thenReturn(List.of(7L));
         assertThat(service.resolveLinkedBookId("9780441013593", "B0ABCD1234")).isEqualTo(7L);
-        verify(bookRepository, never()).findIdsByAsin(any()); // ASIN not consulted when ISBN matches
+        verify(overDriveBookRepository, never()).findIdsByAsin(any()); // ASIN not consulted when ISBN matches
     }
 
     @Test
@@ -1129,29 +1130,29 @@ class OverDriveServiceTest {
                 .assignedLibraries(List.of(org.booklore.model.dto.Library.builder().id(3L).build()))
                 .build();
         when(authenticationService.getAuthenticatedUser()).thenReturn(user);
-        when(bookRepository.findIdsByAsinAndLibraryIdIn("B0ABCD1234", List.of(3L))).thenReturn(List.of(55L));
+        when(overDriveBookRepository.findIdsByAsinAndLibraryIdIn("B0ABCD1234", List.of(3L))).thenReturn(List.of(55L));
 
         assertThat(service.resolveLinkedBookId(null, "B0ABCD1234")).isEqualTo(55L);
-        verify(bookRepository, never()).findIdsByAsin(any()); // never the unscoped query for a non-admin
+        verify(overDriveBookRepository, never()).findIdsByAsin(any()); // never the unscoped query for a non-admin
     }
 
     @Test
     void resolveLinkedBookId_prefersTheOverdriveIdOverIsbnAndAsin() {
         authAsAdmin(7L);
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(99L));
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(99L));
 
         assertThat(service.resolveLinkedBookId("2056901", "9780441013593", "B0ABCD1234")).isEqualTo(99L);
         // The id names one edition; the weaker keys are not consulted once it hits.
-        verify(bookRepository, never()).findIdsByIsbn13(any());
-        verify(bookRepository, never()).findIdsByAsin(any());
+        verify(overDriveBookRepository, never()).findIdsByIsbn13(any());
+        verify(overDriveBookRepository, never()).findIdsByAsin(any());
     }
 
     @Test
     void resolveLinkedBookId_fallsBackToIsbnWhenTheTitleHasNoRecordedId() {
         authAsAdmin(7L);
         // Books imported before ids were recorded have none, so the older keys still have to work.
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
-        when(bookRepository.findIdsByIsbn13("9780441013593")).thenReturn(List.of(7L));
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByIsbn13("9780441013593")).thenReturn(List.of(7L));
 
         assertThat(service.resolveLinkedBookId("2056901", "9780441013593", null)).isEqualTo(7L);
     }
@@ -1163,10 +1164,10 @@ class OverDriveServiceTest {
                 .assignedLibraries(List.of(org.booklore.model.dto.Library.builder().id(3L).build()))
                 .build();
         when(authenticationService.getAuthenticatedUser()).thenReturn(user);
-        when(bookRepository.findIdsByOverdriveIdAndLibraryIdIn("2056901", List.of(3L))).thenReturn(List.of(99L));
+        when(overDriveBookRepository.findIdsByOverdriveIdAndLibraryIdIn("2056901", List.of(3L))).thenReturn(List.of(99L));
 
         assertThat(service.resolveLinkedBookId("2056901", null, null)).isEqualTo(99L);
-        verify(bookRepository, never()).findIdsByOverdriveId(any()); // never the unscoped query
+        verify(overDriveBookRepository, never()).findIdsByOverdriveId(any()); // never the unscoped query
     }
 
     @Test
@@ -1174,7 +1175,7 @@ class OverDriveServiceTest {
         authAsAdmin(7L);
         // No row of our own for this loan — borrowed in the Libby app, or imported by another user.
         when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "2056901")).thenReturn(Optional.empty());
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(99L));
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(99L));
 
         assertThat(service.resolveLoanBookId("2056901", null, null)).isEqualTo(99L);
     }
@@ -1195,7 +1196,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(auditRepository.findByUserIdOrderByCreatedAtDesc(org.mockito.ArgumentMatchers.eq(7L), any()))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(auditRow("2056901", null))));
-        when(bookRepository.findOverdriveIdBookRefs(java.util.Set.of("2056901")))
+        when(overDriveBookRepository.findOverdriveIdBookRefs(java.util.Set.of("2056901")))
                 .thenReturn(List.<Object[]>of(new Object[]{"2056901", "Mockingjay", 42L}));
 
         var page = service.listHistory(0, 25);
@@ -1216,7 +1217,7 @@ class OverDriveServiceTest {
         row.setLoanId("2056901");
         when(auditRepository.findByUserIdOrderByCreatedAtDesc(org.mockito.ArgumentMatchers.eq(7L), any()))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(row)));
-        when(bookRepository.findOverdriveIdBookRefs(java.util.Set.of("2056901")))
+        when(overDriveBookRepository.findOverdriveIdBookRefs(java.util.Set.of("2056901")))
                 .thenReturn(List.<Object[]>of(new Object[]{"2056901", "The Hunger Games", 42L}));
 
         var page = service.listHistory(0, 25);
@@ -1254,7 +1255,7 @@ class OverDriveServiceTest {
         // Rows written since we stamp both need nothing looked up, so the repair costs a query only
         // for as long as there are older rows on the page.
         assertThat(page.entries().getFirst().bookId()).isEqualTo(42L);
-        verify(bookRepository, never()).findOverdriveIdBookRefs(any());
+        verify(overDriveBookRepository, never()).findOverdriveIdBookRefs(any());
     }
 
     @Test
@@ -1262,7 +1263,7 @@ class OverDriveServiceTest {
         authAs(7L);
         when(auditRepository.findByUserIdOrderByCreatedAtDesc(org.mockito.ArgumentMatchers.eq(7L), any()))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(auditRow("2056901", null))));
-        when(bookRepository.findOverdriveIdBookRefs(java.util.Set.of("2056901"))).thenReturn(List.of());
+        when(overDriveBookRepository.findOverdriveIdBookRefs(java.util.Set.of("2056901"))).thenReturn(List.of());
 
         var page = service.listHistory(0, 25);
 
@@ -1702,7 +1703,7 @@ class OverDriveServiceTest {
         authAsAdmin(7L);
         when(bookbagRepository.findByUserIdAndTitleId(7L, "2056901")).thenReturn(Optional.empty());
         when(bookbagRepository.findByUserIdOrderByPositionAscIdAsc(7L)).thenReturn(List.of());
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
         when(bookbagRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         // Intent has to be captured now: by the time a pass looks, this entry is indistinguishable
@@ -1726,7 +1727,7 @@ class OverDriveServiceTest {
 
         // Without the flag this entry vanished on the first pass, so a second copy could never be had.
         verify(bookbagRepository, never()).delete(entry);
-        verify(bookRepository, never()).findIdsByOverdriveId(any());
+        verify(overDriveBookRepository, never()).findIdsByOverdriveId(any());
     }
 
     /**
@@ -1764,7 +1765,7 @@ class OverDriveServiceTest {
         // Named, because naming the library in the note is half of what makes it actionable.
         resting.setCardName("Mid-Continent Public Library");
         when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(resting));
-        when(bookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
         stubAvailability("mcpl", "2056901", true, false, null, 3);
 
         service.runBookbag(7L, Map.of(), Map.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
@@ -1797,7 +1798,7 @@ class OverDriveServiceTest {
         // Named, because naming the library in the note is half of what makes it actionable.
         resting.setCardName("Mid-Continent Public Library");
         when(tokenRepository.findByIdentity("card-a")).thenReturn(List.of(resting));
-        when(bookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
         // Nothing on the shelf, but a queue exists — one we pass over, because a hold that came in on
         // a resting card could not be claimed.
         stubAvailability("mcpl", "2056901", false, true, 40, 3);
@@ -1837,7 +1838,7 @@ class OverDriveServiceTest {
         assertThat(outcome.failures()).isEqualTo(1);
         assertThat(entry.getLastNote()).contains("Already on loan");
         verify(bookbagRepository, never()).delete(entry);
-        verify(bookRepository, never()).findIdsByOverdriveId(any());
+        verify(overDriveBookRepository, never()).findIdsByOverdriveId(any());
     }
 
     @Test
@@ -1872,7 +1873,7 @@ class OverDriveServiceTest {
         // Reborrow skips the "we already have this" check by design, so the import lands on the path
         // the existing copy occupies. Naming that copy is what turns a collision into a replacement —
         // and because the entry only clears on success, getting this wrong retried every pass.
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(536L));
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(536L));
 
         assertThat(service.bookToReplaceForTest(entry)).isEqualTo(536L);
 
@@ -1891,8 +1892,8 @@ class OverDriveServiceTest {
         when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
         // Nothing to link to — the book was deleted — but it was imported once, so its file is still
         // sitting at the path a re-import would write to.
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
-        when(bookRepository.countEverImportedFromOverdriveId("2056901")).thenReturn(1L);
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+        when(overDriveBookRepository.countEverImportedFromOverdriveId("2056901")).thenReturn(1L);
 
         var outcome = service.runBookbag(7L, Map.of(), Map.of(), new java.util.HashMap<>(),
                 new java.util.HashMap<>(), new java.util.HashMap<>(), pacer());
@@ -1921,7 +1922,7 @@ class OverDriveServiceTest {
 
         // Replacing a deleted book is exactly what the flag is for, so the guard must not stand in
         // front of it — and it should not even ask, since the answer cannot change the outcome.
-        verify(bookRepository, never()).countEverImportedFromOverdriveId(any());
+        verify(overDriveBookRepository, never()).countEverImportedFromOverdriveId(any());
         assertThat(entry.getLastNote()).doesNotContain("since been deleted");
     }
 
@@ -1936,7 +1937,7 @@ class OverDriveServiceTest {
         when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
         when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
         // The user got it another way, or a hold we placed came in and was imported.
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
 
         var outcome = service.runBookbag(7L, Map.of(), Map.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
                 new java.util.HashMap<>(), pacer());
@@ -2715,7 +2716,7 @@ class OverDriveServiceTest {
                 OverDriveTokenEntity.builder().userId(7L).identity("card-b").libraryKey("bpl").token("chip-1").build()));
         when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
         when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
 
         // The user holds nothing: the hold was cancelled by hand, or lapsed unclaimed.
         service.runBookbag(7L, Map.of(), Map.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
@@ -2737,7 +2738,7 @@ class OverDriveServiceTest {
                 OverDriveTokenEntity.builder().userId(7L).identity("card-b").libraryKey("bpl").token("chip-1").build()));
         when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
         when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
-        when(bookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
         return entry;
     }
 
@@ -2785,7 +2786,7 @@ class OverDriveServiceTest {
         when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
         notResting("card-a");
-        when(bookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
         // The shelf says a copy is there, so a borrow is attempted — and fails, because the hold that
         // reserved it has lapsed. heldTitleIds is empty: the hold is gone from the feed.
         stubAvailability("lapl", "2056901", true, false, null, 2);
@@ -2814,7 +2815,7 @@ class OverDriveServiceTest {
         when(tokenRepository.findByUserIdAndIdentity(7L, "card-a")).thenReturn(Optional.of(
                 OverDriveTokenEntity.builder().userId(7L).identity("card-a").libraryKey("lapl").token("chip-1").build()));
         notResting("card-a");
-        when(bookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
         stubAvailability("lapl", "2056901", true, false, null, 2);
 
         // Still in the feed, so the queue position is real and must not be thrown away over one
@@ -2837,7 +2838,7 @@ class OverDriveServiceTest {
                 OverDriveTokenEntity.builder().userId(7L).identity("card-b").libraryKey("bpl").token("chip-1").build()));
         when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
         when(overDriveParser.fetchAvailabilityBulk(any(), any())).thenReturn(Map.of());
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
 
         service.runBookbag(7L, Map.of("2056901", Set.of("card-a")), Map.of(), new java.util.HashMap<>(), new java.util.HashMap<>(),
                 new java.util.HashMap<>(), pacer());
@@ -2873,7 +2874,7 @@ class OverDriveServiceTest {
         // library is not even consulted for a title the bag says was queued deliberately.
         assertThat(outcome.loansLinked()).isZero();
         assertThat(pending.getFulfilled()).isFalse();
-        verify(bookRepository, never()).findIdsByOverdriveId("2056901");
+        verify(overDriveBookRepository, never()).findIdsByOverdriveId("2056901");
     }
 
     // ── Projecting when the queue gets worked ────────────────────────────
@@ -3137,7 +3138,7 @@ class OverDriveServiceTest {
                 OverDriveTokenEntity.builder().userId(7L).identity("card-b").libraryKey("bpl").token("chip-1").build()));
         when(cardShareRepository.findBySharedWithUserId(7L)).thenReturn(List.of());
         // The book arrived by another route while this hold was still waiting.
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(536L));
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(536L));
 
         var outcome = service.runHoldShopping(7L, holdShopping(true),
                 Map.of("card-a", body, "card-b", body), new java.util.HashMap<>(), new java.util.HashMap<>(),
@@ -3363,7 +3364,7 @@ class OverDriveServiceTest {
         when(loanRepository.findByUserId(7L)).thenReturn(List.of(pending));
         when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "2056901")).thenReturn(Optional.of(pending));
         // The loan id is the title id, and the library already holds that edition.
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
 
         var outcome = syncHarness(syncCovering(List.of("card-a"), "2056901")).service().runAutoSync();
 
@@ -3386,7 +3387,7 @@ class OverDriveServiceTest {
         pending.setFulfilled(false);
         when(loanRepository.findByUserId(7L)).thenReturn(List.of(pending));
         when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "2056901")).thenReturn(Optional.of(pending));
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
 
         var outcome = syncHarness(syncCovering(List.of("card-a"), "2056901")).service().runAutoSync();
 
@@ -3406,14 +3407,14 @@ class OverDriveServiceTest {
         pending.setIsbn("9780441013593");
         when(loanRepository.findByUserId(7L)).thenReturn(List.of(pending));
         when(loanRepository.findByUserIdAndOverdriveLoanId(7L, "2056901")).thenReturn(Optional.of(pending));
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
 
         var outcome = syncHarness(syncCovering(List.of("card-a"), "2056901")).service().runAutoSync();
 
         // Linking marks the loan fulfilled, which makes it returnable. An ISBN is shared across
         // OverDrive editions and with print, so trusting one here could hand back a loan whose file was
         // never downloaded — the ISBN query is not even asked.
-        verify(bookRepository, never()).findIdsByIsbn13(any());
+        verify(overDriveBookRepository, never()).findIdsByIsbn13(any());
         assertThat(outcome.loansLinked()).isZero();
         assertThat(pending.getFulfilled()).isFalse();
     }
@@ -3431,7 +3432,7 @@ class OverDriveServiceTest {
         ready.setTitle("Dune");
         ready.setAvailable(true);
         body.setHolds(List.of(ready));
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of(42L));
 
         var outcome = syncHarness(body).service().runAutoSync();
 
@@ -3474,7 +3475,7 @@ class OverDriveServiceTest {
         OverDriveSyncResponse body = syncCovering(List.of("card-a"));
         withLoanCounts(body, "card-a", 10, 10); // full
         body.setHolds(List.of(readyHold("2056901", "card-a")));
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
 
         var outcome = syncHarness(body).service().runAutoSync();
 
@@ -3493,7 +3494,7 @@ class OverDriveServiceTest {
         OverDriveSyncResponse body = syncCovering(List.of("card-a"));
         withLoanCounts(body, "card-a", 9, 10); // one slot left
         body.setHolds(List.of(readyHold("111", "card-a"), readyHold("222", "card-a")));
-        when(bookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId(any())).thenReturn(List.of());
 
         var outcome = syncHarness(body).service().runAutoSync();
 
@@ -3512,7 +3513,7 @@ class OverDriveServiceTest {
         // syncCovering builds card rows with no counts or limits at all.
         OverDriveSyncResponse body = syncCovering(List.of("card-a"));
         body.setHolds(List.of(readyHold("2056901", "card-a")));
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
 
         var outcome = syncHarness(body).service().runAutoSync();
 
@@ -3534,7 +3535,7 @@ class OverDriveServiceTest {
         ready.setTitle("Dune");
         ready.setAvailable(true);
         body.setHolds(List.of(ready));
-        when(bookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
+        when(overDriveBookRepository.findIdsByOverdriveId("2056901")).thenReturn(List.of());
 
         var outcome = syncHarness(body).service().runAutoSync();
 
@@ -3892,7 +3893,7 @@ class OverDriveServiceTest {
                     calls.incrementAndGet();
                     return org.springframework.http.ResponseEntity.ok(body);
                 });
-        OverDriveService svc = new OverDriveService(loanRepository, bookRepository, acsmHandler, audiobookHandler,
+        OverDriveService svc = new OverDriveService(loanRepository, bookRepository, overDriveBookRepository, acsmHandler, audiobookHandler,
                 magazineHandler, ebookHandler, bookService,
                 client, overDriveImportService, overDriveParser, tokenRepository, cardShareRepository, auditRepository,
                 cardLimitRepository, toolLogRepository, borrowLimitDefaultRepository, bookbagRepository, importDestinationRepository, autoSyncRepository, httpClient, userRepository, authenticationService, appSettingService,

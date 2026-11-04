@@ -92,6 +92,7 @@ public class OverDriveService {
 
     private final OverDriveLoanRepository loanRepository;
     private final BookRepository bookRepository;
+    private final org.booklore.repository.OverDriveBookRepository overDriveBookRepository;
     private final AcsmHandler acsmHandler;
     private final AudiobookHandler audiobookHandler;
     private final MagazineHandler magazineHandler;
@@ -575,7 +576,7 @@ public class OverDriveService {
             return null;
         }
         try {
-            List<Object[]> known = bookRepository.findOverdriveIdTitlePairs(Set.of(titleId));
+            List<Object[]> known = overDriveBookRepository.findOverdriveIdTitlePairs(Set.of(titleId));
             if (!known.isEmpty() && known.getFirst().length == 2 && known.getFirst()[1] instanceof String title) {
                 return title;
             }
@@ -730,7 +731,7 @@ public class OverDriveService {
             return Map.of();
         }
         Map<String, BookRef> known = new HashMap<>();
-        for (Object[] row : bookRepository.findOverdriveIdBookRefs(unresolved)) {
+        for (Object[] row : overDriveBookRepository.findOverdriveIdBookRefs(unresolved)) {
             if (row.length == 3 && row[0] instanceof String id) {
                 String title = row[1] instanceof String t ? t : null;
                 Long bookId = row[2] instanceof Number n ? n.longValue() : null;
@@ -2207,7 +2208,7 @@ public class OverDriveService {
             return false;
         }
         try {
-            return bookRepository.countEverImportedFromOverdriveId(overdriveId.trim()) > 0;
+            return overDriveBookRepository.countEverImportedFromOverdriveId(overdriveId.trim()) > 0;
         } catch (Exception e) {
             // A guard, not a gate: failing to answer must not stop an import that would have worked.
             log.debug("OverDrive: could not check whether {} was imported before: {}", overdriveId, e.getMessage());
@@ -6733,8 +6734,8 @@ public class OverDriveService {
         }
         if (overdriveId != null && !overdriveId.isBlank()) {
             String id = overdriveId.trim();
-            Long match = (admin ? bookRepository.findIdsByOverdriveId(id)
-                    : bookRepository.findIdsByOverdriveIdAndLibraryIdIn(id, libraryIds))
+            Long match = (admin ? overDriveBookRepository.findIdsByOverdriveId(id)
+                    : overDriveBookRepository.findIdsByOverdriveIdAndLibraryIdIn(id, libraryIds))
                     .stream().findFirst().orElse(null);
             if (match != null) {
                 return match;
@@ -6743,15 +6744,15 @@ public class OverDriveService {
         if (isbn != null && !isbn.isBlank()) {
             String cleaned = isbn.replaceAll("[^0-9Xx]", "");
             if (cleaned.length() == 13) {
-                Long id = (admin ? bookRepository.findIdsByIsbn13(cleaned)
-                        : bookRepository.findIdsByIsbn13AndLibraryIdIn(cleaned, libraryIds))
+                Long id = (admin ? overDriveBookRepository.findIdsByIsbn13(cleaned)
+                        : overDriveBookRepository.findIdsByIsbn13AndLibraryIdIn(cleaned, libraryIds))
                         .stream().findFirst().orElse(null);
                 if (id != null) {
                     return id;
                 }
             } else if (cleaned.length() == 10) {
-                Long id = (admin ? bookRepository.findIdsByIsbn10(cleaned)
-                        : bookRepository.findIdsByIsbn10AndLibraryIdIn(cleaned, libraryIds))
+                Long id = (admin ? overDriveBookRepository.findIdsByIsbn10(cleaned)
+                        : overDriveBookRepository.findIdsByIsbn10AndLibraryIdIn(cleaned, libraryIds))
                         .stream().findFirst().orElse(null);
                 if (id != null) {
                     return id;
@@ -6759,8 +6760,8 @@ public class OverDriveService {
             }
         }
         if (asin != null && !asin.isBlank()) {
-            return (admin ? bookRepository.findIdsByAsin(asin.trim())
-                    : bookRepository.findIdsByAsinAndLibraryIdIn(asin.trim(), libraryIds))
+            return (admin ? overDriveBookRepository.findIdsByAsin(asin.trim())
+                    : overDriveBookRepository.findIdsByAsinAndLibraryIdIn(asin.trim(), libraryIds))
                     .stream().findFirst().orElse(null);
         }
         return null;

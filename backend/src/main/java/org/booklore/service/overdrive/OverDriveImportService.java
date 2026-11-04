@@ -52,6 +52,7 @@ public class OverDriveImportService {
 
     private final LibraryRepository libraryRepository;
     private final BookRepository bookRepository;
+    private final org.booklore.repository.OverDriveBookRepository overDriveBookRepository;
     private final FileMovingHelper fileMovingHelper;
     private final BookFileProcessorRegistry processorRegistry;
     private final MonitoringRegistrationService monitoringRegistrationService;
@@ -241,7 +242,7 @@ public class OverDriveImportService {
     /** Re-fetch and map the fully-persisted book so the add-notification carries a complete payload. */
     private Book reloadCompleteBook(Book book) {
         // Fetch metadata.authors too — the mapper reads it, and this may run outside an active session.
-        return bookRepository.findByIdWithBookFilesAndMetadata(book.getId())
+        return overDriveBookRepository.findByIdWithBookFilesAndMetadata(book.getId())
                 .map(entity -> bookMapper.toBookWithDescription(entity, false))
                 .orElse(book);
     }

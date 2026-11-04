@@ -44,6 +44,7 @@ class OverDriveImportServiceTest {
 
     @Mock private LibraryRepository libraryRepository;
     @Mock private BookRepository bookRepository;
+    @Mock private org.booklore.repository.OverDriveBookRepository overDriveBookRepository;
     @Mock private FileMovingHelper fileMovingHelper;
     @Mock private BookFileProcessorRegistry processorRegistry;
     @Mock private MonitoringRegistrationService monitoringRegistrationService;
@@ -70,7 +71,7 @@ class OverDriveImportServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new OverDriveImportService(libraryRepository, bookRepository, fileMovingHelper,
+        service = new OverDriveImportService(libraryRepository, bookRepository, overDriveBookRepository, fileMovingHelper,
                 processorRegistry, monitoringRegistrationService, metadataRefreshService, eventPublisher, bookMapper,
                 appProperties, transactionManager);
     }
